@@ -31,7 +31,7 @@ function invoice(over: Partial<FullDocument> = {}): FullDocument {
     client_name: 'Maler Müller', client_address: 'Dorfstr. 2', client_zip: '85435',
     client_city: 'Erding', client_email: null, title: 'Rechnung', intro: null, notes: null,
     status: 'versendet', issue_date: '2026-06-19', due_date: '2026-07-03',
-    small_business: small, vat_rate: over.vat_rate ?? 19,
+    small_business: small, vat_rate: over.vat_rate ?? 19, buyer_reference: null,
     created_at: '', updated_at: '', items,
     totals: { net_cents: net, vat_cents: vat, gross_cents: net + vat },
     ...over,
@@ -53,6 +53,13 @@ test('§19 Kleinunternehmer → category E, 0% and exemption reason', () => {
   assert.match(xml, /<ram:CategoryCode>E<\/ram:CategoryCode>/)
   assert.match(xml, /§ 19 UStG/)
   assert.match(xml, /<ram:GrandTotalAmount>1000\.00<\/ram:GrandTotalAmount>/)
+})
+
+test('BuyerReference (BT-10 Leitweg-ID) is emitted when set', () => {
+  const xml = buildFacturXXml(invoice({ buyer_reference: '04011000-1234512345-06' }), settings())
+  assert.match(xml, /<ram:BuyerReference>04011000-1234512345-06<\/ram:BuyerReference>/)
+  // ...and absent when not set.
+  assert.doesNotMatch(buildFacturXXml(invoice(), settings()), /<ram:BuyerReference>/)
 })
 
 test('XML escaping prevents injection from names', () => {

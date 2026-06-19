@@ -279,6 +279,13 @@ for (const col of ['datev_revenue_account TEXT', 'datev_debitor_account TEXT']) 
   }
 }
 
+// Käuferreferenz / Leitweg-ID (EN 16931 BT-10) — required for B2G / XRechnung.
+try {
+  db.exec('ALTER TABLE documents ADD COLUMN buyer_reference TEXT')
+} catch {
+  // column already exists
+}
+
 // --- migrations for existing databases (idempotent) ---
 // recontact_at: optional follow-up / callback date (YYYY-MM-DD).
 try {
@@ -406,6 +413,7 @@ export interface DocumentRow {
   due_date: string | null
   small_business: number
   vat_rate: number
+  buyer_reference: string | null
   created_at: string
   updated_at: string
 }

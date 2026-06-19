@@ -131,6 +131,7 @@ export interface Doc {
   due_date: string | null
   small_business: number
   vat_rate: number
+  buyer_reference?: string | null
   created_at: string
   updated_at: string
   items: DocItem[]

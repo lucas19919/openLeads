@@ -119,7 +119,7 @@ export function buildFacturXXml(doc: FullDocument, s: SettingsRow): string {
   <rsm:SupplyChainTradeTransaction>
 ${lines}
     <ram:ApplicableHeaderTradeAgreement>
-      <ram:SellerTradeParty>
+${doc.buyer_reference ? `      <ram:BuyerReference>${esc(doc.buyer_reference)}</ram:BuyerReference>\n` : ''}      <ram:SellerTradeParty>
         <ram:Name>${esc(s.business_name) || 'Verkäufer'}</ram:Name>
         <ram:PostalTradeAddress>
           <ram:PostcodeCode>${esc(s.zip)}</ram:PostcodeCode>

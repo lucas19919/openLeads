@@ -25,8 +25,8 @@ function invoice(over: Partial<FullDocument> = {}): FullDocument {
     id: 1, kind: 'rechnung', number: 'RE-2026-0001', lead_id: null, client_name: 'Maler Müller',
     client_address: 'Dorfstr. 2', client_zip: '85435', client_city: 'Erding', client_email: null,
     title: 'Rechnung', intro: null, notes: null, status: 'versendet', issue_date: '2026-06-19',
-    due_date: '2026-07-03', small_business: small ? 1 : 0, vat_rate: vatRate, created_at: '', updated_at: '',
-    items, totals: computeTotals(items, small, vatRate), ...over,
+    due_date: '2026-07-03', small_business: small ? 1 : 0, vat_rate: vatRate, buyer_reference: null,
+    created_at: '', updated_at: '', items, totals: computeTotals(items, small, vatRate), ...over,
   }
 }
 
@@ -70,4 +70,10 @@ test('XRechnung/BR-DE: missing seller contact warns, B2G note always present', (
   assert.ok(r.notes.some((n) => n.rule === 'XRECHNUNG'))
   // German specifics are warnings/notes only — the B2B invoice stays valid.
   assert.equal(r.errors.length, 0)
+})
+
+test('a set Leitweg-ID flips the B2G note to BT-10 satisfied', () => {
+  const r = validateInvoice(invoice({ buyer_reference: '04011000-12345-06' }), settings())
+  assert.ok(r.notes.some((n) => n.rule === 'BT-10'))
+  assert.ok(!r.notes.some((n) => n.rule === 'XRECHNUNG'))
 })

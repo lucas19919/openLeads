@@ -410,7 +410,7 @@ app.post('/api/documents', requireAuth, async (c) => {
 
 const DOC_EDITABLE = new Set([
   'client_name', 'client_address', 'client_zip', 'client_city', 'client_email',
-  'title', 'intro', 'notes', 'due_date', 'small_business', 'vat_rate',
+  'title', 'intro', 'notes', 'due_date', 'small_business', 'vat_rate', 'buyer_reference',
 ])
 
 app.patch('/api/documents/:id', requireAuth, async (c) => {

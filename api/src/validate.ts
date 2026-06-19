@@ -111,11 +111,15 @@ export function validateInvoice(doc: FullDocument, s: SettingsRow): ValidationRe
   if (!doc.due_date) {
     warn('BR-DE-FÄLLIG', 'Kein Fälligkeitsdatum/Zahlungsbedingung angegeben (BR-DE-17 verlangt eine Angabe).')
   }
-  note(
-    'XRECHNUNG',
-    'Für Rechnungen an öffentliche Auftraggeber (B2G) ist das XRechnung-Profil mit ' +
-      'Leitweg-ID (BT-10 Käuferreferenz) verpflichtend — dieses Feld erfasst OpenLeads aktuell nicht.',
-  )
+  if (doc.buyer_reference) {
+    note('BT-10', `Käuferreferenz/Leitweg-ID gesetzt (${doc.buyer_reference}) — B2G/XRechnung-tauglich.`)
+  } else {
+    note(
+      'XRECHNUNG',
+      'Für Rechnungen an öffentliche Auftraggeber (B2G) ist eine Leitweg-ID ' +
+        '(BT-10 Käuferreferenz) verpflichtend. Im Dokument unter „Käuferreferenz" eintragen.',
+    )
+  }
 
   // --- the XML must at least build ---
   try {
