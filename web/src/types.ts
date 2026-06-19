@@ -155,6 +155,35 @@ export interface ValidationResult {
   warnings: ValidationFinding[]
 }
 
+// --- Mahnwesen (dunning) ----------------------------------------------------
+
+export interface DunningComputation {
+  document_id: number
+  number: string | null
+  client_name: string | null
+  gross_cents: number
+  issue_date: string | null
+  due_date: string | null
+  days_overdue: number
+  suggested_level: number
+  interest_rate_percent: number
+  interest_cents: number
+  pauschale_cents: number
+  total_claim_cents: number
+}
+
+export interface Mahnung {
+  id: number
+  document_id: number
+  level: number
+  days_overdue: number
+  interest_cents: number
+  pauschale_cents: number
+  total_claim_cents: number
+  note: string | null
+  created_at: string
+}
+
 // --- AI core ---------------------------------------------------------------
 
 export interface AiStatus {

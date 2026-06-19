@@ -235,7 +235,29 @@ CREATE TABLE IF NOT EXISTS ai_messages (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_ai_messages_thread ON ai_messages(thread_id);
+
+-- Mahnungen (dunning notices) raised against an overdue invoice.
+CREATE TABLE IF NOT EXISTS mahnungen (
+  id               INTEGER PRIMARY KEY,
+  document_id      INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  level            INTEGER NOT NULL,        -- 0 = Zahlungserinnerung, 1..n = Mahnstufe
+  days_overdue     INTEGER NOT NULL,
+  interest_cents   INTEGER NOT NULL DEFAULT 0,
+  pauschale_cents  INTEGER NOT NULL DEFAULT 0, -- §288(5) BGB B2B-Pauschale
+  total_claim_cents INTEGER NOT NULL DEFAULT 0, -- gross + interest + pauschale
+  note             TEXT,
+  created_at       TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_mahnungen_doc ON mahnungen(document_id);
 `)
+
+// Basiszinssatz (%) used for §288 BGB Verzugszinsen (configurable; changes
+// each Jan/Jul). B2B default rate = base + 9 pp. Added after the AI release.
+try {
+  db.exec('ALTER TABLE settings ADD COLUMN verzug_base_rate REAL NOT NULL DEFAULT 1.27')
+} catch {
+  // column already exists
+}
 
 // --- migrations for existing databases (idempotent) ---
 // recontact_at: optional follow-up / callback date (YYYY-MM-DD).
@@ -329,6 +351,19 @@ export interface SettingsRow {
   scraper_min_score: number | null
   scraper_max_pairs: number | null
   scraper_per_pair: number | null
+  verzug_base_rate: number
+}
+
+export interface MahnungRow {
+  id: number
+  document_id: number
+  level: number
+  days_overdue: number
+  interest_cents: number
+  pauschale_cents: number
+  total_claim_cents: number
+  note: string | null
+  created_at: string
 }
 
 export interface DocumentRow {

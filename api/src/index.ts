@@ -33,6 +33,7 @@ import {
 } from './documents'
 import { renderDocumentPdf, pdfFilename } from './pdf'
 import { validateInvoice } from './validate'
+import { listOverdue, computeDunning, levelLabel } from './dunning'
 import { snapshot, snapshotFilename } from './backup'
 import { audit } from './audit'
 import { registerAiRoutes } from './ai/router'
@@ -301,7 +302,7 @@ const SETTINGS_FIELDS = new Set([
   'website', 'tax_id', 'iban', 'bic', 'bank', 'small_business', 'vat_rate',
   'payment_terms', 'rechnung_prefix', 'rechnung_next', 'angebot_prefix',
   'angebot_next', 'scraper_trades', 'scraper_towns', 'scraper_min_score',
-  'scraper_max_pairs', 'scraper_per_pair',
+  'scraper_max_pairs', 'scraper_per_pair', 'verzug_base_rate',
 ])
 
 app.get('/api/settings', requireAuth, (c) => c.json({ settings: getSettings() }))
@@ -465,6 +466,41 @@ app.get('/api/documents/:id/validate', requireAuth, (c) => {
   const doc = getDocument(Number(c.req.param('id')))
   if (!doc) return c.json({ error: 'not found' }, 404)
   return c.json({ validation: validateInvoice(doc, getSettings()) })
+})
+
+// --- Mahnwesen (dunning) ---------------------------------------------------
+
+// All sent, unpaid, past-due invoices with computed Verzugszinsen + Mahnstufe.
+app.get('/api/invoices/overdue', requireAuth, (c) => {
+  return c.json({ overdue: listOverdue() })
+})
+
+// Preview/raise a Mahnung for an invoice. POST persists a record; GET previews.
+app.get('/api/documents/:id/dunning', requireAuth, (c) => {
+  const doc = getDocument(Number(c.req.param('id')))
+  if (!doc) return c.json({ error: 'not found' }, 404)
+  const level = c.req.query('level') != null ? Number(c.req.query('level')) : undefined
+  const history = db
+    .prepare('SELECT * FROM mahnungen WHERE document_id = ? ORDER BY created_at DESC')
+    .all(doc.id)
+  return c.json({ preview: computeDunning(doc, getSettings(), level), history })
+})
+
+app.post('/api/documents/:id/dunning', requireAuth, async (c) => {
+  const doc = getDocument(Number(c.req.param('id')))
+  if (!doc) return c.json({ error: 'not found' }, 404)
+  if (doc.kind !== 'rechnung' || !doc.number) {
+    return c.json({ error: 'Nur für ausgestellte Rechnungen.' }, 400)
+  }
+  const b = (await c.req.json().catch(() => ({}))) as { level?: number; note?: string }
+  const d = computeDunning(doc, getSettings(), b.level)
+  const info = db.prepare(
+    `INSERT INTO mahnungen (document_id, level, days_overdue, interest_cents, pauschale_cents, total_claim_cents, note)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(doc.id, d.suggested_level, d.days_overdue, d.interest_cents, d.pauschale_cents, d.total_claim_cents, b.note ?? levelLabel(d.suggested_level))
+  audit({ actor: c.get('user').username, action: 'invoice.dunning', entity: 'document', entityId: doc.id, detail: { level: d.suggested_level, total_claim_cents: d.total_claim_cents } })
+  const row = db.prepare('SELECT * FROM mahnungen WHERE id = ?').get(Number(info.lastInsertRowid))
+  return c.json({ mahnung: row, computation: d, label: levelLabel(d.suggested_level) }, 201)
 })
 
 // Convert an Angebot into a draft Rechnung (copies client + items).

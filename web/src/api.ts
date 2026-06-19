@@ -5,7 +5,9 @@ import type {
   Config,
   Doc,
   DocItem,
+  DunningComputation,
   InvoiceDraft,
+  Mahnung,
   Lead,
   LeadAnalysis,
   LeadEvent,
@@ -135,6 +137,18 @@ export const api = {
   pdfUrl: (id: number) => `/api/documents/${id}/pdf`,
   validateDocument: (id: number) =>
     req<{ validation: ValidationResult }>(`/documents/${id}/validate`),
+
+  // --- Mahnwesen (dunning) ---
+  overdueInvoices: () => req<{ overdue: DunningComputation[] }>('/invoices/overdue'),
+  previewDunning: (id: number, level?: number) =>
+    req<{ preview: DunningComputation; history: Mahnung[] }>(
+      `/documents/${id}/dunning${level != null ? `?level=${level}` : ''}`,
+    ),
+  raiseDunning: (id: number, body: { level?: number; note?: string } = {}) =>
+    req<{ mahnung: Mahnung; computation: DunningComputation; label: string }>(
+      `/documents/${id}/dunning`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
 
   // --- admin ---
   backupUrl: () => '/api/admin/backup',
