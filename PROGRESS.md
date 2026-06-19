@@ -60,9 +60,19 @@ AI-native German leads + Rechnungen tool. Branch: `claude/openleads-repo-setup-z
   tool `plan_followup`), 4 tests. ✅
 - **Container HEALTHCHECK** on /api/health. ✅
 
-## Optional later
-- Multi-user roles / assignment; XRechnung Leitweg-ID (BT-10) capture for B2G.
-- E2E/Playwright happy-path; lead-detail follow-up button in UI.
+## Also done & verified (pushed)
+- **Käuferreferenz/Leitweg-ID (BT-10)** capture → CII XML + validator + UI. ✅
+- **Lead follow-up button** in UI. ✅
+- **Security pass**: CSV formula-injection neutralised; SESSION_SECRET fail-closed
+  in production (verified boot refusal); AI rate limiting + input caps. ✅
+
+## Status: v1 complete & hardened
+33 api tests green · full HTTP smoke test green · all packages typecheck · web
+builds. Self-hosted, AI-native, DSGVO/UWG-aware, e-invoicing + dunning + DATEV.
+
+## Possible future (larger efforts)
+- Multi-user roles/assignment; full XRechnung Schematron (BR-DE) enforcement.
+- E2E/Playwright; structured logging/metrics; i18n beyond German.
 
 ## Conventions
 Dependency-light (Node built-ins + fetch). German UI. Strict TS. Money in cents.
