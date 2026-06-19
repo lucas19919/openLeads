@@ -20,6 +20,8 @@ import type {
   Settings,
   User,
   ValidationResult,
+  WorkflowRun,
+  WorkflowSummary,
 } from './types'
 
 class ApiError extends Error {
@@ -173,6 +175,16 @@ export const api = {
   scraperConfig: () => req<ScraperConfig>('/scraper/config'),
   scraperStatus: () => req<ScraperStatus>('/scraper/status'),
 
+  // --- workflows ---
+  listWorkflows: () => req<{ workflows: WorkflowSummary[] }>('/workflows'),
+  runWorkflow: (key: string, limit?: number) =>
+    req<{ run: WorkflowRun }>(`/workflows/${key}/run`, {
+      method: 'POST',
+      body: JSON.stringify({ limit }),
+    }),
+  workflowRuns: (key: string) =>
+    req<{ runs: WorkflowRun[] }>(`/workflows/runs?key=${encodeURIComponent(key)}`),
+
   // --- AI core ---
   aiStatus: () => req<AiStatus>('/ai/status'),
   aiDigest: () => req<{ digest: Digest }>('/ai/digest'),
@@ -189,11 +201,6 @@ export const api = {
   aiThreads: () => req<{ threads: AiThread[] }>('/ai/threads'),
   analyzeLead: (id: number) =>
     req<{ analysis: LeadAnalysis }>(`/ai/leads/${id}/analyze`, { method: 'POST' }),
-  planFollowup: (id: number, apply = false) =>
-    req<{ suggestion: { recontact_at: string | null; days: number | null; reason: string; applied: boolean } }>(
-      `/ai/leads/${id}/followup`,
-      { method: 'POST', body: JSON.stringify({ apply }) },
-    ),
   draftOutreach: (id: number, channel: 'email' | 'letter' | 'call_script' = 'email') =>
     req<{ outreach: Outreach }>(`/ai/leads/${id}/outreach`, {
       method: 'POST',

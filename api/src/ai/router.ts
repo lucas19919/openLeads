@@ -6,7 +6,6 @@ import { composeOutreachEmail, sendMail, isMailConfigured } from '../mailer'
 import { probe, AI, isLocalInference, AIError } from './provider'
 import { analyzeLead, draftOutreach, draftInvoiceFromText } from './leadIntel'
 import { buildDigest } from './digest'
-import { planFollowup } from './followup'
 import { reindexLeads, searchLeads } from './semantic'
 import { runAgent } from './agent'
 import { rateLimit } from '../ratelimit'
@@ -156,15 +155,6 @@ export function registerAiRoutes(app: App, auth: MiddlewareHandler): void {
     } catch (e) {
       return c.json({ error: (e as Error).message }, e instanceof AIError ? 502 : 500)
     }
-  })
-
-  // Suggest (and optionally set) the next follow-up date for a lead.
-  app.post('/api/ai/leads/:id/followup', async (c) => {
-    const lead = leadOr404(c)
-    if (!lead) return c.json({ error: 'not found' }, 404)
-    const b = (await c.req.json().catch(() => ({}))) as { apply?: boolean }
-    const suggestion = await planFollowup(lead, c.get('user').username, !!b.apply)
-    return c.json({ suggestion })
   })
 
   app.get('/api/ai/leads/:id/outreach', (c) => {

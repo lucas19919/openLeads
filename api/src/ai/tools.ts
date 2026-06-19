@@ -2,7 +2,6 @@ import { db, STAGES, type LeadRow } from '../db'
 import { getDocument, getSettings, replaceItems, type DocItemInput } from '../documents'
 import { audit } from '../audit'
 import { analyzeLead, draftOutreach } from './leadIntel'
-import { applyFollowupDeterministic } from './followup'
 import type { ToolSchema } from './types'
 
 // The agent's hands. Each tool is a small, auditable capability over the same
@@ -87,7 +86,7 @@ export const TOOLS: AgentTool[] = [
 
   def(
     'update_lead',
-    'Aktualisiere Felder eines Leads (z.B. email, phone, priority, notes, recontact_at).',
+    'Aktualisiere Felder eines Leads (z.B. email, phone, priority, notes, tags).',
     obj({
       id: { type: 'number' },
       fields: { type: 'object', description: 'Schlüssel/Wert der zu ändernden Felder' },
@@ -96,7 +95,7 @@ export const TOOLS: AgentTool[] = [
       const id = Number(a.id)
       const lead = getLeadRow(id)
       if (!lead) return { error: 'Lead nicht gefunden' }
-      const allowed = new Set(['company', 'trade', 'city', 'website', 'phone', 'email', 'priority', 'why_lead', 'notes', 'recontact_at'])
+      const allowed = new Set(['company', 'trade', 'city', 'website', 'phone', 'email', 'priority', 'why_lead', 'notes', 'tags'])
       const fields = (a.fields ?? {}) as Record<string, unknown>
       const sets: string[] = []
       const params: Record<string, string | number | null> = { id }
@@ -168,17 +167,6 @@ export const TOOLS: AgentTool[] = [
       const ch = (['email', 'letter', 'call_script'] as const).includes(a.channel as never) ? (a.channel as 'email') : 'email'
       const row = await draftOutreach(lead, ctx.actor, ch)
       return { ok: true, outreach: row }
-    },
-  ),
-
-  def(
-    'plan_followup',
-    'Setze die nächste Wiedervorlage (recontact_at) für einen Lead anhand der Stage-Kadenz.',
-    obj({ id: { type: 'number' } }, ['id']),
-    (a, ctx) => {
-      const lead = getLeadRow(Number(a.id))
-      if (!lead) return { error: 'Lead nicht gefunden' }
-      return applyFollowupDeterministic(lead, ctx.actor)
     },
   ),
 

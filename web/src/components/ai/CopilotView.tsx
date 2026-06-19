@@ -52,18 +52,15 @@ export function CopilotView() {
   }
 
   return (
-    <div className="copilot">
-      <header className="copilot-head">
-        <div>
-          <h1>KI-Cockpit</h1>
-          <p className="muted">
-            Dein KI-Kern bedient Leads, Pipeline und Rechnungen — frag einfach.
-          </p>
-        </div>
+    <>
+      <div className="toolbar">
+        <span className="page-title">KI-Cockpit</span>
+        <div className="spacer" />
         <AiBadge status={status} />
-      </header>
+      </div>
 
-      <div className="copilot-stream">
+      <div className="copilot">
+        <div className="copilot-stream">
         {turns.length === 0 && digest && (
           <div className="digest">
             <h2>{digest.headline}</h2>
@@ -86,7 +83,9 @@ export function CopilotView() {
         )}
         {turns.length === 0 && (
           <div className="copilot-empty">
-            <p className="muted">Beispiele:</p>
+            <p className="muted">
+              Dein KI-Kern bedient Leads, Pipeline und Rechnungen — frag einfach. Beispiele:
+            </p>
             <div className="copilot-suggestions">
               {SUGGESTIONS.map((s) => (
                 <button key={s} className="chip" onClick={() => send(s)} disabled={busy}>
@@ -125,7 +124,8 @@ export function CopilotView() {
           Senden
         </button>
       </form>
-    </div>
+      </div>
+    </>
   )
 }
 

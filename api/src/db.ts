@@ -20,6 +20,7 @@ export const STAGES = [
   'neu',
   'qualifiziert',
   'kontaktiert',
+  'rückruf',
   'interessiert',
   'angebot',
   'gewonnen',
@@ -111,7 +112,7 @@ CREATE TABLE IF NOT EXISTS settings (
   rechnung_next   INTEGER NOT NULL DEFAULT 1,
   angebot_prefix  TEXT NOT NULL DEFAULT 'AN-',
   angebot_next    INTEGER NOT NULL DEFAULT 1,
-  -- Sonnet scraper config (newline/comma-separated lists; NULL = use defaults).
+  -- Scraper config (newline/comma-separated lists; NULL = use defaults).
   scraper_trades    TEXT,
   scraper_towns     TEXT,
   scraper_min_score INTEGER,
@@ -260,6 +261,25 @@ CREATE TABLE IF NOT EXISTS lead_embeddings (
   source     TEXT,                    -- the text that was embedded (for re-use)
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- One row per execution of a Workflow (an ordered run of audited agent tools
+-- over a resolved set of leads). The trail is the same shape the copilot shows,
+-- so a run stays inspectable. Definitions themselves live in code (workflows.ts).
+CREATE TABLE IF NOT EXISTS workflow_runs (
+  id            INTEGER PRIMARY KEY,
+  workflow_key  TEXT NOT NULL,                       -- e.g. 'qualify-new'
+  status        TEXT NOT NULL DEFAULT 'running',     -- running | ok | error
+  trigger       TEXT NOT NULL DEFAULT 'manual',      -- manual | schedule
+  targets       INTEGER NOT NULL DEFAULT 0,          -- entities acted on
+  steps_ok      INTEGER NOT NULL DEFAULT 0,
+  steps_failed  INTEGER NOT NULL DEFAULT 0,
+  trail         TEXT,                                -- JSON: per-step results
+  error         TEXT,
+  actor         TEXT,
+  started_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  finished_at   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_key ON workflow_runs(workflow_key, started_at DESC);
 `)
 
 // Basiszinssatz (%) used for §288 BGB Verzugszinsen (configurable; changes
@@ -287,11 +307,19 @@ try {
 }
 
 // --- migrations for existing databases (idempotent) ---
-// recontact_at: optional follow-up / callback date (YYYY-MM-DD).
+// tags: free-form, comma-separated labels per lead (e.g. "vip,umbau").
 try {
-  db.exec('ALTER TABLE leads ADD COLUMN recontact_at TEXT')
+  db.exec('ALTER TABLE leads ADD COLUMN tags TEXT')
 } catch {
   // column already exists
+}
+
+// Drop the retired follow-up date column (replaced by the "rückruf" pipeline
+// stage). Fails harmlessly on fresh databases that never had the column.
+try {
+  db.exec('ALTER TABLE leads DROP COLUMN recontact_at')
+} catch {
+  // column already gone
 }
 
 // Scraper config columns on the settings table (added after the first release).
@@ -301,6 +329,31 @@ for (const col of [
   'scraper_min_score INTEGER',
   'scraper_max_pairs INTEGER',
   'scraper_per_pair INTEGER',
+]) {
+  try {
+    db.exec(`ALTER TABLE settings ADD COLUMN ${col}`)
+  } catch {
+    // column already exists
+  }
+}
+
+// Operator-editable AI provider + SMTP connection, settable from the Settings UI
+// instead of .env. Plain config is stored as-is; the two secrets (AI key, SMTP
+// password) are stored ENCRYPTED — see secrets.ts. Any value here overrides the
+// matching .env var; .env stays the fallback. Bootstrap secrets (SESSION_SECRET,
+// SERVICE_TOKEN) are NOT here on purpose: the app needs them before it can read
+// this table.
+for (const col of [
+  'ai_base_url TEXT',
+  'ai_model TEXT',
+  'ai_label TEXT',
+  'ai_api_key_enc TEXT', // AES-256-GCM ciphertext, never plaintext
+  'smtp_host TEXT',
+  'smtp_port INTEGER',
+  'smtp_user TEXT',
+  'smtp_pass_enc TEXT', // AES-256-GCM ciphertext, never plaintext
+  'smtp_secure INTEGER',
+  'smtp_from TEXT',
 ]) {
   try {
     db.exec(`ALTER TABLE settings ADD COLUMN ${col}`)
@@ -335,7 +388,7 @@ export interface LeadRow {
   stage: string
   notes: string | null
   assigned_to: string | null
-  recontact_at: string | null
+  tags: string | null
   source: string
   created_at: string
   updated_at: string
@@ -381,6 +434,19 @@ export interface SettingsRow {
   verzug_base_rate: number
   datev_revenue_account: string | null
   datev_debitor_account: string | null
+  // Operator-editable connection config (Settings UI). Optional: added by a late
+  // migration, and the *_enc columns hold ciphertext (see secrets.ts), so they
+  // are never sent to the client raw — the API redacts them.
+  ai_base_url?: string | null
+  ai_model?: string | null
+  ai_label?: string | null
+  ai_api_key_enc?: string | null
+  smtp_host?: string | null
+  smtp_port?: number | null
+  smtp_user?: string | null
+  smtp_pass_enc?: string | null
+  smtp_secure?: number | null
+  smtp_from?: string | null
 }
 
 export interface MahnungRow {
@@ -490,6 +556,21 @@ export interface AiMessageRow {
   content: string | null
   tool_calls: string | null
   created_at: string
+}
+
+export interface WorkflowRunRow {
+  id: number
+  workflow_key: string
+  status: string
+  trigger: string
+  targets: number
+  steps_ok: number
+  steps_failed: number
+  trail: string | null
+  error: string | null
+  actor: string | null
+  started_at: string
+  finished_at: string | null
 }
 
 /** Normalise a URL or hostname to a bare registrable-ish domain for dedupe. */

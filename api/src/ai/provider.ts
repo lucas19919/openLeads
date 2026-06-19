@@ -1,4 +1,5 @@
 import '../env'
+import { resolveAIConfig } from '../secrets'
 import type { ChatMessage, ChatResult, ToolSchema } from './types'
 
 // --- Provider configuration ------------------------------------------------
@@ -20,19 +21,40 @@ import type { ChatMessage, ChatResult, ToolSchema } from './types'
 // (https://api.mistral.ai/v1) or an EU IONOS/OVH inference endpoint and set
 // AI_API_KEY.
 
+// Connection + credentials resolve live on each access: DB (Settings UI) wins,
+// else the matching .env var, else the default (see secrets.ts). Getters keep
+// every call site (`AI.baseUrl`, `AI.apiKey`, …) unchanged while letting the
+// operator re-point the model at runtime without a restart. The tuning knobs
+// (temperature/tokens/timeout/embed model) stay env-only.
 export const AI = {
-  baseUrl: (process.env.AI_BASE_URL ?? 'http://localhost:11434/v1').replace(/\/$/, ''),
-  model: process.env.AI_MODEL ?? 'llama3.1:8b',
-  apiKey: process.env.AI_API_KEY ?? '',
+  get baseUrl(): string {
+    return resolveAIConfig().baseUrl
+  },
+  get model(): string {
+    return resolveAIConfig().model
+  },
+  get apiKey(): string {
+    return resolveAIConfig().apiKey
+  },
   // A short human label for the UI ("Llama 3.1 · self-hosted"). Informational.
-  label: process.env.AI_LABEL ?? '',
-  temperature: Number(process.env.AI_TEMPERATURE ?? 0.3),
-  maxTokens: Number(process.env.AI_MAX_TOKENS ?? 1024),
-  timeoutMs: Number(process.env.AI_TIMEOUT_MS ?? 120_000),
+  get label(): string {
+    return resolveAIConfig().label
+  },
+  get temperature(): number {
+    return Number(process.env.AI_TEMPERATURE ?? 0.3)
+  },
+  get maxTokens(): number {
+    return Number(process.env.AI_MAX_TOKENS ?? 1024)
+  },
+  get timeoutMs(): number {
+    return Number(process.env.AI_TIMEOUT_MS ?? 120_000)
+  },
   // Embeddings (semantic search). Defaults to a local Ollama embed model.
   // `ollama pull nomic-embed-text` covers German well enough for lead search.
-  embedModel: process.env.AI_EMBED_MODEL ?? 'nomic-embed-text',
-} as const
+  get embedModel(): string {
+    return process.env.AI_EMBED_MODEL ?? 'nomic-embed-text'
+  },
+}
 
 /** True when inference stays on infrastructure the operator controls (no egress
  *  to a third country). Drives the DSGVO data-flow badge in the UI. */

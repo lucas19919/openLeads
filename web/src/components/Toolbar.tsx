@@ -6,9 +6,6 @@ export function Toolbar({
   search,
   setSearch,
   count,
-  dueCount,
-  recontactOnly,
-  setRecontactOnly,
   onNew,
   onImportFile,
   importing,
@@ -18,9 +15,6 @@ export function Toolbar({
   search: string
   setSearch: (v: string) => void
   count: number
-  dueCount: number
-  recontactOnly: boolean
-  setRecontactOnly: (v: boolean) => void
   onNew: () => void
   onImportFile: (file: File) => void
   importing: boolean
@@ -28,6 +22,7 @@ export function Toolbar({
   const fileRef = useRef<HTMLInputElement>(null)
   return (
     <div className="toolbar">
+      <span className="page-title">Leads</span>
       <div className="seg">
         <button
           className={view === 'board' ? 'active' : ''}
@@ -48,13 +43,6 @@ export function Toolbar({
         value={search}
         onChange={(e) => setSearch(e.target.value)}
       />
-      <button
-        className={`recontact-toggle${recontactOnly ? ' active' : ''}${dueCount > 0 ? ' has-due' : ''}`}
-        onClick={() => setRecontactOnly(!recontactOnly)}
-        title="Nur Leads mit Wiedervorlage / Rückruf anzeigen"
-      >
-        📞 Wiedervorlage{dueCount > 0 ? ` · ${dueCount} fällig` : ''}
-      </button>
       <span className="user-chip">{count} Leads</span>
       <div className="spacer" />
       <button onClick={() => fileRef.current?.click()} disabled={importing}>

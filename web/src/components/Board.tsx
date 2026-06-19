@@ -1,5 +1,5 @@
 import { useState, type CSSProperties } from 'react'
-import { fmtDate, isDue } from '../util'
+import { parseTags } from '../util'
 import type { Lead } from '../types'
 
 function prioColor(p: string) {
@@ -8,6 +8,7 @@ function prioColor(p: string) {
 
 function Card({ lead, onOpen }: { lead: Lead; onOpen: (id: number) => void }) {
   const scoreClass = lead.score >= 70 ? 'hot' : lead.score >= 45 ? 'warm' : ''
+  const tags = parseTags(lead.tags)
   return (
     <div
       className="card"
@@ -21,15 +22,19 @@ function Card({ lead, onOpen }: { lead: Lead; onOpen: (id: number) => void }) {
         {lead.trade && <span>{lead.trade}</span>}
         {lead.city && <span>· {lead.city}</span>}
       </div>
+      {tags.length > 0 && (
+        <div className="tag-list">
+          {tags.map((t) => (
+            <span className="tag" key={t}>
+              {t}
+            </span>
+          ))}
+        </div>
+      )}
       <div className="card-foot">
         <span className={`badge ${lead.priority}`}>{lead.priority}</span>
         <span className={`score ${scoreClass}`}>{lead.score}</span>
       </div>
-      {lead.recontact_at && (
-        <div className={`recontact-chip${isDue(lead.recontact_at) ? ' due' : ''}`}>
-          📞 {fmtDate(lead.recontact_at)}
-        </div>
-      )}
     </div>
   )
 }

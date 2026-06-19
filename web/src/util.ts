@@ -25,3 +25,12 @@ export function fmtDate(date: string): string {
   const [y, m, d] = date.split('-')
   return d && m && y ? `${d}.${m}.${y}` : date
 }
+
+/** Split a stored comma-separated tag string into a clean list. */
+export function parseTags(tags?: string | null): string[] {
+  if (!tags) return []
+  return tags
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean)
+}

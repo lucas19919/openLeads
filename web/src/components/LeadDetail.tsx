@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
-import { addDaysISO } from '../util'
+import { parseTags } from '../util'
 import type { Lead, LeadAnalysis, LeadEvent, Outreach } from '../types'
 
 // talking_points / risk_flags arrive as JSON strings from the model.
@@ -71,16 +71,12 @@ export function LeadDetail({
   const [events, setEvents] = useState<LeadEvent[]>([])
   const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
+  const [tagInput, setTagInput] = useState('')
 
   // KI-Analyse
   const [analysis, setAnalysis] = useState<LeadAnalysis | null>(null)
   const [analyzing, setAnalyzing] = useState(false)
   const [analysisErr, setAnalysisErr] = useState<string | null>(null)
-
-  // Wiedervorlage-Vorschlag (KI)
-  const [planning, setPlanning] = useState(false)
-  const [planErr, setPlanErr] = useState<string | null>(null)
-  const [planMsg, setPlanMsg] = useState<string | null>(null)
 
   // Ansprache (Outreach)
   const [outreach, setOutreach] = useState<Outreach[]>([])
@@ -126,28 +122,6 @@ export function LeadDetail({
       setAnalysisErr(errMsg(e))
     } finally {
       setAnalyzing(false)
-    }
-  }
-
-  async function planFollowup() {
-    setPlanning(true)
-    setPlanErr(null)
-    setPlanMsg(null)
-    try {
-      const { suggestion } = await api.planFollowup(id, true)
-      setPlanMsg(
-        suggestion.recontact_at
-          ? `✓ Wiedervorlage: ${suggestion.recontact_at} — ${suggestion.reason}`
-          : suggestion.reason,
-      )
-      // Datum wurde gesetzt – Lead neu laden, damit das Feld aktualisiert wird.
-      const { lead } = await api.getLead(id)
-      setLead(lead)
-      onChanged(lead)
-    } catch (e) {
-      setPlanErr(errMsg(e))
-    } finally {
-      setPlanning(false)
     }
   }
 
@@ -229,6 +203,22 @@ export function LeadDetail({
     setEvents(fresh.events)
   }
 
+  async function addTag(raw: string) {
+    if (!lead) return
+    const t = raw.trim()
+    setTagInput('')
+    if (!t) return
+    const current = parseTags(lead.tags)
+    if (current.some((x) => x.toLowerCase() === t.toLowerCase())) return
+    await patch({ tags: [...current, t].join(',') })
+  }
+
+  async function removeTag(t: string) {
+    if (!lead) return
+    const next = parseTags(lead.tags).filter((x) => x !== t)
+    await patch({ tags: next.join(',') })
+  }
+
   return (
     <>
       <div className="overlay" onClick={onClose} />
@@ -288,21 +278,37 @@ export function LeadDetail({
               </div>
 
               <div className="field">
-                <label>Wiedervorlage / Rückruf</label>
-                <input
-                  type="date"
-                  value={lead.recontact_at ?? ''}
-                  onChange={(e) => patch({ recontact_at: e.target.value || null })}
-                />
-                <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
-                  <button onClick={() => patch({ recontact_at: addDaysISO(3) })}>+3 Tage</button>
-                  <button onClick={() => patch({ recontact_at: addDaysISO(7) })}>+1 Woche</button>
-                  <button onClick={() => patch({ recontact_at: addDaysISO(14) })}>+2 Wochen</button>
-                  {lead.recontact_at && (
-                    <button className="ghost" onClick={() => patch({ recontact_at: null })}>
-                      Entfernen
-                    </button>
-                  )}
+                <label>Tags</label>
+                <div className="tag-edit">
+                  {parseTags(lead.tags).map((t) => (
+                    <span className="tag tag-removable" key={t}>
+                      {t}
+                      <button
+                        type="button"
+                        className="tag-x"
+                        aria-label={`Tag „${t}" entfernen`}
+                        onClick={() => removeTag(t)}
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  ))}
+                  <input
+                    className="tag-input"
+                    placeholder="Tag hinzufügen…"
+                    value={tagInput}
+                    onChange={(e) => setTagInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ',') {
+                        e.preventDefault()
+                        addTag(tagInput)
+                      } else if (e.key === 'Backspace' && !tagInput) {
+                        const cur = parseTags(lead.tags)
+                        if (cur.length) removeTag(cur[cur.length - 1])
+                      }
+                    }}
+                    onBlur={() => addTag(tagInput)}
+                  />
                 </div>
               </div>
 
@@ -389,23 +395,10 @@ export function LeadDetail({
                   <button className="primary" disabled={analyzing} onClick={runAnalysis}>
                     {analyzing ? 'Analysiere…' : 'Lead qualifizieren'}
                   </button>
-                  <button disabled={planning} onClick={planFollowup}>
-                    {planning ? 'Plane…' : 'Wiedervorlage vorschlagen'}
-                  </button>
                 </div>
                 {analysisErr && (
                   <div className="section-error" role="alert">
                     {analysisErr}
-                  </div>
-                )}
-                {planErr && (
-                  <div className="section-error" role="alert">
-                    {planErr}
-                  </div>
-                )}
-                {planMsg && (
-                  <div className="outreach-sent" role="status">
-                    {planMsg}
                   </div>
                 )}
                 {analysis && (

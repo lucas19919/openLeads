@@ -8,7 +8,7 @@ import { LeadsView } from './components/LeadsView'
 import { InvoicesView } from './components/invoices/InvoicesView'
 import { OpenItemsView } from './components/invoices/OpenItemsView'
 import { SettingsView } from './components/invoices/SettingsView'
-import { ScraperView } from './components/scraper/ScraperView'
+import { WorkflowsView } from './components/workflows/WorkflowsView'
 
 export default function App() {
   const [user, setUser] = useState<User | null | undefined>(undefined)
@@ -59,7 +59,7 @@ export default function App() {
         />
       )}
       {module === 'offene' && <OpenItemsView />}
-      {module === 'scraper' && <ScraperView />}
+      {module === 'workflows' && <WorkflowsView />}
       {module === 'settings' && <SettingsView />}
     </div>
   )

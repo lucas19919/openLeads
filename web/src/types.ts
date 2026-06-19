@@ -16,7 +16,7 @@ export interface Lead {
   stage: string
   notes: string | null
   assigned_to: string | null
-  recontact_at: string | null
+  tags: string | null
   source: string
   created_at: string
   updated_at: string
@@ -69,6 +69,19 @@ export interface Settings {
   verzug_base_rate?: number
   datev_revenue_account?: string | null
   datev_debitor_account?: string | null
+  // Connection config (overrides .env). Secrets are write-only: the API never
+  // returns the key/password, only whether one is stored.
+  ai_base_url?: string | null
+  ai_model?: string | null
+  ai_label?: string | null
+  smtp_host?: string | null
+  smtp_port?: number | null
+  smtp_user?: string | null
+  smtp_secure?: number | null
+  smtp_from?: string | null
+  ai_api_key_set?: boolean
+  smtp_pass_set?: boolean
+  settings_key_configured?: boolean
 }
 
 export interface ScraperConfig {
@@ -95,6 +108,40 @@ export interface ScraperStatus {
     priority: string
     created_at: string
   }[]
+}
+
+// --- Workflows --------------------------------------------------------------
+
+export interface WorkflowTrailEntry {
+  target_id: number | null
+  target: string
+  tool: string
+  ok: boolean
+  detail: string
+}
+
+export interface WorkflowRun {
+  id: number
+  workflow_key: string
+  status: 'running' | 'ok' | 'error'
+  trigger: string
+  targets: number
+  steps_ok: number
+  steps_failed: number
+  trail: WorkflowTrailEntry[]
+  error: string | null
+  actor: string | null
+  started_at: string
+  finished_at: string | null
+}
+
+export interface WorkflowSummary {
+  key: string
+  name: string
+  description: string
+  trigger: string
+  eligible: number
+  last_run: WorkflowRun | null
 }
 
 export interface DocItem {
@@ -263,7 +310,6 @@ export interface Digest {
   ai: boolean
   facts: {
     new_leads: number
-    recontact_due: unknown[]
     hot_leads: unknown[]
     stale_leads: unknown[]
     overdue: { count: number; total_claim_cents: number; worst_days: number }

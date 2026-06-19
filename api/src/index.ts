@@ -38,8 +38,10 @@ import { listOverdue, computeDunning, levelLabel } from './dunning'
 import { snapshot, snapshotFilename } from './backup'
 import { finalisedInvoices, invoicesCsv, datevCsv, exportFilename } from './export'
 import { audit } from './audit'
+import { encryptSecret, settingsKeyConfigured } from './secrets'
 import { registerAiRoutes } from './ai/router'
 import { registerDsgvoRoutes } from './dsgvo'
+import { registerWorkflowRoutes } from './workflows'
 
 type Vars = { user: Pick<UserRow, 'id' | 'username' | 'role'> }
 const app = new Hono<{ Variables: Vars }>()
@@ -235,8 +237,23 @@ app.post('/api/leads/import', requireAuth, async (c) => {
 const EDITABLE = new Set([
   'company', 'trade', 'city', 'website', 'phone', 'email',
   'mobile_friendly', 'tech', 'staleness_signal', 'score', 'priority',
-  'why_lead', 'notes', 'assigned_to', 'recontact_at',
+  'why_lead', 'notes', 'assigned_to', 'tags',
 ])
+
+// Tags arrive as a comma-separated string; trim, drop blanks, and de-dupe
+// (case-insensitive) so the stored value stays tidy. Empty → NULL.
+export function normalizeTags(input: unknown): string | null {
+  if (typeof input !== 'string') return null
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const raw of input.split(',')) {
+    const t = raw.trim()
+    if (!t || seen.has(t.toLowerCase())) continue
+    seen.add(t.toLowerCase())
+    out.push(t)
+  }
+  return out.length ? out.join(',') : null
+}
 
 app.patch('/api/leads/:id', requireAuth, async (c) => {
   const id = Number(c.req.param('id'))
@@ -267,13 +284,15 @@ app.patch('/api/leads/:id', requireAuth, async (c) => {
     sets.push(`${key} = @${key}`)
     // node:sqlite only binds string | number | null — coerce booleans/undefined.
     params[key] =
-      v === undefined || v === null
-        ? null
-        : typeof v === 'boolean'
-          ? v
-            ? 1
-            : 0
-          : (v as string | number)
+      key === 'tags'
+        ? normalizeTags(v)
+        : v === undefined || v === null
+          ? null
+          : typeof v === 'boolean'
+            ? v
+              ? 1
+              : 0
+            : (v as string | number)
   }
 
   if (sets.length === 0) return c.json({ lead })
@@ -285,12 +304,6 @@ app.patch('/api/leads/:id', requireAuth, async (c) => {
     db.prepare(
       `INSERT INTO lead_events (lead_id, actor, type, body) VALUES (?, ?, 'note', ?)`,
     ).run(id, actor, b.notes)
-  }
-
-  if ('recontact_at' in b && (b.recontact_at ?? null) !== (lead.recontact_at ?? null)) {
-    db.prepare(
-      `INSERT INTO lead_events (lead_id, actor, type, body) VALUES (?, ?, 'recontact', ?)`,
-    ).run(id, actor, b.recontact_at ? `Wiedervorlage: ${b.recontact_at}` : 'Wiedervorlage entfernt')
   }
 
   const updated = db.prepare('SELECT * FROM leads WHERE id = ?').get(id) as unknown as LeadRow
@@ -306,25 +319,67 @@ const SETTINGS_FIELDS = new Set([
   'angebot_next', 'scraper_trades', 'scraper_towns', 'scraper_min_score',
   'scraper_max_pairs', 'scraper_per_pair', 'verzug_base_rate',
   'datev_revenue_account', 'datev_debitor_account',
+  // Operator-editable connection config (plain). Override the matching .env var.
+  'ai_base_url', 'ai_model', 'ai_label',
+  'smtp_host', 'smtp_port', 'smtp_user', 'smtp_secure', 'smtp_from',
 ])
 
-app.get('/api/settings', requireAuth, (c) => c.json({ settings: getSettings() }))
+// Write-only secrets: the client sends the plaintext under the key on the left,
+// we encrypt it into the column on the right. The plaintext is never stored or
+// returned — only "is a secret set?" booleans go back to the browser.
+const SECRET_FIELDS: Record<string, string> = {
+  ai_api_key: 'ai_api_key_enc',
+  smtp_pass: 'smtp_pass_enc',
+}
+
+// The settings object the client may see: the encrypted columns are stripped and
+// replaced by booleans. Defence in depth — the values are ciphertext anyway, but
+// they have no business leaving the server.
+function publicSettings() {
+  const s = getSettings() as unknown as Record<string, unknown>
+  const ai_api_key_set = !!s.ai_api_key_enc
+  const smtp_pass_set = !!s.smtp_pass_enc
+  delete s.ai_api_key_enc
+  delete s.smtp_pass_enc
+  return { ...s, ai_api_key_set, smtp_pass_set, settings_key_configured: settingsKeyConfigured() }
+}
+
+app.get('/api/settings', requireAuth, (c) => c.json({ settings: publicSettings() }))
 
 app.put('/api/settings', requireAuth, async (c) => {
   const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
   const sets: string[] = []
   const params: Record<string, string | number | null> = {}
+  const changed: string[] = []
   for (const key of Object.keys(b)) {
-    if (!SETTINGS_FIELDS.has(key)) continue
-    const v = b[key]
-    sets.push(`${key} = @${key}`)
-    params[key] =
-      typeof v === 'boolean' ? (v ? 1 : 0) : ((v as string | number | null) ?? null)
+    if (SETTINGS_FIELDS.has(key)) {
+      const v = b[key]
+      sets.push(`${key} = @${key}`)
+      params[key] =
+        typeof v === 'boolean' ? (v ? 1 : 0) : ((v as string | number | null) ?? null)
+      changed.push(key)
+    } else if (key in SECRET_FIELDS) {
+      // Empty/blank clears the stored secret; any value is encrypted at rest.
+      const col = SECRET_FIELDS[key]
+      const raw = b[key]
+      let enc: string | null = null
+      if (typeof raw === 'string' && raw.trim() !== '') {
+        try {
+          enc = encryptSecret(raw)
+        } catch (e) {
+          return c.json({ error: (e as Error).message }, 400)
+        }
+      }
+      sets.push(`${col} = @${col}`)
+      params[col] = enc
+      changed.push(key) // log the field name, never the value
+    }
   }
   if (sets.length) {
     db.prepare(`UPDATE settings SET ${sets.join(', ')} WHERE id = 1`).run(params)
+    audit({ actor: c.get('user').username, action: 'settings.update', entity: 'settings', entityId: 1, detail: { fields: changed } })
   }
-  return c.json({ settings: getSettings() })
+  return c.json({ settings: publicSettings() })
 })
 
 // --- documents (Angebote + Rechnungen) ------------------------------------
@@ -675,6 +730,7 @@ app.get('/api/admin/backup', requireAuth, (c) => {
 
 registerAiRoutes(app, requireAuth)
 registerDsgvoRoutes(app, requireAuth)
+registerWorkflowRoutes(app, requireAuth)
 
 // --- health ---------------------------------------------------------------
 

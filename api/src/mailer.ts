@@ -1,5 +1,6 @@
 import './env'
 import nodemailer from 'nodemailer'
+import { resolveSMTPConfig } from './secrets'
 import type { OutreachRow, LeadRow, SettingsRow } from './db'
 
 // Outreach delivery. Sending is the one truly outward-facing action in OpenLeads,
@@ -8,13 +9,29 @@ import type { OutreachRow, LeadRow, SettingsRow } from './db'
 // (UWG §7 identification + Art. 21 DSGVO Widerspruch). Composition is a pure
 // function so it can be unit-tested without a mail server.
 
+// Resolves live on each access: DB (Settings UI) wins, else the matching .env
+// var (see secrets.ts). The password is decrypted from the DB ciphertext or
+// read from SMTP_PASS. Getters keep every `SMTP.host` / `SMTP.pass` call site
+// unchanged.
 export const SMTP = {
-  host: process.env.SMTP_HOST ?? '',
-  port: Number(process.env.SMTP_PORT ?? 587),
-  user: process.env.SMTP_USER ?? '',
-  pass: process.env.SMTP_PASS ?? '',
-  secure: process.env.SMTP_SECURE === 'true', // true = 465/TLS, false = STARTTLS
-  from: process.env.SMTP_FROM ?? '',
+  get host(): string {
+    return resolveSMTPConfig().host
+  },
+  get port(): number {
+    return resolveSMTPConfig().port
+  },
+  get user(): string {
+    return resolveSMTPConfig().user
+  },
+  get pass(): string {
+    return resolveSMTPConfig().pass
+  },
+  get secure(): boolean {
+    return resolveSMTPConfig().secure // true = 465/TLS, false = STARTTLS
+  },
+  get from(): string {
+    return resolveSMTPConfig().from
+  },
 }
 
 export function isMailConfigured(): boolean {

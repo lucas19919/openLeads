@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api'
-import { isDue } from '../util'
 import type { Config, Lead, SemanticHit } from '../types'
 import { Toolbar } from './Toolbar'
 import { Board } from './Board'
@@ -25,7 +24,6 @@ export function LeadsView({
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [showNew, setShowNew] = useState(false)
   const [importing, setImporting] = useState(false)
-  const [recontactOnly, setRecontactOnly] = useState(false)
 
   // KI-Suche (semantische Suche). Solange Ergebnisse vorliegen, ersetzen sie die
   // normale Liste; null bedeutet: keine KI-Suche aktiv -> normale Ansicht.
@@ -114,19 +112,12 @@ export function LeadsView({
     }
   }
 
-  const dueCount = leads.filter((l) => isDue(l.recontact_at)).length
-
   const q = search.trim().toLowerCase()
-  let filtered = q
+  const filtered = q
     ? leads.filter((l) =>
-        [l.company, l.city, l.trade, l.website].some((v) => v?.toLowerCase().includes(q)),
+        [l.company, l.city, l.trade, l.website, l.tags].some((v) => v?.toLowerCase().includes(q)),
       )
     : leads
-  if (recontactOnly) {
-    filtered = filtered
-      .filter((l) => l.recontact_at)
-      .sort((a, b) => (a.recontact_at ?? '').localeCompare(b.recontact_at ?? ''))
-  }
 
   return (
     <>
@@ -136,9 +127,6 @@ export function LeadsView({
         search={search}
         setSearch={setSearch}
         count={filtered.length}
-        dueCount={dueCount}
-        recontactOnly={recontactOnly}
-        setRecontactOnly={setRecontactOnly}
         onNew={() => setShowNew(true)}
         onImportFile={importFile}
         importing={importing}

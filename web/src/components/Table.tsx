@@ -1,4 +1,4 @@
-import { fmtDate, isDue } from '../util'
+import { parseTags } from '../util'
 import type { Lead } from '../types'
 
 export function Table({
@@ -24,7 +24,7 @@ export function Table({
           <th>Prio</th>
           <th>Mobil</th>
           <th>Telefon</th>
-          <th>Wiedervorlage</th>
+          <th>Tags</th>
           <th>Phase</th>
         </tr>
       </thead>
@@ -48,8 +48,18 @@ export function Table({
               )}
             </td>
             <td>{l.phone ?? '—'}</td>
-            <td className={l.recontact_at && isDue(l.recontact_at) ? 'mobil-no' : undefined}>
-              {l.recontact_at ? fmtDate(l.recontact_at) : '—'}
+            <td>
+              {parseTags(l.tags).length > 0 ? (
+                <div className="tag-list">
+                  {parseTags(l.tags).map((t) => (
+                    <span className="tag" key={t}>
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                '—'
+              )}
             </td>
             <td onClick={(e) => e.stopPropagation()}>
               <select value={l.stage} onChange={(e) => onMove(l.id, e.target.value)}>

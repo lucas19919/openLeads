@@ -6,8 +6,14 @@ export function SettingsView() {
   const [s, setS] = useState<Settings | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [exportFrom, setExportFrom] = useState('')
   const [exportTo, setExportTo] = useState('')
+  // Write-only secrets: held locally, sent only when typed, never read back.
+  const [aiApiKey, setAiApiKey] = useState('')
+  const [smtpPass, setSmtpPass] = useState('')
+  const [clearAiKey, setClearAiKey] = useState(false)
+  const [clearSmtpPass, setClearSmtpPass] = useState(false)
 
   useEffect(() => {
     api.getSettings().then(({ settings }) => setS(settings))
@@ -23,10 +29,25 @@ export function SettingsView() {
   async function save() {
     if (!s) return
     setSaving(true)
+    setError(null)
     try {
-      const { settings } = await api.updateSettings(s)
+      // Strip server-managed read-only flags; attach secrets only when changed.
+      const { ai_api_key_set, smtp_pass_set, settings_key_configured, ...rest } = s
+      const patch: Record<string, unknown> = { ...rest }
+      if (clearAiKey) patch.ai_api_key = ''
+      else if (aiApiKey) patch.ai_api_key = aiApiKey
+      if (clearSmtpPass) patch.smtp_pass = ''
+      else if (smtpPass) patch.smtp_pass = smtpPass
+
+      const { settings } = await api.updateSettings(patch as Partial<Settings>)
       setS(settings)
+      setAiApiKey('')
+      setSmtpPass('')
+      setClearAiKey(false)
+      setClearSmtpPass(false)
       setSaved(true)
+    } catch (e) {
+      setError((e as Error).message || 'Speichern fehlgeschlagen.')
     } finally {
       setSaving(false)
     }
@@ -35,8 +56,9 @@ export function SettingsView() {
   return (
     <>
       <div className="toolbar">
-        <strong style={{ paddingLeft: 4 }}>Geschäftsdaten für Angebote & Rechnungen</strong>
+        <span className="page-title">Einstellungen</span>
         <div className="spacer" />
+        {error && <span className="user-chip" style={{ color: 'var(--danger, #c0392b)' }}>{error}</span>}
         {saved && <span className="user-chip">Gespeichert ✓</span>}
         <button className="primary" onClick={save} disabled={saving}>
           {saving ? '…' : 'Speichern'}
@@ -191,6 +213,144 @@ export function SettingsView() {
                 />
               </div>
             </div>
+          </fieldset>
+
+          <fieldset className="doc-block">
+            <legend>KI-Anbindung</legend>
+            <p className="settings-hint">
+              Überschreibt die <code>AI_*</code>-Umgebungsvariablen. Leer lassen, um die
+              Werte aus <code>.env</code> zu verwenden. Standard ist lokales Ollama
+              (<code>http://localhost:11434/v1</code>) — keine Datenübermittlung.
+            </p>
+            <div className="row2">
+              <div className="field">
+                <label>Basis-URL (OpenAI-kompatibel)</label>
+                <input
+                  value={s.ai_base_url ?? ''}
+                  placeholder="http://localhost:11434/v1"
+                  onChange={(e) => set('ai_base_url', e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label>Modell</label>
+                <input
+                  value={s.ai_model ?? ''}
+                  placeholder="llama3.1:8b"
+                  onChange={(e) => set('ai_model', e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="field">
+              <label>Anzeigename (optional)</label>
+              <input
+                value={s.ai_label ?? ''}
+                placeholder="z.B. Teuken-7B · self-hosted (EU)"
+                onChange={(e) => set('ai_label', e.target.value)}
+              />
+            </div>
+            <div className="field">
+              <label>API-Schlüssel {s.ai_api_key_set && <span className="user-chip">gespeichert</span>}</label>
+              <input
+                type="password"
+                autoComplete="new-password"
+                value={aiApiKey}
+                disabled={clearAiKey}
+                placeholder={s.ai_api_key_set ? '•••••••• (leer lassen zum Beibehalten)' : 'nur für gehostete Endpunkte nötig'}
+                onChange={(e) => { setAiApiKey(e.target.value); setSaved(false) }}
+              />
+              {s.ai_api_key_set && (
+                <label className="check-row">
+                  <input
+                    type="checkbox"
+                    checked={clearAiKey}
+                    onChange={(e) => { setClearAiKey(e.target.checked); setSaved(false) }}
+                  />
+                  Gespeicherten Schlüssel löschen
+                </label>
+              )}
+            </div>
+          </fieldset>
+
+          <fieldset className="doc-block">
+            <legend>E-Mail-Versand (SMTP)</legend>
+            <p className="settings-hint">
+              Überschreibt die <code>SMTP_*</code>-Umgebungsvariablen. Nur ein
+              freigegebener Entwurf wird je versendet; jede Nachricht erhält automatisch
+              Impressum + Opt-out. Leer lassen, um den Versand zu deaktivieren.
+            </p>
+            <div className="row2">
+              <div className="field">
+                <label>SMTP-Host</label>
+                <input
+                  value={s.smtp_host ?? ''}
+                  placeholder="smtp.example.de"
+                  onChange={(e) => set('smtp_host', e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label>Port</label>
+                <input
+                  type="number"
+                  value={s.smtp_port ?? ''}
+                  placeholder="587"
+                  onChange={(e) => set('smtp_port', e.target.value === '' ? null : Number(e.target.value))}
+                />
+              </div>
+            </div>
+            <div className="row2">
+              <div className="field">
+                <label>Benutzername</label>
+                <input
+                  value={s.smtp_user ?? ''}
+                  autoComplete="off"
+                  onChange={(e) => set('smtp_user', e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label>Absender (From)</label>
+                <input
+                  value={s.smtp_from ?? ''}
+                  placeholder="Web Studio <hallo@webstudio.de>"
+                  onChange={(e) => set('smtp_from', e.target.value)}
+                />
+              </div>
+            </div>
+            <label className="check-row">
+              <input
+                type="checkbox"
+                checked={s.smtp_secure === 1}
+                onChange={(e) => set('smtp_secure', e.target.checked ? 1 : 0)}
+              />
+              Implizites TLS (Port 465) — sonst STARTTLS
+            </label>
+            <div className="field">
+              <label>Passwort {s.smtp_pass_set && <span className="user-chip">gespeichert</span>}</label>
+              <input
+                type="password"
+                autoComplete="new-password"
+                value={smtpPass}
+                disabled={clearSmtpPass}
+                placeholder={s.smtp_pass_set ? '•••••••• (leer lassen zum Beibehalten)' : ''}
+                onChange={(e) => { setSmtpPass(e.target.value); setSaved(false) }}
+              />
+              {s.smtp_pass_set && (
+                <label className="check-row">
+                  <input
+                    type="checkbox"
+                    checked={clearSmtpPass}
+                    onChange={(e) => { setClearSmtpPass(e.target.checked); setSaved(false) }}
+                  />
+                  Gespeichertes Passwort löschen
+                </label>
+              )}
+            </div>
+            {s.settings_key_configured === false && (
+              <p className="settings-hint" style={{ color: 'var(--danger, #c0392b)' }}>
+                ⚠ <code>SETTINGS_KEY</code> ist nicht gesetzt. Zugangsdaten werden dann mit einem
+                unsicheren Standardschlüssel verschlüsselt — im Produktivbetrieb wird das Speichern
+                abgelehnt. Bitte <code>SETTINGS_KEY</code> (langer Zufallswert) in der Umgebung setzen.
+              </p>
+            )}
           </fieldset>
 
           <fieldset className="doc-block">

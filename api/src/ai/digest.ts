@@ -10,7 +10,6 @@ import { COMPLIANCE_GUARDRAILS } from './prompts'
 
 export interface DigestFacts {
   new_leads: number
-  recontact_due: { id: number; company: string | null; recontact_at: string | null }[]
   hot_leads: { id: number; company: string | null; fit_score: number | null; next_action: string | null }[]
   stale_leads: { id: number; company: string | null; stage: string; updated_at: string }[]
   overdue: { count: number; total_claim_cents: number; worst_days: number }
@@ -21,15 +20,6 @@ const today = () => new Date().toISOString().slice(0, 10)
 export function gatherFacts(): DigestFacts {
   const t = today()
   const new_leads = (db.prepare("SELECT COUNT(*) AS n FROM leads WHERE stage = 'neu'").get() as { n: number }).n
-
-  const recontact_due = db
-    .prepare(
-      `SELECT id, company, recontact_at FROM leads
-        WHERE recontact_at IS NOT NULL AND recontact_at <= ?
-          AND stage NOT IN ('gewonnen','verloren')
-        ORDER BY recontact_at ASC LIMIT 15`,
-    )
-    .all(t) as unknown as DigestFacts['recontact_due']
 
   const hot_leads = db
     .prepare(
@@ -57,7 +47,7 @@ export function gatherFacts(): DigestFacts {
     worst_days: overdueList.reduce((m, o) => Math.max(m, o.days_overdue), 0),
   }
 
-  return { new_leads, recontact_due, hot_leads, stale_leads, overdue }
+  return { new_leads, hot_leads, stale_leads, overdue }
 }
 
 export interface DigestPriority {
@@ -78,7 +68,7 @@ Du bist Vertriebs-Coach für OpenLeads. Du bekommst Kennzahlen des Tages und
 erstellst ein kurzes Tages-Briefing. Antworte AUSSCHLIESSLICH mit JSON:
 { "headline": string, "priorities": [ { "title": string, "why": string, "action": string } ] }
 Maximal 5 Prioritäten, die wichtigste zuerst. Konkret, auf Deutsch, ableitbar
-aus den Zahlen (überfällige Rechnungen und fällige Wiedervorlagen zuerst).
+aus den Zahlen (überfällige Rechnungen zuerst).
 ${COMPLIANCE_GUARDRAILS}
 `.trim()
 
@@ -90,12 +80,6 @@ function fallbackPriorities(f: DigestFacts): DigestPriority[] {
       title: `${f.overdue.count} überfällige Rechnung(en)`,
       why: `Bis zu ${f.overdue.worst_days} Tage überfällig.`,
       action: 'Offene Posten prüfen und Mahnungen erstellen.',
-    })
-  if (f.recontact_due.length > 0)
-    p.push({
-      title: `${f.recontact_due.length} Wiedervorlage(n) fällig`,
-      why: 'Geplante Kontakte sind heute oder überfällig.',
-      action: 'Leads mit fälliger Wiedervorlage kontaktieren.',
     })
   if (f.hot_leads.length > 0)
     p.push({
@@ -127,7 +111,7 @@ export async function buildDigest(): Promise<Digest> {
   } catch {
     return {
       facts,
-      headline: `Tages-Briefing — ${facts.overdue.count} überfällig, ${facts.recontact_due.length} Wiedervorlagen`,
+      headline: `Tages-Briefing — ${facts.overdue.count} überfällig`,
       priorities: fallbackPriorities(facts),
       ai: false,
     }

@@ -77,7 +77,7 @@ export function OpenItemsView() {
   return (
     <>
       <div className="toolbar">
-        <strong>Offene Posten</strong>
+        <span className="page-title">Offene Posten</span>
         {overdue && (
           <span className="user-chip">
             {overdue.length} {overdue.length === 1 ? 'überfällige Rechnung' : 'überfällige Rechnungen'}
