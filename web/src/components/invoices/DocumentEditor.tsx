@@ -78,6 +78,7 @@ export function DocumentEditor({
         client_zip: doc!.client_zip,
         client_city: doc!.client_city,
         client_email: doc!.client_email,
+        buyer_reference: doc!.buyer_reference,
         title: doc!.title,
         intro: doc!.intro,
         notes: doc!.notes,
@@ -255,6 +256,18 @@ export function DocumentEditor({
           <div className="field">
             <label>Ort</label>
             <input value={doc.client_city ?? ''} disabled={locked} onChange={(e) => field('client_city', e.target.value)} />
+          </div>
+        </div>
+        <div className="field">
+          <label>Käuferreferenz / Leitweg-ID</label>
+          <input
+            value={doc.buyer_reference ?? ''}
+            disabled={locked}
+            placeholder="z. B. 04011000-1234512345-06 (für Behörden/B2G)"
+            onChange={(e) => field('buyer_reference', e.target.value)}
+          />
+          <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+            Pflichtangabe für Rechnungen an öffentliche Auftraggeber (XRechnung).
           </div>
         </div>
       </fieldset>

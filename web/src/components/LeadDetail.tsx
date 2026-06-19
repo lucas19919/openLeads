@@ -77,6 +77,11 @@ export function LeadDetail({
   const [analyzing, setAnalyzing] = useState(false)
   const [analysisErr, setAnalysisErr] = useState<string | null>(null)
 
+  // Wiedervorlage-Vorschlag (KI)
+  const [planning, setPlanning] = useState(false)
+  const [planErr, setPlanErr] = useState<string | null>(null)
+  const [planMsg, setPlanMsg] = useState<string | null>(null)
+
   // Ansprache (Outreach)
   const [outreach, setOutreach] = useState<Outreach[]>([])
   const [drafting, setDrafting] = useState(false)
@@ -121,6 +126,28 @@ export function LeadDetail({
       setAnalysisErr(errMsg(e))
     } finally {
       setAnalyzing(false)
+    }
+  }
+
+  async function planFollowup() {
+    setPlanning(true)
+    setPlanErr(null)
+    setPlanMsg(null)
+    try {
+      const { suggestion } = await api.planFollowup(id, true)
+      setPlanMsg(
+        suggestion.recontact_at
+          ? `✓ Wiedervorlage: ${suggestion.recontact_at} — ${suggestion.reason}`
+          : suggestion.reason,
+      )
+      // Datum wurde gesetzt – Lead neu laden, damit das Feld aktualisiert wird.
+      const { lead } = await api.getLead(id)
+      setLead(lead)
+      onChanged(lead)
+    } catch (e) {
+      setPlanErr(errMsg(e))
+    } finally {
+      setPlanning(false)
     }
   }
 
@@ -362,10 +389,23 @@ export function LeadDetail({
                   <button className="primary" disabled={analyzing} onClick={runAnalysis}>
                     {analyzing ? 'Analysiere…' : 'Lead qualifizieren'}
                   </button>
+                  <button disabled={planning} onClick={planFollowup}>
+                    {planning ? 'Plane…' : 'Wiedervorlage vorschlagen'}
+                  </button>
                 </div>
                 {analysisErr && (
                   <div className="section-error" role="alert">
                     {analysisErr}
+                  </div>
+                )}
+                {planErr && (
+                  <div className="section-error" role="alert">
+                    {planErr}
+                  </div>
+                )}
+                {planMsg && (
+                  <div className="outreach-sent" role="status">
+                    {planMsg}
                   </div>
                 )}
                 {analysis && (
