@@ -8,7 +8,11 @@ import { analyzeLead, draftOutreach, draftInvoiceFromText } from './leadIntel'
 import { buildDigest } from './digest'
 import { reindexLeads, searchLeads } from './semantic'
 import { runAgent } from './agent'
+import { rateLimit } from '../ratelimit'
 import type { ChatMessage } from './types'
+
+// Cap free-text inputs so a single request can't blow up the model context.
+const MAX_INPUT = 8000
 
 type Vars = { user: { id: number; username: string; role: string } }
 type App = Hono<{ Variables: Vars }>
@@ -25,6 +29,11 @@ function leadOr404(c: Parameters<MiddlewareHandler>[0]): LeadRow | null {
 /** Mount all /api/ai/* routes. `auth` is the app's requireAuth middleware. */
 export function registerAiRoutes(app: App, auth: MiddlewareHandler): void {
   app.use('/api/ai/*', auth)
+  // Protect the expensive model endpoints: 30 requests/minute per user.
+  app.use(
+    '/api/ai/*',
+    rateLimit({ windowMs: 60_000, max: 30, key: (c) => String((c.get('user') as Vars['user'] | undefined)?.id ?? 'anon') }),
+  )
 
   // Status badge: is the model reachable, and does inference stay on-prem?
   app.get('/api/ai/status', async (c) => {
@@ -48,6 +57,7 @@ export function registerAiRoutes(app: App, auth: MiddlewareHandler): void {
     const b = (await c.req.json().catch(() => ({}))) as { thread_id?: number; message?: string }
     const text = (b.message ?? '').trim()
     if (!text) return c.json({ error: 'message fehlt' }, 400)
+    if (text.length > MAX_INPUT) return c.json({ error: 'Nachricht zu lang.' }, 413)
     const user = c.get('user')
 
     let threadId = b.thread_id
@@ -202,6 +212,7 @@ export function registerAiRoutes(app: App, auth: MiddlewareHandler): void {
     const b = (await c.req.json().catch(() => ({}))) as { text?: string; create?: boolean; lead_id?: number }
     const text = (b.text ?? '').trim()
     if (!text) return c.json({ error: 'text fehlt' }, 400)
+    if (text.length > MAX_INPUT) return c.json({ error: 'Text zu lang.' }, 413)
     try {
       const draft = await draftInvoiceFromText(text)
       if (!b.create) return c.json({ draft })
