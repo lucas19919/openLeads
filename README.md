@@ -1,55 +1,75 @@
 # OpenLeads
 
-A **self-hostable, AI-native suite for local web-agency / freelancer sales** —
-from finding a prospect to sending a compliant invoice. AI is not a bolt-on
-chatbot here: it **operates the product**. The modules, behind one login:
+A self-hosted sales tool for small web agencies and freelancers in Germany. It
+covers the whole path from finding a prospect to sending a proper invoice, and
+the AI can actually drive it — read and update the pipeline, draft outreach, turn
+a sentence into an invoice — rather than sitting in a chat box off to the side.
 
-- **KI-Cockpit** — a copilot that drives the whole suite through audited tools:
-  find and qualify leads, move pipeline stages, draft outreach, build invoices —
-  in plain German. Runs on **open-source models you self-host** (local Ollama by
-  default), so personal data never leaves your box.
-- **Leads** — an AI scraper finds local businesses with *outdated* websites,
-  scores how outdated they are, and drops them into a CRM pipeline (kanban +
-  table, stages, notes, callback dates, `.xlsx` import). Dedupes by domain.
-  Per-lead **AI qualification** and **outreach drafting** built in.
-- **Rechnungen** — build **Angebote** and **Rechnungen** with line items and
-  download a print-ready PDF. A finalised invoice is a **ZUGFeRD / Factur-X
-  e-invoice** (PDF/A-3 with embedded EN 16931 XML), Kleinunternehmer **§19 UStG**
-  aware, with gapless numbering and a built-in **EN 16931 validator**. Plus
-  natural-language invoicing (describe the job → draft).
-- **Scraper** — a control panel for the search raster (trades × towns), the
-  staleness threshold, and run limits, plus a status readout.
+It runs on open models you host yourself (a local Ollama by default), so customer
+data doesn't leave your machine.
 
-> The UI is **German** and the invoicing targets **German** tax rules
-> (§19 UStG, ZUGFeRD). It's built for the DACH market.
+The modules, behind one login:
 
-**DSGVO/UWG by construction:** self-hosted, on-prem AI inference, an append-only
-audit log, one-click data export (Art. 15/20) and erasure (Art. 17), a consent
-ledger, and an Art. 30 processing record. The AI never auto-sends — a human
-approves every outward message. See [`docs/AI.md`](docs/AI.md),
-[`docs/COMPLIANCE.md`](docs/COMPLIANCE.md), and the plan in [`ROADMAP.md`](ROADMAP.md).
+- **KI** — a copilot that operates the rest of the suite through the same audited
+  tools the UI uses: find and qualify leads, move pipeline stages, draft
+  outreach, build invoices, all in German.
+- **Leads** — a scraper finds local businesses with dated websites and scores how
+  dated they are, then drops them into a CRM pipeline (kanban + table, stages,
+  tags, notes, `.xlsx` import, dedupe by domain). Each lead can be qualified and
+  have outreach drafted by the AI.
+- **Rechnungen** — Angebote and Rechnungen with line items and a print-ready PDF.
+  A finalised invoice is a ZUGFeRD / Factur-X e-invoice (PDF/A-3 with embedded
+  EN 16931 XML), Kleinunternehmer (§19 UStG) aware, with gapless numbering and a
+  built-in EN 16931 validator. You can also describe a job in plain text and get
+  a draft.
+- **Offene Posten** — overdue invoices with one-click Mahnungen, §288 BGB
+  Verzugszinsen and the €40 Pauschale.
+- **Workflows** — routines you build yourself: pick which leads to act on, chain
+  a few steps (scrape, qualify, draft a mail, move stage, tag), and run them by
+  hand or on a schedule. Nothing outward-facing is ever sent automatically.
+- **Scraper** — a panel to tune the search raster (trades × towns), the staleness
+  threshold and the run limits, with a status readout. It identifies itself with
+  an honest bot User-Agent, respects `robots.txt`, throttles its requests, and
+  checks the CRM is reachable before spending on AI discovery.
+
+The UI is German and the invoicing follows German tax rules (§19 UStG, ZUGFeRD).
+It's built for the DACH market.
+
+On the compliance side: it's self-hosted, AI inference can stay local, there's an
+append-only audit log, one-click data export (Art. 15/20) and erasure (Art. 17),
+a consent ledger, and an Art. 30 processing record. The AI never sends anything
+on its own — a human approves every outgoing message. More detail in
+[`docs/AI.md`](docs/AI.md), [`docs/COMPLIANCE.md`](docs/COMPLIANCE.md) and
+[`ROADMAP.md`](ROADMAP.md).
 
 ## Why it exists
 
-Most small agencies pay for a CRM *and* an invoicing SaaS. OpenLeads is one
-self-hosted tool you own outright, with the lead → invoice flow joined up. It is
-intentionally dependency-light: it runs on Node's built-in SQLite (no native
-build step), a tiny Hono API, a Vite/React app, and pure-JS PDF generation.
+Most small agencies pay for a CRM *and* an invoicing SaaS and bridge the two by
+copy-paste. OpenLeads is one tool you host yourself, with the lead → invoice flow
+joined up. It's deliberately dependency-light: Node's built-in SQLite (no native
+build step), a small Hono API, a Vite/React app, and pure-JS PDF generation.
 
 ## Stack
 
-| Part      | Tech                                                              |
-|-----------|------------------------------------------------------------------|
-| `api/`    | [Hono](https://hono.dev) + Node built-in SQLite (`node:sqlite`)  |
-| `web/`    | React 19 + Vite (vanilla CSS)                                     |
-| `scraper/`| Node + `@anthropic-ai/sdk` (Claude web search)                   |
-| **AI core** | OpenAI-compatible (`fetch`) → **Ollama / vLLM**, open models, on-prem |
-| PDF       | `pdfkit` → PDF/A-3 + Factur-X (no native deps)                    |
-| Auth      | scrypt password hash + HMAC signed-cookie sessions (no deps)     |
+| Part        | Tech                                                              |
+|-------------|------------------------------------------------------------------|
+| `api/`      | [Hono](https://hono.dev) + Node built-in SQLite (`node:sqlite`)  |
+| `web/`      | React 19 + Vite (vanilla CSS)                                     |
+| `scraper/`  | Node + `@anthropic-ai/sdk` (Claude web search)                   |
+| AI core     | OpenAI-compatible (`fetch`) → Ollama / vLLM, open models, on-prem |
+| PDF         | `pdfkit` → PDF/A-3 + Factur-X (no native deps)                    |
+| Auth        | scrypt password hash + HMAC signed-cookie sessions (no deps)     |
 
 ## Quick start (development)
 
-Requires **Node 22.5+** (for `node:sqlite`); Node 24 recommended.
+Needs Node 22.5+ (for `node:sqlite`); Node 24 is what I run.
+
+If you use Claude Code, there's a bundled setup skill — open the project and ask
+it to *"set up OpenLeads"* (or invoke `setup-openleads`). It checks your Node
+version, generates the secrets, writes the `.env` files, seeds a login, optionally
+wires up the scraper and a local Ollama, then starts and checks the dev servers.
+The steps below are the same thing by hand. See
+[`.claude/skills/setup-openleads/SKILL.md`](.claude/skills/setup-openleads/SKILL.md).
 
 ```bash
 # 1) API  (http://127.0.0.1:8787)
@@ -59,7 +79,7 @@ cp .env.example .env          # set SESSION_SECRET + SERVICE_TOKEN
 npm run seed -- <user> <pw>   # create the login
 npm run dev
 
-# 2) Web  (http://127.0.0.1:5180, proxies /api to the API)
+# 2) Web  (http://127.0.0.1:5173, proxies /api to the API)
 cd ../web
 npm install
 npm run dev
@@ -72,37 +92,41 @@ npm run dry-run               # offline fixtures (no Claude / network)
 npm start                     # live run
 ```
 
-`node:sqlite` prints an `ExperimentalWarning` on boot — that's expected.
+`node:sqlite` prints an `ExperimentalWarning` on boot. That's expected; ignore it.
 
 ## Configuration
 
-| Variable          | Where       | Purpose                                          |
-|-------------------|-------------|--------------------------------------------------|
-| `SESSION_SECRET`  | api         | signs session cookies (long random string)       |
-| `SERVICE_TOKEN`   | api+scraper | bearer token the scraper uses to post leads      |
-| `ANTHROPIC_API_KEY` | scraper   | Claude API key for discovery / scoring           |
-| `DB_PATH`         | api         | SQLite file location (default `./data/leads.db`) |
-| `WEB_ORIGIN`      | api         | CORS origin in dev                               |
+| Variable            | Where       | Purpose                                          |
+|---------------------|-------------|--------------------------------------------------|
+| `SESSION_SECRET`    | api         | signs session cookies (long random string)       |
+| `SERVICE_TOKEN`     | api+scraper | bearer token the scraper uses to post leads      |
+| `ANTHROPIC_API_KEY` | scraper     | Claude API key for discovery / scoring           |
+| `SCRAPER_REGION`    | scraper     | region phrase in the discovery prompt — match your towns (default `Großraum München`) |
+| `DB_PATH`           | api         | SQLite file location (default `./data/leads.db`)  |
+| `WEB_ORIGIN`        | api         | CORS origin in dev                               |
 
-The scraper's search raster, staleness threshold and run limits are edited in
-the **Scraper** tab and stored in the DB; the scraper reads them at the start of
-each live run (CLI flags > saved config > built-in defaults).
+The scraper's search raster, staleness threshold and run limits are edited in the
+Scraper tab and stored in the DB; the scraper reads them at the start of each live
+run (CLI flags > saved config > built-in defaults). If you scan outside Munich,
+set `SCRAPER_REGION` (or `--region`) to match — the discovery prompt is anchored
+to it. More politeness/cost knobs are in [`scraper/.env.example`](scraper/.env.example).
 
 ## Deployment
 
 One Docker image holds the built web app, the API that serves it, and the
-scraper. See [deploy/DEPLOY.md](deploy/DEPLOY.md) for an nginx + Docker Compose
-walkthrough. The SQLite DB lives in a named volume so it survives image updates.
+scraper. [deploy/DEPLOY.md](deploy/DEPLOY.md) walks through an nginx + Docker
+Compose setup. The SQLite DB lives in a named volume so it survives image updates.
 
 ## e-Invoices (ZUGFeRD / Factur-X)
 
-A finalised Rechnung embeds the structured **EN 16931** Cross Industry Invoice
-XML (`factur-x.xml`) into a **PDF/A-3**, so tools like lexoffice / sevDesk /
-DATEV read the line items and totals automatically. Kleinunternehmer invoices
-use tax category `E` (§19); others category `S` at the configured rate.
+A finalised Rechnung embeds the structured EN 16931 Cross Industry Invoice XML
+(`factur-x.xml`) into a PDF/A-3, so tools like lexoffice / sevDesk / DATEV pick up
+the line items and totals on their own. Kleinunternehmer invoices use tax category
+`E` (§19); everything else is category `S` at the configured rate.
 
-> ⚠️ Validate output with the official ZUGFeRD validator / Mustang / veraPDF
-> before relying on it for tax purposes. The targeted profile is EN 16931.
+One caveat worth taking seriously: validate the output with the official ZUGFeRD
+validator / Mustang / veraPDF before you rely on it for tax purposes. The target
+profile is EN 16931.
 
 ## License
 
@@ -110,6 +134,6 @@ use tax category `E` (§19); others category `S` at the configured rate.
 
 ## Disclaimer
 
-OpenLeads is provided as-is. It is **not** tax or legal advice; verify invoice
-output and your bookkeeping obligations with your Steuerberater. When scraping,
-respect the law and target websites' terms.
+OpenLeads is provided as-is. It is not tax or legal advice — check invoice output
+and your bookkeeping obligations with your Steuerberater. When scraping, respect
+the law and the target sites' terms.

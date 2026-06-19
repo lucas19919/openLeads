@@ -135,13 +135,71 @@ export interface WorkflowRun {
   finished_at: string | null
 }
 
-export interface WorkflowSummary {
-  key: string
+export interface LeadTarget {
+  stage?: string | null
+  tag?: string | null
+  min_score?: number | null
+  qualification?: string | null
+  unanalyzed?: boolean
+  no_outreach?: boolean
+  dormant?: boolean
+  order?: 'score' | 'oldest' | 'newest'
+  limit?: number
+}
+
+export interface WorkflowStepDef {
+  action: string
+  params: Record<string, unknown>
+}
+
+export interface WorkflowSchedule {
+  kind: 'off' | 'hourly' | 'daily' | 'weekly'
+  time: string | null
+  weekday: number | null
+  enabled: boolean
+  last_run_at: string | null
+  next_run_at: string | null
+}
+
+export interface Workflow {
+  id: number
   name: string
-  description: string
-  trigger: string
+  description: string | null
+  target: LeadTarget
+  steps: WorkflowStepDef[]
+  schedule: WorkflowSchedule
   eligible: number
   last_run: WorkflowRun | null
+}
+
+export interface ActionParamSpec {
+  key: string
+  label: string
+  type: 'enum' | 'stage' | 'priority' | 'text'
+  options?: string[]
+  default?: string
+}
+
+export interface ActionSpec {
+  action: string
+  label: string
+  description: string
+  scope: 'global' | 'lead'
+  params: ActionParamSpec[]
+}
+
+// What the builder sends when creating/updating a routine.
+export interface WorkflowInput {
+  name: string
+  description?: string | null
+  target: LeadTarget
+  steps: WorkflowStepDef[]
+  schedule: {
+    kind: 'off' | 'hourly' | 'daily' | 'weekly'
+    time?: string | null
+    weekday?: number | null
+    enabled: boolean
+  }
 }
 
 export interface DocItem {
@@ -296,6 +354,13 @@ export interface AiThread {
   title: string | null
   created_at: string
   updated_at: string
+}
+
+export interface ThreadMessage {
+  role: 'user' | 'assistant' | 'tool' | 'system'
+  content: string
+  tool_calls: string | null // JSON: { tool, args }[]
+  created_at: string
 }
 
 export interface DigestPriority {

@@ -1,21 +1,23 @@
 import './env'
 import Anthropic from '@anthropic-ai/sdk'
-import { MODEL, DIRECTORY_BLOCKLIST, type Candidate } from './config'
+import { MODEL, REGION, WEB_SEARCH_MAX_USES, DIRECTORY_BLOCKLIST, type Candidate } from './config'
 
 const client = new Anthropic() // reads ANTHROPIC_API_KEY
 
 // Anthropic-hosted web search tool (GA, supports dynamic filtering on Sonnet 4.6).
-const WEB_SEARCH = { type: 'web_search_20260209', name: 'web_search' }
+// max_uses caps searches per call so a discovery run can't spend unbounded.
+const WEB_SEARCH = { type: 'web_search_20260209', name: 'web_search', max_uses: WEB_SEARCH_MAX_USES }
 
 /** Use Sonnet + web search to find real local business homepages for a trade/town. */
 export async function discoverCandidates(
   trade: string,
   town: string,
   limit: number,
+  region: string = REGION,
 ): Promise<Candidate[]> {
   const prompt =
     `Finde bis zu ${limit} lokale Handwerksbetriebe im Bereich "${trade}" in oder um ${town} ` +
-    `(Großraum München), die eine EIGENE Firmen-Website haben. ` +
+    `(${region}), die eine EIGENE Firmen-Website haben. ` +
     `Keine Verzeichnisse/Portale, kein Facebook/Instagram/Google-Profil. ` +
     `Nutze die Websuche; bevorzuge kleine, inhabergeführte Betriebe.\n\n` +
     `Gib AUSSCHLIESSLICH am Ende ein JSON-Array in einem \`\`\`json Codeblock zurück, ` +
@@ -48,7 +50,7 @@ export async function discoverCandidates(
 }
 
 function extractJsonArray(text: string): string | null {
-  const fence = text.match(/```json\s*([\s\S]*?)```/i)
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i)
   if (fence) return fence[1].trim()
   const start = text.indexOf('[')
   const end = text.lastIndexOf(']')

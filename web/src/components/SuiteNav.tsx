@@ -6,7 +6,7 @@ import { AiBadge } from './ai/CopilotView'
 export type Module = 'copilot' | 'leads' | 'documents' | 'offene' | 'workflows' | 'settings'
 
 const TABS: { id: Module; label: string }[] = [
-  { id: 'copilot', label: 'KI' },
+  { id: 'copilot', label: 'Chat' },
   { id: 'leads', label: 'Leads' },
   { id: 'documents', label: 'Rechnungen' },
   { id: 'offene', label: 'Offene Posten' },

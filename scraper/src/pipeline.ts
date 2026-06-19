@@ -32,7 +32,7 @@ export async function processCandidate(
   if (s.score < minScore) return null
 
   const contact =
-    cand.html !== undefined ? extractContact(html) : await enrichContact(finalUrl)
+    cand.html !== undefined ? extractContact(html) : await enrichContact(finalUrl, html)
   const priority = priorityFromScore(s.score)
 
   const result = await postLead({
@@ -66,11 +66,12 @@ export async function runPair(
   town: string,
   limit: number,
   minScore: number = MIN_SCORE,
+  region?: string,
 ): Promise<PairSummary> {
   const summary: PairSummary = { posted: 0, deduped: 0, skipped: 0 }
   let candidates: Candidate[]
   try {
-    candidates = await discoverCandidates(trade, town, limit)
+    candidates = await discoverCandidates(trade, town, limit, region)
   } catch (e) {
     console.log(`  ! Discovery fehlgeschlagen: ${(e as Error).message}`)
     return summary

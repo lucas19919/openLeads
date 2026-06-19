@@ -6,6 +6,18 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "D:/Repos/memory-ai/web", "run", "dev"],
       "port": 5174
+    },
+    {
+      "name": "openleads-api",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "D:/Repos/openleads/api", "run", "dev"],
+      "port": 8787
+    },
+    {
+      "name": "openleads-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "D:/Repos/openleads/web", "run", "dev"],
+      "port": 5173
     }
   ]
 }

@@ -39,9 +39,36 @@ export async function fetchScraperConfig(): Promise<RemoteScraperConfig | null> 
   }
 }
 
-// Browser-like UA so old sites serve their real markup (matches lead-gen workflow).
+// Identifiable, honest bot UA by default — an open-source tool shouldn't pretend
+// to be a browser. Operators can override with SCRAPER_USER_AGENT (e.g. a browser
+// string) for a specific site that serves degraded markup to bots; that's the
+// operator's call, not the default.
 export const USER_AGENT =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
+  process.env.SCRAPER_USER_AGENT ??
+  'OpenLeadsBot/1.0 (+https://github.com/lucas19919/openleads; self-hosted lead finder)'
+
+// Region phrase injected into the discovery prompt. MUST stay consistent with the
+// configured TOWNS, or discovery is anchored to the wrong area. `--region` and
+// SCRAPER_REGION override it.
+export const REGION = process.env.SCRAPER_REGION ?? 'Großraum München'
+
+// Politeness / safety knobs for site fetching.
+export const FETCH_TIMEOUT_MS = Number(process.env.SCRAPER_FETCH_TIMEOUT_MS ?? 12000)
+export const MAX_HTML_BYTES = Number(process.env.SCRAPER_MAX_HTML_BYTES ?? 2_000_000)
+export const POLITE_DELAY_MS = Number(process.env.SCRAPER_POLITE_DELAY_MS ?? 800)
+export const RESPECT_ROBOTS =
+  (process.env.SCRAPER_RESPECT_ROBOTS ?? 'true').toLowerCase() !== 'false'
+
+// Cap on Anthropic web_search tool uses per discovery call (cost guard).
+export const WEB_SEARCH_MAX_USES = Number(process.env.SCRAPER_WEB_SEARCH_MAX_USES ?? 5)
+
+// A homepage whose copyright year is older than (current year − this) counts as
+// stale. Expressed relative to "now" so the heuristic doesn't silently rot as
+// the calendar advances.
+export const STALE_BEFORE_YEARS = Number(process.env.SCRAPER_STALE_YEARS ?? 8)
+export function staleCopyrightCutoff(now: Date = new Date()): number {
+  return now.getUTCFullYear() - STALE_BEFORE_YEARS
+}
 
 // Munich-area trades worth a static rebuild.
 export const TRADES = (process.env.SCRAPER_TRADES?.split(',').map((s) => s.trim())) ?? [

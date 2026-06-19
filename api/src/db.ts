@@ -220,7 +220,7 @@ CREATE TABLE IF NOT EXISTS consent (
 );
 CREATE INDEX IF NOT EXISTS idx_consent_lead ON consent(lead_id);
 
--- Copilot conversation threads + messages (the AI cockpit's memory).
+-- Copilot conversation threads + messages (the Chat's memory).
 CREATE TABLE IF NOT EXISTS ai_threads (
   id         INTEGER PRIMARY KEY,
   title      TEXT,
@@ -262,12 +262,33 @@ CREATE TABLE IF NOT EXISTS lead_embeddings (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- A saved, user-defined routine: a target (which leads to act on) plus an
+-- ordered list of agent steps, optionally on a recurring schedule. The engine
+-- in workflows.ts resolves the target and applies the steps; anything
+-- outward-facing (an outreach draft) still lands in the approval queue.
+CREATE TABLE IF NOT EXISTS workflows (
+  id               INTEGER PRIMARY KEY,
+  name             TEXT NOT NULL,
+  description      TEXT,
+  target           TEXT NOT NULL DEFAULT '{}',         -- JSON: lead selector
+  steps            TEXT NOT NULL DEFAULT '[]',         -- JSON: [{ action, params }]
+  schedule_kind    TEXT NOT NULL DEFAULT 'off',        -- off | hourly | daily | weekly
+  schedule_time    TEXT,                               -- 'HH:MM' (daily/weekly)
+  schedule_weekday INTEGER,                            -- 0..6 (Sun..Sat), weekly only
+  enabled          INTEGER NOT NULL DEFAULT 0,         -- schedule active?
+  last_run_at      TEXT,
+  next_run_at      TEXT,                               -- ISO instant the scheduler fires next
+  created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_workflows_due ON workflows(enabled, next_run_at);
+
 -- One row per execution of a Workflow (an ordered run of audited agent tools
 -- over a resolved set of leads). The trail is the same shape the copilot shows,
--- so a run stays inspectable. Definitions themselves live in code (workflows.ts).
+-- so a run stays inspectable. workflow_key holds the workflow's id (as text).
 CREATE TABLE IF NOT EXISTS workflow_runs (
   id            INTEGER PRIMARY KEY,
-  workflow_key  TEXT NOT NULL,                       -- e.g. 'qualify-new'
+  workflow_key  TEXT NOT NULL,                       -- the workflow id, as text
   status        TEXT NOT NULL DEFAULT 'running',     -- running | ok | error
   trigger       TEXT NOT NULL DEFAULT 'manual',      -- manual | schedule
   targets       INTEGER NOT NULL DEFAULT 0,          -- entities acted on
@@ -571,6 +592,22 @@ export interface WorkflowRunRow {
   actor: string | null
   started_at: string
   finished_at: string | null
+}
+
+export interface WorkflowRow {
+  id: number
+  name: string
+  description: string | null
+  target: string // JSON
+  steps: string // JSON
+  schedule_kind: string
+  schedule_time: string | null
+  schedule_weekday: number | null
+  enabled: number
+  last_run_at: string | null
+  next_run_at: string | null
+  created_at: string
+  updated_at: string
 }
 
 /** Normalise a URL or hostname to a bare registrable-ish domain for dedupe. */

@@ -1,4 +1,4 @@
-import { SCORE_WEIGHTS } from './config'
+import { SCORE_WEIGHTS, staleCopyrightCutoff } from './config'
 
 export interface ScoreResult {
   score: number
@@ -49,12 +49,13 @@ export function scoreSite(html: string, finalUrl: string): ScoreResult {
   }
 
   let copyrightYear: number | null = null
+  const cutoff = staleCopyrightCutoff()
   const years = [...h.matchAll(/(?:©|&copy;|copyright)\s*[^0-9]{0,8}((?:19|20)\d{2})/g)].map((m) =>
     Number(m[1]),
   )
   if (years.length) {
     copyrightYear = Math.max(...years)
-    if (copyrightYear <= 2017) {
+    if (copyrightYear <= cutoff) {
       score += SCORE_WEIGHTS.oldCopyright
       signals.push(`Copyright ${copyrightYear}`)
     }
@@ -84,7 +85,8 @@ export function scoreSite(html: string, finalUrl: string): ScoreResult {
 export function buildWhy(s: ScoreResult): string {
   const reasons: string[] = []
   if (!s.mobileFriendly) reasons.push('nicht mobiltauglich')
-  if (s.copyrightYear && s.copyrightYear <= 2017) reasons.push(`Stand ~${s.copyrightYear}`)
+  if (s.copyrightYear && s.copyrightYear <= staleCopyrightCutoff())
+    reasons.push(`Stand ~${s.copyrightYear}`)
   if (s.tech) reasons.push(`Technik: ${s.tech}`)
   return reasons.join(', ') || 'veraltete Website'
 }

@@ -59,7 +59,7 @@ export default function App() {
         />
       )}
       {module === 'offene' && <OpenItemsView />}
-      {module === 'workflows' && <WorkflowsView />}
+      {module === 'workflows' && <WorkflowsView config={config!} />}
       {module === 'settings' && <SettingsView />}
     </div>
   )

@@ -18,10 +18,13 @@ import type {
   SemanticHit,
   ScraperStatus,
   Settings,
+  ThreadMessage,
   User,
   ValidationResult,
+  ActionSpec,
+  Workflow,
+  WorkflowInput,
   WorkflowRun,
-  WorkflowSummary,
 } from './types'
 
 class ApiError extends Error {
@@ -175,15 +178,21 @@ export const api = {
   scraperConfig: () => req<ScraperConfig>('/scraper/config'),
   scraperStatus: () => req<ScraperStatus>('/scraper/status'),
 
-  // --- workflows ---
-  listWorkflows: () => req<{ workflows: WorkflowSummary[] }>('/workflows'),
-  runWorkflow: (key: string, limit?: number) =>
-    req<{ run: WorkflowRun }>(`/workflows/${key}/run`, {
+  // --- workflows (routines) ---
+  listWorkflows: () => req<{ workflows: Workflow[]; actions: ActionSpec[] }>('/workflows'),
+  createWorkflow: (body: WorkflowInput) =>
+    req<{ workflow: Workflow }>('/workflows', { method: 'POST', body: JSON.stringify(body) }),
+  updateWorkflow: (id: number, body: Partial<WorkflowInput>) =>
+    req<{ workflow: Workflow }>(`/workflows/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteWorkflow: (id: number) =>
+    req<{ ok: true }>(`/workflows/${id}`, { method: 'DELETE' }),
+  runWorkflow: (id: number, limit?: number) =>
+    req<{ run: WorkflowRun }>(`/workflows/${id}/run`, {
       method: 'POST',
       body: JSON.stringify({ limit }),
     }),
-  workflowRuns: (key: string) =>
-    req<{ runs: WorkflowRun[] }>(`/workflows/runs?key=${encodeURIComponent(key)}`),
+  workflowRuns: (id: number) =>
+    req<{ runs: WorkflowRun[] }>(`/workflows/runs?key=${id}`),
 
   // --- AI core ---
   aiStatus: () => req<AiStatus>('/ai/status'),
@@ -199,6 +208,8 @@ export const api = {
       body: JSON.stringify({ message, thread_id }),
     }),
   aiThreads: () => req<{ threads: AiThread[] }>('/ai/threads'),
+  aiThread: (id: number) =>
+    req<{ thread: AiThread; messages: ThreadMessage[] }>(`/ai/threads/${id}`),
   analyzeLead: (id: number) =>
     req<{ analysis: LeadAnalysis }>(`/ai/leads/${id}/analyze`, { method: 'POST' }),
   draftOutreach: (id: number, channel: 'email' | 'letter' | 'call_script' = 'email') =>
