@@ -6,6 +6,8 @@ export function SettingsView() {
   const [s, setS] = useState<Settings | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [exportFrom, setExportFrom] = useState('')
+  const [exportTo, setExportTo] = useState('')
 
   useEffect(() => {
     api.getSettings().then(({ settings }) => setS(settings))
@@ -162,6 +164,33 @@ export function SettingsView() {
                 />
               </div>
             </div>
+            <div className="field">
+              <label>Verzugszins-Basiszinssatz (%)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={s.verzug_base_rate ?? ''}
+                onChange={(e) => set('verzug_base_rate', Number(e.target.value))}
+              />
+            </div>
+            <div className="row2">
+              <div className="field">
+                <label>DATEV Erlöskonto</label>
+                <input
+                  value={s.datev_revenue_account ?? ''}
+                  placeholder="8400 / 8200 (§19)"
+                  onChange={(e) => set('datev_revenue_account', e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label>DATEV Debitorenkonto</label>
+                <input
+                  value={s.datev_debitor_account ?? ''}
+                  placeholder="10000"
+                  onChange={(e) => set('datev_debitor_account', e.target.value)}
+                />
+              </div>
+            </div>
           </fieldset>
 
           <fieldset className="doc-block">
@@ -173,6 +202,48 @@ export function SettingsView() {
             <a className="backup-link" href={api.backupUrl()} download>
               Backup herunterladen (.db)
             </a>
+          </fieldset>
+
+          <fieldset className="doc-block">
+            <legend>Steuerberater-Export</legend>
+            <p className="settings-hint">
+              GoBD-konformes Rechnungsjournal bzw. DATEV-Buchungsstapel für den Steuerberater;
+              Zeitraum optional.
+            </p>
+            <div className="row2">
+              <div className="field">
+                <label>Von</label>
+                <input
+                  type="date"
+                  value={exportFrom}
+                  onChange={(e) => setExportFrom(e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label>Bis</label>
+                <input
+                  type="date"
+                  value={exportTo}
+                  onChange={(e) => setExportTo(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="export-links">
+              <a
+                className="backup-link"
+                href={api.exportInvoicesUrl(exportFrom || undefined, exportTo || undefined)}
+                download
+              >
+                Rechnungsjournal (CSV)
+              </a>
+              <a
+                className="backup-link"
+                href={api.exportDatevUrl(exportFrom || undefined, exportTo || undefined)}
+                download
+              >
+                DATEV-Buchungen (CSV)
+              </a>
+            </div>
           </fieldset>
         </div>
       </div>
