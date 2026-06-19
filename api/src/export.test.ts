@@ -50,3 +50,11 @@ test('CSV escapes a customer name containing a semicolon', () => {
   const csv = invoicesCsv([inv({ client_name: 'Müller; Söhne GmbH' })])
   assert.match(csv, /"Müller; Söhne GmbH"/)
 })
+
+test('CSV neutralises spreadsheet formula injection', () => {
+  const csv = invoicesCsv([inv({ client_name: '=cmd|calc!A1' })])
+  // The dangerous leading '=' is prefixed with an apostrophe (and the cell is
+  // not emitted as a live formula).
+  assert.match(csv, /;'=cmd\|calc!A1;|"'=cmd\|calc!A1"/)
+  assert.doesNotMatch(csv, /;=cmd/)
+})

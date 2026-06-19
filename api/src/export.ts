@@ -11,7 +11,11 @@ import { getDocument, getSettings, type FullDocument } from './documents'
 // German conventions throughout: semicolon-separated, comma decimals, DD.MM.YYYY.
 
 function csvCell(v: string | number | null | undefined): string {
-  const s = v == null ? '' : String(v)
+  let s = v == null ? '' : String(v)
+  // Neutralise spreadsheet formula injection: a cell a tool like Excel would
+  // interpret as a formula (=, +, -, @, or a leading tab/CR) gets a leading
+  // apostrophe so it is rendered as literal text.
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`
   // Quote when the cell contains the delimiter, quotes or a newline.
   if (/[";\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`
   return s
