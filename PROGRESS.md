@@ -31,13 +31,18 @@ AI-native German leads + Rechnungen tool. Branch: `claude/openleads-repo-setup-z
 - **Tests + CI**: 16 Node-test unit tests (totals, validator, dunning, Factur-X);
   CI runs `npm test` for api. ✅
 
+## Also done & verified (pushed)
+- **Semantic lead search** (`/api/ai/leads/search`, local embeddings + cosine,
+  SQL fallback offline). Verified ranking against a mock embedder. ✅
+- **Gated SMTP send** (`/api/ai/outreach/:id/send`): only status=freigegeben,
+  Impressum + opt-out auto-appended, audited. 5 composition tests. ✅
+
 ## Next queue (in priority order)
-1. **Semantic lead search**: local embeddings (OpenAI-compatible /embeddings),
-   cosine ranking; `/api/ai/leads/search` + UI hook. Degrade gracefully offline.
-2. **SMTP send** for approved outreach (gated behind status=freigegeben, opt-out
-   footer, fully audited). `nodemailer`-free (Node net/tls) or document SMTP env.
-3. **XRechnung** profile note + deeper validation (BR-DE rules) for B2G.
-4. Mahnung **PDF** (reuse pdfkit) for a printable notice.
+1. **Mahnung PDF** (reuse pdfkit) + endpoint.
+2. **XRechnung / BR-DE** validation specifics (warnings) + profile note.
+3. **UI polish**: outreach "Senden" button (LeadDetail), semantic "KI-Suche" box
+   (LeadsView), reindex trigger.
+4. Smoke-test full HTTP boot (login → create → finalize → validate → backup).
 
 ## Conventions
 Dependency-light (Node built-ins + fetch). German UI. Strict TS. Money in cents.
