@@ -25,15 +25,19 @@ AI-native German leads + Rechnungen tool. Branch: `claude/openleads-repo-setup-z
 - **Dunning (Mahnwesen)**: overdue detection, Mahnstufen, §288 BGB Verzugszinsen
   + €40 Pauschale; endpoints + table + client. Interest math unit-verified. ✅
 
+## Also done & verified (pushed)
+- **Mahnwesen UI** ("Offene Posten" tab): overdue worklist + one-click Mahnung. ✅
+- **AI daily digest** (`/api/ai/digest`) + KI-Cockpit "Tages-Briefing". ✅
+- **Tests + CI**: 16 Node-test unit tests (totals, validator, dunning, Factur-X);
+  CI runs `npm test` for api. ✅
+
 ## Next queue (in priority order)
-1. **Mahnwesen UI**: an "Offene Posten" view listing overdue invoices with
-   one-click Mahnung (uses api.overdueInvoices/previewDunning/raiseDunning).
-2. **AI daily digest** endpoint: prioritised next actions from pipeline +
-   recontact dates + overdue invoices (`/api/ai/digest`).
-3. **Semantic lead search**: local embeddings (OpenAI-compatible /embeddings).
-4. **SMTP send** for approved outreach (gated, opt-out tracked, audited).
-5. **XRechnung** profile for B2G + Schematron-style deeper validation.
-6. Tests (vitest) for validate/facturx/dunning/agent; CI step to run them.
+1. **Semantic lead search**: local embeddings (OpenAI-compatible /embeddings),
+   cosine ranking; `/api/ai/leads/search` + UI hook. Degrade gracefully offline.
+2. **SMTP send** for approved outreach (gated behind status=freigegeben, opt-out
+   footer, fully audited). `nodemailer`-free (Node net/tls) or document SMTP env.
+3. **XRechnung** profile note + deeper validation (BR-DE rules) for B2G.
+4. Mahnung **PDF** (reuse pdfkit) for a printable notice.
 
 ## Conventions
 Dependency-light (Node built-ins + fetch). German UI. Strict TS. Money in cents.
