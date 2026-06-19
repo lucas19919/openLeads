@@ -32,6 +32,7 @@ import {
   type DocItemInput,
 } from './documents'
 import { renderDocumentPdf, pdfFilename } from './pdf'
+import { renderMahnungPdf, mahnungPdfFilename } from './mahnungPdf'
 import { validateInvoice } from './validate'
 import { listOverdue, computeDunning, levelLabel } from './dunning'
 import { snapshot, snapshotFilename } from './backup'
@@ -501,6 +502,20 @@ app.post('/api/documents/:id/dunning', requireAuth, async (c) => {
   audit({ actor: c.get('user').username, action: 'invoice.dunning', entity: 'document', entityId: doc.id, detail: { level: d.suggested_level, total_claim_cents: d.total_claim_cents } })
   const row = db.prepare('SELECT * FROM mahnungen WHERE id = ?').get(Number(info.lastInsertRowid))
   return c.json({ mahnung: row, computation: d, label: levelLabel(d.suggested_level) }, 201)
+})
+
+// Download a Mahnung (dunning notice) for an invoice as a PDF.
+app.get('/api/documents/:id/dunning/pdf', requireAuth, async (c) => {
+  const doc = getDocument(Number(c.req.param('id')))
+  if (!doc || doc.kind !== 'rechnung' || !doc.number) return c.json({ error: 'not found' }, 404)
+  const level = c.req.query('level') != null ? Number(c.req.query('level')) : undefined
+  const s = getSettings()
+  const comp = computeDunning(doc, s, level)
+  const lvl = level ?? comp.suggested_level
+  const buf = await renderMahnungPdf(doc, s, comp, lvl)
+  c.header('Content-Type', 'application/pdf')
+  c.header('Content-Disposition', `inline; filename="${mahnungPdfFilename(doc, lvl)}"`)
+  return c.body(buf as unknown as ArrayBuffer)
 })
 
 // Convert an Angebot into a draft Rechnung (copies client + items).

@@ -19,6 +19,8 @@ export interface ValidationResult {
   checked_at: string
   errors: Finding[]
   warnings: Finding[]
+  /** Informational notes (e.g. what would be needed for B2G/XRechnung). */
+  notes: Finding[]
 }
 
 const DE_VAT = /^DE\d{9}$/i
@@ -26,8 +28,10 @@ const DE_VAT = /^DE\d{9}$/i
 export function validateInvoice(doc: FullDocument, s: SettingsRow): ValidationResult {
   const errors: Finding[] = []
   const warnings: Finding[] = []
+  const notes: Finding[] = []
   const err = (rule: string, message: string) => errors.push({ rule, message })
   const warn = (rule: string, message: string) => warnings.push({ rule, message })
+  const note = (rule: string, message: string) => notes.push({ rule, message })
 
   if (doc.kind !== 'rechnung') {
     err('OL-KIND', 'Nur Rechnungen sind e-rechnungsfähig (kind muss „rechnung“ sein).')
@@ -96,6 +100,23 @@ export function validateInvoice(doc: FullDocument, s: SettingsRow): ValidationRe
     err('OL-DUE', 'Fälligkeitsdatum liegt vor dem Rechnungsdatum.')
   }
 
+  // --- German specifics (XRechnung / BR-DE) ------------------------------
+  // XRechnung (the B2G profile, mandatory toward public authorities) layers
+  // national rules on top of EN 16931. These are surfaced as warnings/notes so
+  // a B2B invoice still validates, while flagging what a B2G invoice needs.
+  if (!s.email && !s.phone) {
+    warn('BR-DE-2/3', 'XRechnung verlangt eine Kontaktstelle des Verkäufers (E-Mail oder Telefon).')
+  }
+  if (!s.email) warn('BR-DE-5', 'E-Mail-Adresse des Verkäufers fehlt (für XRechnung erforderlich).')
+  if (!doc.due_date) {
+    warn('BR-DE-FÄLLIG', 'Kein Fälligkeitsdatum/Zahlungsbedingung angegeben (BR-DE-17 verlangt eine Angabe).')
+  }
+  note(
+    'XRECHNUNG',
+    'Für Rechnungen an öffentliche Auftraggeber (B2G) ist das XRechnung-Profil mit ' +
+      'Leitweg-ID (BT-10 Käuferreferenz) verpflichtend — dieses Feld erfasst OpenLeads aktuell nicht.',
+  )
+
   // --- the XML must at least build ---
   try {
     const xml = buildFacturXXml(doc, s)
@@ -110,5 +131,6 @@ export function validateInvoice(doc: FullDocument, s: SettingsRow): ValidationRe
     checked_at: new Date().toISOString(),
     errors,
     warnings,
+    notes,
   }
 }

@@ -63,3 +63,11 @@ test('arithmetic mismatch is caught (BR-CO-10)', () => {
   const r = validateInvoice(doc, settings())
   assert.ok(r.errors.some((e) => e.rule === 'BR-CO-10'))
 })
+
+test('XRechnung/BR-DE: missing seller contact warns, B2G note always present', () => {
+  const r = validateInvoice(invoice(), settings({ email: null, phone: null }))
+  assert.ok(r.warnings.some((w) => w.rule === 'BR-DE-2/3'))
+  assert.ok(r.notes.some((n) => n.rule === 'XRECHNUNG'))
+  // German specifics are warnings/notes only — the B2B invoice stays valid.
+  assert.equal(r.errors.length, 0)
+})
