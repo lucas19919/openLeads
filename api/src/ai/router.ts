@@ -5,6 +5,7 @@ import { audit } from '../audit'
 import { probe, AI, isLocalInference, AIError } from './provider'
 import { analyzeLead, draftOutreach, draftInvoiceFromText } from './leadIntel'
 import { buildDigest } from './digest'
+import { reindexLeads, searchLeads } from './semantic'
 import { runAgent } from './agent'
 import type { ChatMessage } from './types'
 
@@ -88,6 +89,37 @@ export function registerAiRoutes(app: App, auth: MiddlewareHandler): void {
     if (!thread) return c.json({ error: 'not found' }, 404)
     const messages = db.prepare('SELECT role, content, tool_calls, created_at FROM ai_messages WHERE thread_id = ? ORDER BY id').all(id)
     return c.json({ thread, messages })
+  })
+
+  // --- Semantic lead search ----------------------------------------------
+  // Natural-language search ("Schreiner ohne Mobilseite bei München"). Falls
+  // back to SQL LIKE when the embedding model is unavailable, so it never dies.
+  app.get('/api/ai/leads/search', async (c) => {
+    const q = (c.req.query('q') ?? '').trim()
+    if (!q) return c.json({ mode: 'semantic', hits: [] })
+    try {
+      const hits = await searchLeads(q, Number(c.req.query('limit') ?? 15) || 15)
+      return c.json({ mode: 'semantic', hits })
+    } catch {
+      const like = `%${q}%`
+      const leads = db
+        .prepare(
+          `SELECT * FROM leads
+            WHERE company LIKE ? OR city LIKE ? OR trade LIKE ? OR tech LIKE ? OR why_lead LIKE ?
+            ORDER BY score DESC LIMIT 15`,
+        )
+        .all(like, like, like, like, like) as unknown as LeadRow[]
+      return c.json({ mode: 'fallback', hits: leads.map((lead) => ({ lead, score: 0 })) })
+    }
+  })
+
+  app.post('/api/ai/leads/reindex', async (c) => {
+    try {
+      const r = await reindexLeads({ all: c.req.query('all') === '1' })
+      return c.json(r)
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 502)
+    }
   })
 
   // --- Lead intelligence --------------------------------------------------

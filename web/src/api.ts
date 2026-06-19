@@ -15,6 +15,7 @@ import type {
   NewLead,
   Outreach,
   ScraperConfig,
+  SemanticHit,
   ScraperStatus,
   Settings,
   User,
@@ -161,6 +162,11 @@ export const api = {
   // --- AI core ---
   aiStatus: () => req<AiStatus>('/ai/status'),
   aiDigest: () => req<{ digest: Digest }>('/ai/digest'),
+  semanticSearch: (q: string) =>
+    req<{ mode: 'semantic' | 'fallback'; hits: SemanticHit[] }>(
+      `/ai/leads/search?q=${encodeURIComponent(q)}`,
+    ),
+  reindexLeads: () => req<{ indexed: number; model: string }>('/ai/leads/reindex', { method: 'POST' }),
   aiChat: (message: string, thread_id?: number) =>
     req<ChatResponse>('/ai/chat', {
       method: 'POST',

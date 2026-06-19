@@ -249,6 +249,17 @@ CREATE TABLE IF NOT EXISTS mahnungen (
   created_at       TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_mahnungen_doc ON mahnungen(document_id);
+
+-- Lead embeddings for semantic search (vector stored as JSON; small datasets,
+-- so a linear cosine scan in JS is plenty — no vector-DB dependency).
+CREATE TABLE IF NOT EXISTS lead_embeddings (
+  lead_id    INTEGER PRIMARY KEY REFERENCES leads(id) ON DELETE CASCADE,
+  vector     TEXT NOT NULL,           -- JSON number[]
+  dim        INTEGER NOT NULL,
+  model      TEXT,
+  source     TEXT,                    -- the text that was embedded (for re-use)
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `)
 
 // Basiszinssatz (%) used for §288 BGB Verzugszinsen (configurable; changes

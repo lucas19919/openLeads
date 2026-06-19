@@ -222,6 +222,11 @@ export interface Outreach {
   updated_at: string
 }
 
+export interface SemanticHit {
+  lead: Lead
+  score: number
+}
+
 export interface AgentStep {
   tool: string
   args: Record<string, unknown>
