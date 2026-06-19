@@ -32,6 +32,8 @@ import {
   type DocItemInput,
 } from './documents'
 import { renderDocumentPdf, pdfFilename } from './pdf'
+import { registerAiRoutes } from './ai/router'
+import { registerDsgvoRoutes } from './dsgvo'
 
 type Vars = { user: Pick<UserRow, 'id' | 'username' | 'role'> }
 const app = new Hono<{ Variables: Vars }>()
@@ -570,6 +572,11 @@ app.get('/api/scraper/status', requireAuth, (c) => {
     .all() as unknown as Record<string, unknown>[]
   return c.json({ total, scraped, last, today, byStage, recent })
 })
+
+// --- AI core + DSGVO (registered with the app's auth middleware) -----------
+
+registerAiRoutes(app, requireAuth)
+registerDsgvoRoutes(app, requireAuth)
 
 // --- health ---------------------------------------------------------------
 
