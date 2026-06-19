@@ -270,6 +270,15 @@ try {
   // column already exists
 }
 
+// DATEV/GoBD export account numbers (Steuerberater handoff). SKR03 defaults.
+for (const col of ['datev_revenue_account TEXT', 'datev_debitor_account TEXT']) {
+  try {
+    db.exec(`ALTER TABLE settings ADD COLUMN ${col}`)
+  } catch {
+    // column already exists
+  }
+}
+
 // --- migrations for existing databases (idempotent) ---
 // recontact_at: optional follow-up / callback date (YYYY-MM-DD).
 try {
@@ -363,6 +372,8 @@ export interface SettingsRow {
   scraper_max_pairs: number | null
   scraper_per_pair: number | null
   verzug_base_rate: number
+  datev_revenue_account: string | null
+  datev_debitor_account: string | null
 }
 
 export interface MahnungRow {

@@ -8,7 +8,7 @@
     "seed": "tsx scripts/set-password.ts",
     "import": "tsx scripts/import-xlsx.ts",
     "backup": "tsx scripts/backup.ts",
-    "test": "node --import tsx --test --test-concurrency=1 src/documents.test.ts src/validate.test.ts src/dunning.test.ts src/facturx.test.ts src/mailer.test.ts"
+    "test": "node --import tsx --test --test-concurrency=1 src/documents.test.ts src/validate.test.ts src/dunning.test.ts src/facturx.test.ts src/mailer.test.ts src/export.test.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",

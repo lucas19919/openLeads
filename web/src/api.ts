@@ -152,6 +152,20 @@ export const api = {
       { method: 'POST', body: JSON.stringify(body) },
     ),
 
+  // --- exports (Steuerberater) ---
+  exportInvoicesUrl: (from?: string, to?: string) => {
+    const qs = new URLSearchParams()
+    if (from) qs.set('from', from)
+    if (to) qs.set('to', to)
+    return `/api/export/invoices.csv${qs.toString() ? `?${qs}` : ''}`
+  },
+  exportDatevUrl: (from?: string, to?: string) => {
+    const qs = new URLSearchParams()
+    if (from) qs.set('from', from)
+    if (to) qs.set('to', to)
+    return `/api/export/datev.csv${qs.toString() ? `?${qs}` : ''}`
+  },
+
   // --- admin ---
   backupUrl: () => '/api/admin/backup',
 

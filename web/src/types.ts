@@ -66,6 +66,9 @@ export interface Settings {
   scraper_min_score: number | null
   scraper_max_pairs: number | null
   scraper_per_pair: number | null
+  verzug_base_rate?: number
+  datev_revenue_account?: string | null
+  datev_debitor_account?: string | null
 }
 
 export interface ScraperConfig {

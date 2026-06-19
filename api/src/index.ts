@@ -36,6 +36,7 @@ import { renderMahnungPdf, mahnungPdfFilename } from './mahnungPdf'
 import { validateInvoice } from './validate'
 import { listOverdue, computeDunning, levelLabel } from './dunning'
 import { snapshot, snapshotFilename } from './backup'
+import { finalisedInvoices, invoicesCsv, datevCsv, exportFilename } from './export'
 import { audit } from './audit'
 import { registerAiRoutes } from './ai/router'
 import { registerDsgvoRoutes } from './dsgvo'
@@ -304,6 +305,7 @@ const SETTINGS_FIELDS = new Set([
   'payment_terms', 'rechnung_prefix', 'rechnung_next', 'angebot_prefix',
   'angebot_next', 'scraper_trades', 'scraper_towns', 'scraper_min_score',
   'scraper_max_pairs', 'scraper_per_pair', 'verzug_base_rate',
+  'datev_revenue_account', 'datev_debitor_account',
 ])
 
 app.get('/api/settings', requireAuth, (c) => c.json({ settings: getSettings() }))
@@ -632,6 +634,31 @@ app.get('/api/scraper/status', requireAuth, (c) => {
     )
     .all() as unknown as Record<string, unknown>[]
   return c.json({ total, scraped, last, today, byStage, recent })
+})
+
+// --- exports for the Steuerberater (GoBD invoice journal + DATEV bookings) --
+
+function csvResponse(c: Context<{ Variables: Vars }>, body: string, filename: string) {
+  c.header('Content-Type', 'text/csv; charset=utf-8')
+  c.header('Content-Disposition', `attachment; filename="${filename}"`)
+  // BOM so Excel opens UTF-8 (umlauts) correctly.
+  return c.body('﻿' + body)
+}
+
+app.get('/api/export/invoices.csv', requireAuth, (c) => {
+  const from = c.req.query('from')
+  const to = c.req.query('to')
+  const invoices = finalisedInvoices(from, to)
+  audit({ actor: c.get('user').username, action: 'export.invoices', detail: { from, to, count: invoices.length } })
+  return csvResponse(c, invoicesCsv(invoices), exportFilename('rechnungen', from, to))
+})
+
+app.get('/api/export/datev.csv', requireAuth, (c) => {
+  const from = c.req.query('from')
+  const to = c.req.query('to')
+  const invoices = finalisedInvoices(from, to)
+  audit({ actor: c.get('user').username, action: 'export.datev', detail: { from, to, count: invoices.length } })
+  return csvResponse(c, datevCsv(invoices, getSettings()), exportFilename('datev', from, to))
 })
 
 // --- admin: database backup (operator owns their data) ---------------------
