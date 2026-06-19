@@ -91,13 +91,13 @@ export async function runPair(
     }
     if (!result) {
       summary.skipped++
-      console.log(`  · ${cand.company}: kein Lead (modern oder nicht erreichbar)`)
+      console.log(`  - ${cand.company}: kein Lead (modern oder nicht erreichbar)`)
     } else if (result.deduped) {
       summary.deduped++
-      console.log(`  · ${cand.company}: bereits im System`)
+      console.log(`  - ${cand.company}: bereits im System`)
     } else {
       summary.posted++
-      console.log(`  ✓ ${cand.company} — Score ${result.score} (${result.priority})`)
+      console.log(`  + ${cand.company} — Score ${result.score} (${result.priority})`)
     }
   }
   return summary

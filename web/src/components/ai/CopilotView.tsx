@@ -10,13 +10,6 @@ interface ChatTurn {
   steps?: ToolStep[]
 }
 
-const SUGGESTIONS = [
-  'Zeig mir die heißesten Leads in der Pipeline.',
-  'Qualifiziere den Lead mit der höchsten Punktzahl und schlage den nächsten Schritt vor.',
-  'Entwirf eine Erstansprache für einen interessanten Maler-Lead.',
-  'Wie viele Leads stehen je Stage?',
-]
-
 /** SQLite stores UTC "YYYY-MM-DD HH:MM:SS" — show local time, date if not today. */
 function fmtWhen(s: string): string {
   const d = new Date(s.replace(' ', 'T') + 'Z')
@@ -150,7 +143,7 @@ export function CopilotView() {
                       <div className="digest-title">{p.title}</div>
                       <div className="muted">{p.why}</div>
                       <button className="chip" onClick={() => send(p.action)} disabled={busy}>
-                        → {p.action}
+                        {p.action}
                       </button>
                     </li>
                   ))}
@@ -161,15 +154,8 @@ export function CopilotView() {
           {turns.length === 0 && (
             <div className="copilot-empty">
               <p className="muted">
-                Frag die KI nach Leads, Pipeline und Rechnungen — sie bedient OpenLeads für dich. Beispiele:
+                Frag die KI nach Leads, Pipeline und Rechnungen — sie bedient OpenLeads für dich.
               </p>
-              <div className="copilot-suggestions">
-                {SUGGESTIONS.map((s) => (
-                  <button key={s} className="chip" onClick={() => send(s)} disabled={busy}>
-                    {s}
-                  </button>
-                ))}
-              </div>
             </div>
           )}
           {turns.map((t, i) => (

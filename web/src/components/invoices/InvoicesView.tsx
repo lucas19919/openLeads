@@ -163,7 +163,7 @@ export function InvoicesView({
         {visible.length === 0 ? (
           <div className="center-muted">
             Noch keine Dokumente. Lege ein Angebot oder eine Rechnung an — oder starte aus einem Lead
-            heraus („📄 Angebot / Rechnung erstellen").
+            heraus („Angebot / Rechnung erstellen").
           </div>
         ) : (
           <div className="table-wrap">
@@ -174,6 +174,7 @@ export function InvoicesView({
                 <th>Nummer</th>
                 <th>Empfänger</th>
                 <th>Datum</th>
+                <th>Fällig</th>
                 <th>Status</th>
                 <th className="num">Betrag</th>
                 <th />
@@ -185,7 +186,8 @@ export function InvoicesView({
                   <td>{KIND_LABEL[d.kind] ?? d.kind}</td>
                   <td className="no-x">{d.number ?? <em style={{ color: 'var(--muted)' }}>Entwurf</em>}</td>
                   <td>{d.client_name ?? '—'}</td>
-                  <td>{d.issue_date ? fmtDate(d.issue_date) : '—'}</td>
+                  <td>{fmtDate((d.issue_date ?? d.created_at).slice(0, 10))}</td>
+                  <td>{d.due_date ? fmtDate(d.due_date) : '—'}</td>
                   <td>
                     <span className={`doc-status doc-status-${d.status}`}>{d.status}</span>
                   </td>
@@ -193,7 +195,7 @@ export function InvoicesView({
                   <td onClick={(e) => e.stopPropagation()}>
                     {!d.number && (
                       <button className="ghost" onClick={() => remove(d.id)} title="Entwurf löschen">
-                        ✕
+                        Löschen
                       </button>
                     )}
                   </td>

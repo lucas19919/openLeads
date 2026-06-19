@@ -80,7 +80,7 @@ A ready-made vhost is in [`nginx-crm.conf`](nginx-crm.conf).
 docker compose run --rm api npm run seed -- <your-username> '<your-password>'
 ```
 
-Open `https://crm.example.com` and log in. 🎉
+Open `https://crm.example.com` and log in.
 
 ## 6. Schedule the scraper (daily)
 

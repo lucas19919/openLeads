@@ -53,7 +53,7 @@ export function encryptSecret(plain: string): string {
       )
     }
     if (!warnedDevKey) {
-      console.warn('⚠  SETTINGS_KEY nicht gesetzt — Zugangsdaten werden mit unsicherem Entwicklungs-Default verschlüsselt.')
+      console.warn('WARN: SETTINGS_KEY nicht gesetzt — Zugangsdaten werden mit unsicherem Entwicklungs-Default verschlüsselt.')
       warnedDevKey = true
     }
   }

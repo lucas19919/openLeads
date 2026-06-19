@@ -3,14 +3,13 @@ import { api } from '../api'
 import type { AiStatus, User } from '../types'
 import { AiBadge } from './ai/CopilotView'
 
-export type Module = 'copilot' | 'leads' | 'documents' | 'offene' | 'workflows' | 'settings'
+export type Module = 'copilot' | 'leads' | 'documents' | 'mahnungen' | 'settings'
 
 const TABS: { id: Module; label: string }[] = [
   { id: 'copilot', label: 'Chat' },
   { id: 'leads', label: 'Leads' },
   { id: 'documents', label: 'Rechnungen' },
-  { id: 'offene', label: 'Offene Posten' },
-  { id: 'workflows', label: 'Workflows' },
+  { id: 'mahnungen', label: 'Mahnungen' },
   { id: 'settings', label: 'Einstellungen' },
 ]
 

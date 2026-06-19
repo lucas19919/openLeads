@@ -79,7 +79,7 @@ function fallbackPriorities(f: DigestFacts): DigestPriority[] {
     p.push({
       title: `${f.overdue.count} überfällige Rechnung(en)`,
       why: `Bis zu ${f.overdue.worst_days} Tage überfällig.`,
-      action: 'Offene Posten prüfen und Mahnungen erstellen.',
+      action: 'Mahnungen prüfen und erstellen.',
     })
   if (f.hot_leads.length > 0)
     p.push({

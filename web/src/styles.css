@@ -316,70 +316,6 @@ table.leads td.num, table.leads th.num { text-align: right; font-variant-numeric
 }
 .field label em { color: var(--warn); font-style: normal; font-weight: 600; }
 
-/* ---- workflows ---- */
-.wf-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
-.wf-card {
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 14px 16px; display: flex; flex-direction: column; gap: 6px;
-}
-.wf-card-wide { margin-top: 8px; }
-.wf-card-head { display: flex; align-items: center; gap: 10px; }
-.wf-card-head strong { font-size: 15px; }
-.wf-desc { margin: 0; font-size: 13px; line-height: 1.45; }
-.wf-trigger { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; color: var(--muted); font-size: 12px; }
-.wf-sched { font-weight: 600; color: var(--muted); }
-.wf-sched.on { color: var(--accent-dark); }
-.wf-toggle { padding: 2px 8px; font-size: 12px; }
-.wf-steps { display: flex; flex-wrap: wrap; gap: 6px; }
-.wf-step-chip {
-  display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600;
-  background: var(--accent-soft); color: var(--accent-dark); border-radius: 20px; padding: 2px 10px 2px 3px;
-}
-.wf-step-n {
-  display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px;
-  border-radius: 50%; background: var(--accent); color: #fff; font-size: 11px; padding: 0 2px;
-}
-.wf-card-foot { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
-.wf-eligible { color: var(--accent-dark); font-weight: 600; }
-.wf-status { font-size: 12px; white-space: nowrap; }
-.wf-status.wf-ok { color: var(--ok); }
-.wf-status.wf-err { color: var(--danger); }
-.wf-trail {
-  list-style: none; margin: 8px 0 0; padding: 8px 0 0; border-top: 1px dashed var(--border);
-  display: flex; flex-direction: column; gap: 4px; font-size: 13px;
-}
-.wf-trail li { padding-left: 12px; border-left: 2px solid var(--ok); }
-.wf-trail li.wf-trail-err { border-left-color: var(--danger); }
-.wf-trail-target { font-weight: 600; }
-.wf-history { margin-top: 8px; display: flex; flex-direction: column; gap: 10px; }
-.wf-history-row { border-top: 1px solid var(--border); padding-top: 8px; }
-.wf-section { margin: 22px 0 10px; color: var(--accent-dark); }
-
-/* ---- workflow builder (editor modal) ---- */
-.wf-editor {
-  width: min(640px, 96vw); max-height: 90vh; overflow-y: auto;
-  display: flex; flex-direction: column; gap: 14px;
-}
-.wf-editor h2 { margin: 0; }
-.wf-step-list { display: flex; flex-direction: column; gap: 8px; }
-.wf-step-row {
-  display: flex; align-items: flex-start; gap: 10px;
-  background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
-}
-.wf-step-row .wf-step-n { margin-top: 2px; }
-.wf-step-main { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.wf-step-name { font-weight: 600; display: flex; align-items: center; gap: 8px; }
-.wf-step-params { display: flex; flex-wrap: wrap; gap: 6px; }
-.wf-step-params select, .wf-step-params input { width: auto; min-width: 140px; flex: 1; }
-.wf-step-actions { display: flex; gap: 2px; }
-.wf-step-actions button { padding: 4px 8px; }
-.wf-global { font-size: 10px; padding: 1px 7px; background: #eef1f4; color: var(--muted); }
-.wf-add-step { display: flex; gap: 8px; margin-top: 10px; }
-.wf-add-step select { flex: 1; }
-.wf-checks { display: flex; flex-wrap: wrap; gap: 14px; padding: 4px 0; }
-.wf-checks label, .wf-enable { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
-.wf-checks input, .wf-enable input { width: auto; }
-.wf-enable { margin-top: 4px; font-weight: 600; }
 .doc-block[disabled] { opacity: 0.5; }
 
 .settings-form { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
@@ -595,7 +531,7 @@ button:disabled { opacity: 0.55; cursor: default; }
 .backup-link:hover { background: var(--accent-soft); border-color: var(--accent); }
 .export-links { display: flex; flex-wrap: wrap; gap: 10px; }
 
-/* --- Offene Posten / Mahnwesen -------------------------------------------- */
+/* --- Mahnungen / Mahnwesen ------------------------------------------------ */
 .dunning-legend {
   margin-bottom: 16px; padding: 10px 14px; border: 1px solid var(--border);
   border-radius: var(--radius); background: var(--accent-soft);

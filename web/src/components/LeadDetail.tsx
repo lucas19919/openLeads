@@ -44,7 +44,7 @@ function describe(ev: LeadEvent): string {
     case 'created':
       return 'Lead angelegt'
     case 'stage_change':
-      return `Phase: ${ev.from_stage} → ${ev.to_stage}`
+      return `Phase: ${ev.from_stage} zu ${ev.to_stage}`
     case 'note':
       return `Notiz: ${ev.body ?? ''}`
     default:
@@ -237,7 +237,7 @@ export function LeadDetail({
               >
                 <strong style={{ fontSize: 16 }}>{lead.company ?? 'Lead'}</strong>
                 <button className="ghost" onClick={onClose}>
-                  ✕
+                  Schließen
                 </button>
               </div>
               <div style={{ color: 'var(--muted)', marginTop: 4 }}>
@@ -245,7 +245,7 @@ export function LeadDetail({
               </div>
               <div style={{ marginTop: 10 }}>
                 <button onClick={() => onCreateInvoice(lead)}>
-                  📄 Angebot / Rechnung erstellen
+                  Angebot / Rechnung erstellen
                 </button>
               </div>
             </div>
@@ -289,7 +289,7 @@ export function LeadDetail({
                         aria-label={`Tag „${t}" entfernen`}
                         onClick={() => removeTag(t)}
                       >
-                        ✕
+                        x
                       </button>
                     </span>
                   ))}
@@ -514,7 +514,7 @@ export function LeadDetail({
                     )}
                     {sentTo[o.id] && (
                       <div className="outreach-sent" role="status">
-                        ✓ Gesendet an {sentTo[o.id]}
+                        Gesendet an {sentTo[o.id]}
                       </div>
                     )}
                     {sendErr[o.id] && (

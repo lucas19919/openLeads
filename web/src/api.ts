@@ -21,10 +21,6 @@ import type {
   ThreadMessage,
   User,
   ValidationResult,
-  ActionSpec,
-  Workflow,
-  WorkflowInput,
-  WorkflowRun,
 } from './types'
 
 class ApiError extends Error {
@@ -177,22 +173,6 @@ export const api = {
   // --- scraper ---
   scraperConfig: () => req<ScraperConfig>('/scraper/config'),
   scraperStatus: () => req<ScraperStatus>('/scraper/status'),
-
-  // --- workflows (routines) ---
-  listWorkflows: () => req<{ workflows: Workflow[]; actions: ActionSpec[] }>('/workflows'),
-  createWorkflow: (body: WorkflowInput) =>
-    req<{ workflow: Workflow }>('/workflows', { method: 'POST', body: JSON.stringify(body) }),
-  updateWorkflow: (id: number, body: Partial<WorkflowInput>) =>
-    req<{ workflow: Workflow }>(`/workflows/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
-  deleteWorkflow: (id: number) =>
-    req<{ ok: true }>(`/workflows/${id}`, { method: 'DELETE' }),
-  runWorkflow: (id: number, limit?: number) =>
-    req<{ run: WorkflowRun }>(`/workflows/${id}/run`, {
-      method: 'POST',
-      body: JSON.stringify({ limit }),
-    }),
-  workflowRuns: (id: number) =>
-    req<{ runs: WorkflowRun[] }>(`/workflows/runs?key=${id}`),
 
   // --- AI core ---
   aiStatus: () => req<AiStatus>('/ai/status'),

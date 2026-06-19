@@ -24,9 +24,6 @@ The modules, behind one login:
   a draft.
 - **Offene Posten** — overdue invoices with one-click Mahnungen, §288 BGB
   Verzugszinsen and the €40 Pauschale.
-- **Workflows** — routines you build yourself: pick which leads to act on, chain
-  a few steps (scrape, qualify, draft a mail, move stage, tag), and run them by
-  hand or on a schedule. Nothing outward-facing is ever sent automatically.
 - **Scraper** — a panel to tune the search raster (trades × towns), the staleness
   threshold and the run limits, with a status readout. It identifies itself with
   an honest bot User-Agent, respects `robots.txt`, throttles its requests, and

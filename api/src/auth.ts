@@ -33,7 +33,7 @@ if (SECRET === DEV_SECRET) {
   if (process.env.NODE_ENV === 'production') {
     throw new Error('SESSION_SECRET ist nicht gesetzt — Start im Produktivbetrieb mit unsicherem Default verweigert.')
   }
-  console.warn('⚠  SESSION_SECRET nicht gesetzt — unsicherer Entwicklungs-Default in Verwendung.')
+  console.warn('WARN: SESSION_SECRET nicht gesetzt — unsicherer Entwicklungs-Default in Verwendung.')
 }
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30 // 30 days
 export const SESSION_TTL_S = SESSION_TTL_MS / 1000

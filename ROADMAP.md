@@ -27,8 +27,6 @@ touch invoicing. OpenLeads is the one box that does the whole flow on-prem.
 - GoBD / DATEV export (invoice journal + booking CSV) for the Steuerberater.
 - DSGVO toolkit: audit log, data export, erasure (with §147 AO retention),
   consent ledger, Art. 30 processing record.
-- Workflows: user-built routines (target + ordered steps) that run by hand or on
-  a schedule, including a scrape step.
 
 ## Open
 

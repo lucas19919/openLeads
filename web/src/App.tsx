@@ -6,9 +6,8 @@ import { SuiteNav, type Module } from './components/SuiteNav'
 import { CopilotView } from './components/ai/CopilotView'
 import { LeadsView } from './components/LeadsView'
 import { InvoicesView } from './components/invoices/InvoicesView'
-import { OpenItemsView } from './components/invoices/OpenItemsView'
+import { MahnungenView } from './components/invoices/MahnungenView'
 import { SettingsView } from './components/invoices/SettingsView'
-import { WorkflowsView } from './components/workflows/WorkflowsView'
 
 export default function App() {
   const [user, setUser] = useState<User | null | undefined>(undefined)
@@ -58,8 +57,7 @@ export default function App() {
           onPrefillHandled={() => setInvoiceLead(null)}
         />
       )}
-      {module === 'offene' && <OpenItemsView />}
-      {module === 'workflows' && <WorkflowsView config={config!} />}
+      {module === 'mahnungen' && <MahnungenView />}
       {module === 'settings' && <SettingsView />}
     </div>
   )

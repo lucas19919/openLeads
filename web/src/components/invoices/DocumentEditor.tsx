@@ -123,6 +123,19 @@ export function DocumentEditor({
     onChanged()
   }
 
+  // Payment due date drives the Mahnungen list. Editable even after finalisation
+  // (extending a deadline is a real action); persisted immediately when locked
+  // since there is no Save button then.
+  async function changeDueDate(due: string) {
+    const v = due || null
+    field('due_date', v)
+    if (locked) {
+      const { document } = await api.updateDocument(id, { due_date: v })
+      setDoc(document)
+      onChanged()
+    }
+  }
+
   async function validate() {
     setValidating(true)
     setValidationError(null)
@@ -141,7 +154,7 @@ export function DocumentEditor({
     <div className="doc-editor">
       <div className="doc-editor-head">
         <button className="ghost" onClick={onClose}>
-          ← Zurück
+          Zurück
         </button>
         <strong>
           {isAngebot ? 'Angebot' : 'Rechnung'}
@@ -153,7 +166,7 @@ export function DocumentEditor({
             {saving ? '…' : 'Speichern'}
           </button>
         )}
-        <button onClick={openPdf}>📄 PDF</button>
+        <button onClick={openPdf}>PDF</button>
         {!locked && (
           <button onClick={finalize} disabled={cleanItems.length === 0}>
             Festschreiben
@@ -161,7 +174,7 @@ export function DocumentEditor({
         )}
         {isAngebot && (
           <button onClick={convert} title="In eine Rechnung umwandeln">
-            → Rechnung
+            In Rechnung umwandeln
           </button>
         )}
         {doc.kind === 'rechnung' && (
@@ -188,7 +201,7 @@ export function DocumentEditor({
       {validation && (
         <div className="erechnung-panel">
           {validation.valid && validation.errors.length === 0 ? (
-            <span className="erechnung-badge erechnung-ok">✓ Gültig (EN 16931)</span>
+            <span className="erechnung-badge erechnung-ok">Gültig (EN 16931)</span>
           ) : (
             <span className="erechnung-badge erechnung-bad">
               Nicht konform ({validation.errors.length}{' '}
@@ -234,6 +247,19 @@ export function DocumentEditor({
                 </option>
               ))}
             </select>
+          </div>
+        )}
+        {doc.kind === 'rechnung' && (
+          <div className="field">
+            <label>Fällig am</label>
+            <input
+              type="date"
+              value={doc.due_date ?? ''}
+              onChange={(e) => changeDueDate(e.target.value)}
+            />
+            <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+              Zahlungsziel. Nach Ablauf erscheint die Rechnung unter „Mahnungen".
+            </div>
           </div>
         )}
       </div>
@@ -329,7 +355,7 @@ export function DocumentEditor({
                 <td>
                   {!locked && (
                     <button className="ghost" onClick={() => removeItem(i)} title="Entfernen">
-                      ✕
+                      Entfernen
                     </button>
                   )}
                 </td>

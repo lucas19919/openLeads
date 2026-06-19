@@ -17,6 +17,15 @@ function argValue(name: string): string | undefined {
 }
 const hasFlag = (n: string) => process.argv.includes(`--${n}`)
 
+/** Human-readable elapsed time, e.g. "840 ms", "12.3 s", "1m 05s". */
+function fmtDuration(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)} ms`
+  const s = ms / 1000
+  if (s < 60) return `${s.toFixed(1)} s`
+  const m = Math.floor(s / 60)
+  return `${m}m ${String(Math.round(s % 60)).padStart(2, '0')}s`
+}
+
 // Days since the Unix epoch — advances by one each calendar day so daily runs
 // walk the full trade×town grid deterministically instead of randomly.
 function daySeed(): number {
@@ -40,6 +49,7 @@ function pickPairs(
 
 async function dryRun(): Promise<void> {
   console.log('DRY RUN — Fixtures bewerten und an die CRM-API senden (kein Sonnet, kein Web-Fetch)\n')
+  const start = Date.now()
   let posted = 0
   let deduped = 0
   let skipped = 0
@@ -47,16 +57,19 @@ async function dryRun(): Promise<void> {
     const r = await processCandidate(fixture)
     if (!r) {
       skipped++
-      console.log(`· ${fixture.company}: unter Schwelle, übersprungen`)
+      console.log(`- ${fixture.company}: unter Schwelle, übersprungen`)
     } else if (r.deduped) {
       deduped++
-      console.log(`· ${fixture.company}: bereits vorhanden (Domain-Dedupe)`)
+      console.log(`- ${fixture.company}: bereits vorhanden (Domain-Dedupe)`)
     } else {
       posted++
-      console.log(`✓ ${fixture.company}: angelegt — Score ${r.score} (${r.priority})`)
+      console.log(`+ ${fixture.company}: angelegt — Score ${r.score} (${r.priority})`)
     }
   }
-  console.log(`\nFertig. Neu: ${posted}, Dedupe: ${deduped}, übersprungen: ${skipped}`)
+  console.log(
+    `\nFertig in ${fmtDuration(Date.now() - start)}. ` +
+      `Neu: ${posted}, Dedupe: ${deduped}, übersprungen: ${skipped}`,
+  )
 }
 
 /** Confirm the CRM API is reachable before spending on AI discovery. */
@@ -102,15 +115,24 @@ async function liveRun(): Promise<void> {
     `Scrape: ${pairs.length} Kombination(en) (Gewerk × Ort) in „${region}", Mindest-Score ${minScore}\n`,
   )
 
+  const runStart = Date.now()
   const total = { posted: 0, deduped: 0, skipped: 0 }
   for (const [trade, town] of pairs) {
-    console.log(`→ ${trade} in ${town}`)
+    console.log(`> ${trade} in ${town}`)
+    const pairStart = Date.now()
     const res = await runPair(trade, town, perPair, minScore, region)
     total.posted += res.posted
     total.deduped += res.deduped
     total.skipped += res.skipped
+    console.log(
+      `  (${fmtDuration(Date.now() - pairStart)} — neu ${res.posted}, dup ${res.deduped}, ` +
+        `übersprungen ${res.skipped})`,
+    )
   }
-  console.log(`\nFertig. Neu: ${total.posted}, Dedupe: ${total.deduped}, übersprungen: ${total.skipped}`)
+  console.log(
+    `\nFertig in ${fmtDuration(Date.now() - runStart)}. ` +
+      `Neu: ${total.posted}, Dedupe: ${total.deduped}, übersprungen: ${total.skipped}`,
+  )
 }
 
 async function main(): Promise<void> {

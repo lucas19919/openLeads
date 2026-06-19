@@ -22,7 +22,7 @@ type RowState = {
   error?: string
 }
 
-export function OpenItemsView() {
+export function MahnungenView() {
   const [overdue, setOverdue] = useState<DunningComputation[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [rows, setRows] = useState<Record<number, RowState>>({})
@@ -34,7 +34,7 @@ export function OpenItemsView() {
       const { overdue } = await api.overdueInvoices()
       setOverdue(overdue)
     } catch (e) {
-      setLoadError(e instanceof Error ? e.message : 'Offene Posten konnten nicht geladen werden.')
+      setLoadError(e instanceof Error ? e.message : 'Mahnungen konnten nicht geladen werden.')
     }
   }, [])
 
@@ -77,7 +77,7 @@ export function OpenItemsView() {
   return (
     <>
       <div className="toolbar">
-        <span className="page-title">Offene Posten</span>
+        <span className="page-title">Mahnungen</span>
         {overdue && (
           <span className="user-chip">
             {overdue.length} {overdue.length === 1 ? 'überfällige Rechnung' : 'überfällige Rechnungen'}
@@ -104,7 +104,7 @@ export function OpenItemsView() {
         ) : overdue === null ? (
           <div className="center-muted">Lädt…</div>
         ) : overdue.length === 0 ? (
-          <div className="center-muted">Keine offenen Posten — alles bezahlt 🎉</div>
+          <div className="center-muted">Keine überfälligen Rechnungen — alles bezahlt.</div>
         ) : (
           <div className="table-wrap">
             <table className="leads">
@@ -154,7 +154,7 @@ export function OpenItemsView() {
                         </a>
                         {state.done ? (
                           <span className="dunning-done" title={`${state.done.historyCount} Mahnung(en) im Verlauf`}>
-                            ✓ {state.done.label} erstellt — Gesamtforderung {euro(state.done.total_claim_cents)}
+                            {state.done.label} erstellt — Gesamtforderung {euro(state.done.total_claim_cents)}
                             {' · '}
                             {state.done.historyCount} im Verlauf
                           </span>

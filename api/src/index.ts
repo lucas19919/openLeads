@@ -41,7 +41,6 @@ import { audit } from './audit'
 import { encryptSecret, settingsKeyConfigured } from './secrets'
 import { registerAiRoutes } from './ai/router'
 import { registerDsgvoRoutes } from './dsgvo'
-import { registerWorkflowRoutes, startScheduler } from './workflows'
 
 type Vars = { user: Pick<UserRow, 'id' | 'username' | 'role'> }
 const app = new Hono<{ Variables: Vars }>()
@@ -730,7 +729,6 @@ app.get('/api/admin/backup', requireAuth, (c) => {
 
 registerAiRoutes(app, requireAuth)
 registerDsgvoRoutes(app, requireAuth)
-registerWorkflowRoutes(app, requireAuth)
 
 // --- health ---------------------------------------------------------------
 
@@ -761,6 +759,4 @@ const port = Number(process.env.PORT ?? 8787)
 const host = process.env.HOST ?? '127.0.0.1'
 serve({ fetch: app.fetch, port, hostname: host }, ({ port }) => {
   console.log(`crm-api listening on http://${host}:${port}`)
-  // Recurring routines fire from here (in-process scheduler, 60s tick).
-  startScheduler()
 })

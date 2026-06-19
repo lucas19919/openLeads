@@ -59,7 +59,7 @@ export function SettingsView() {
         <span className="page-title">Einstellungen</span>
         <div className="spacer" />
         {error && <span className="user-chip" style={{ color: 'var(--danger, #c0392b)' }}>{error}</span>}
-        {saved && <span className="user-chip">Gespeichert ✓</span>}
+        {saved && <span className="user-chip">Gespeichert</span>}
         <button className="primary" onClick={save} disabled={saving}>
           {saving ? '…' : 'Speichern'}
         </button>
@@ -255,7 +255,7 @@ export function SettingsView() {
                 autoComplete="new-password"
                 value={aiApiKey}
                 disabled={clearAiKey}
-                placeholder={s.ai_api_key_set ? '•••••••• (leer lassen zum Beibehalten)' : 'nur für gehostete Endpunkte nötig'}
+                placeholder={s.ai_api_key_set ? '******** (leer lassen zum Beibehalten)' : 'nur für gehostete Endpunkte nötig'}
                 onChange={(e) => { setAiApiKey(e.target.value); setSaved(false) }}
               />
               {s.ai_api_key_set && (
@@ -330,7 +330,7 @@ export function SettingsView() {
                 autoComplete="new-password"
                 value={smtpPass}
                 disabled={clearSmtpPass}
-                placeholder={s.smtp_pass_set ? '•••••••• (leer lassen zum Beibehalten)' : ''}
+                placeholder={s.smtp_pass_set ? '******** (leer lassen zum Beibehalten)' : ''}
                 onChange={(e) => { setSmtpPass(e.target.value); setSaved(false) }}
               />
               {s.smtp_pass_set && (
@@ -346,7 +346,7 @@ export function SettingsView() {
             </div>
             {s.settings_key_configured === false && (
               <p className="settings-hint" style={{ color: 'var(--danger, #c0392b)' }}>
-                ⚠ <code>SETTINGS_KEY</code> ist nicht gesetzt. Zugangsdaten werden dann mit einem
+                <code>SETTINGS_KEY</code> ist nicht gesetzt. Zugangsdaten werden dann mit einem
                 unsicheren Standardschlüssel verschlüsselt — im Produktivbetrieb wird das Speichern
                 abgelehnt. Bitte <code>SETTINGS_KEY</code> (langer Zufallswert) in der Umgebung setzen.
               </p>
