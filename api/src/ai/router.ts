@@ -5,6 +5,7 @@ import { audit } from '../audit'
 import { composeOutreachEmail, sendMail, isMailConfigured } from '../mailer'
 import { probe, AI, isLocalInference, AIError } from './provider'
 import { analyzeLead, draftOutreach, draftInvoiceFromText } from './leadIntel'
+import { suggestScraperRaster } from './website'
 import { buildDigest } from './digest'
 import { reindexLeads, searchLeads } from './semantic'
 import { runAgent } from './agent'
@@ -51,6 +52,22 @@ export function registerAiRoutes(app: App, auth: MiddlewareHandler): void {
   app.get('/api/ai/digest', async (c) => {
     const digest = await buildDigest()
     return c.json({ digest })
+  })
+
+  // "Analyse meine Website" → propose a lead-search raster (trades/region/towns)
+  // from the operator's own homepage. Suggestion only; the UI fills the form and
+  // the operator reviews + saves.
+  app.post('/api/ai/scraper/suggest', async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as { url?: string }
+    const url = (b.url ?? '').trim()
+    if (!url) return c.json({ error: 'url fehlt' }, 400)
+    try {
+      const suggestion = await suggestScraperRaster(url)
+      audit({ actor: c.get('user').username, action: 'ai.scraper_suggest', entity: 'settings', entityId: 1, detail: { url }, ip: clientIp(c) })
+      return c.json({ suggestion })
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, e instanceof AIError ? 502 : 400)
+    }
   })
 
   // --- Copilot ------------------------------------------------------------

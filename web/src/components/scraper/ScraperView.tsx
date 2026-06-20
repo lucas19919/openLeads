@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../api'
 import { fmtDate } from '../../util'
-import type { ScraperConfig, ScraperStatus, Settings } from '../../types'
+import type { ScraperConfig, ScraperStatus, ScraperSuggestion, Settings } from '../../types'
 
 // "2026-06-18 23:13:15" → "18.06.2026"
 function dateOnly(ts: string | null): string {
@@ -17,6 +17,11 @@ export function ScraperView() {
   const [saved, setSaved] = useState(false)
   const [starting, setStarting] = useState(false)
   const [runError, setRunError] = useState<string | null>(null)
+  // "Analyse meine Website" → ICP suggestion (fills the raster, never auto-saves).
+  const [siteUrl, setSiteUrl] = useState('')
+  const [suggesting, setSuggesting] = useState(false)
+  const [suggestion, setSuggestion] = useState<ScraperSuggestion | null>(null)
+  const [suggestErr, setSuggestErr] = useState<string | null>(null)
 
   async function reloadStatus() {
     setStatus(await api.scraperStatus())
@@ -31,6 +36,7 @@ export function ScraperView() {
     setS(settings)
     setConfig(config)
     setStatus(status)
+    setSiteUrl((cur) => cur || settings.website || '')
   }
 
   useEffect(() => {
@@ -75,6 +81,27 @@ export function ScraperView() {
     } finally {
       setSaving(false)
     }
+  }
+
+  async function analyzeSite() {
+    setSuggestErr(null)
+    setSuggestion(null)
+    setSuggesting(true)
+    try {
+      const { suggestion } = await api.suggestScraperRaster(siteUrl.trim())
+      setSuggestion(suggestion)
+    } catch (e) {
+      setSuggestErr(e instanceof Error ? e.message : 'Analyse fehlgeschlagen.')
+    } finally {
+      setSuggesting(false)
+    }
+  }
+
+  function applySuggestion() {
+    if (!suggestion) return
+    if (suggestion.trades.length) set('scraper_trades', suggestion.trades.join('\n'))
+    if (suggestion.towns.length) set('scraper_towns', suggestion.towns.join('\n'))
+    if (suggestion.region) set('scraper_region', suggestion.region)
   }
 
   async function run(dry: boolean) {
@@ -164,6 +191,44 @@ export function ScraperView() {
               <div className="stat-label">Leads im System</div>
             </div>
           </div>
+
+          <fieldset className="doc-block">
+            <legend>Zielkunden aus eigener Website (KI)</legend>
+            <p className="settings-hint">
+              Analysiert deine eigene Website und schlägt passende Gewerke und eine Region für die
+              Lead-Suche vor. Der Vorschlag füllt nur das Raster unten — prüfen und speichern bleibt
+              bei dir.
+            </p>
+            <div className="field">
+              <label>Eigene Website</label>
+              <input
+                placeholder="z. B. meine-agentur.de"
+                value={siteUrl}
+                onChange={(e) => setSiteUrl(e.target.value)}
+              />
+            </div>
+            <div className="dunning-actions">
+              <button onClick={analyzeSite} disabled={suggesting || !siteUrl.trim()}>
+                {suggesting ? 'Analysiere…' : 'Website analysieren'}
+              </button>
+            </div>
+            {suggestErr && <div className="section-error" style={{ marginTop: 10 }}>{suggestErr}</div>}
+            {suggestion && (
+              <div className="section-info" style={{ marginTop: 10 }}>
+                {suggestion.rationale && <p style={{ marginTop: 0 }}>{suggestion.rationale}</p>}
+                <div style={{ fontSize: 13, lineHeight: 1.6 }}>
+                  <strong>Gewerke:</strong> {suggestion.trades.join(', ') || '—'}
+                  <br />
+                  <strong>Region:</strong> {suggestion.region || '—'}
+                  <br />
+                  <strong>Orte:</strong> {suggestion.towns.join(', ') || '—'}
+                </div>
+                <button className="primary" style={{ marginTop: 10 }} onClick={applySuggestion}>
+                  Ins Raster übernehmen
+                </button>
+              </div>
+            )}
+          </fieldset>
 
           <fieldset className="doc-block">
             <legend>Suchraster</legend>

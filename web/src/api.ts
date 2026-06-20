@@ -20,6 +20,7 @@ import type {
   PublicUser,
   RecurringInvoice,
   ScraperConfig,
+  ScraperSuggestion,
   SemanticHit,
   ScraperStatus,
   Settings,
@@ -229,6 +230,11 @@ export const api = {
   // --- AI core ---
   aiStatus: () => req<AiStatus>('/ai/status'),
   aiDigest: () => req<{ digest: Digest }>('/ai/digest'),
+  suggestScraperRaster: (url: string) =>
+    req<{ suggestion: ScraperSuggestion }>('/ai/scraper/suggest', {
+      method: 'POST',
+      body: JSON.stringify({ url }),
+    }),
   semanticSearch: (q: string) =>
     req<{ mode: 'semantic' | 'fallback'; hits: SemanticHit[] }>(
       `/ai/leads/search?q=${encodeURIComponent(q)}`,

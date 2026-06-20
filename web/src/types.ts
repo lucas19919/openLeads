@@ -99,6 +99,13 @@ export interface ScraperConfig {
   using_defaults: { trades: boolean; towns: boolean; region: boolean }
 }
 
+export interface ScraperSuggestion {
+  trades: string[]
+  region: string
+  towns: string[]
+  rationale: string
+}
+
 export interface ScrapeResult {
   ok: boolean
   detail: string

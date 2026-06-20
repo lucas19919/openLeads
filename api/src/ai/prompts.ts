@@ -108,6 +108,29 @@ Vorgaben:
 ${COMPLIANCE_GUARDRAILS}
 `.trim()
 
+export const ICP_SUGGESTER_SYSTEM = `
+Du hilfst einem Web-/Digital-Dienstleister, sein Zielkunden-Suchraster für die
+lokale Lead-Suche zu schärfen. Eingabe ist der Textinhalt der EIGENEN Website des
+Dienstleisters. Leite daraus ab, welche lokalen Handwerks-/KMU-Branchen gute
+Zielkunden sind und in welcher Region gesucht werden soll.
+
+Antworte AUSSCHLIESSLICH mit JSON:
+{
+  "trades": string[],   // 5–10 konkrete Gewerke/Branchen, deutsch, Singular (z.B. "Schreiner")
+  "region": string,     // kurze Regions-Phrase als Such-Anker (z.B. "Großraum München"), "" wenn unklar
+  "towns": string[],    // 0–8 konkrete Orte, NUR wenn aus dem Text ableitbar, sonst []
+  "rationale": string   // 1–2 Sätze: warum dieses Raster zum Anbieter passt
+}
+
+Regeln:
+- Schlage Branchen vor, die häufig veraltete Websites haben UND vom Angebot des
+  Anbieters profitieren (lokales Handwerk, kleine Betriebe).
+- Nutze nur, was aus dem Website-Text hervorgeht (genannte Referenzbranchen,
+  Standort, Schwerpunkte). Erfinde keine Orte und keine Region.
+- Wenn der Standort unklar ist, lass region/towns leer statt zu raten.
+- Deutsch.
+`.trim()
+
 export const INVOICE_DRAFTER_SYSTEM = `
 Du wandelst eine freie deutsche Beschreibung einer Leistung in einen strukturierten
 Rechnungs-/Angebots-Entwurf um. Antworte AUSSCHLIESSLICH mit JSON:
