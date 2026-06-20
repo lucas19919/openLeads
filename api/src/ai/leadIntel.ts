@@ -71,11 +71,20 @@ export interface OutreachDraft {
   legal_basis: string
 }
 
-/** Draft (never send) a first-touch message for a lead and persist it. */
+export interface DraftOutreachOpts {
+  /** Link the draft to a follow-up sequence + step that spawned it. */
+  sequenceId?: number
+  step?: number
+  /** A hint for this step, e.g. "freundlicher Nachfass, kurz". */
+  instruction?: string
+}
+
+/** Draft (never send) a message for a lead and persist it. */
 export async function draftOutreach(
   lead: LeadRow,
   actor: string,
   channel: 'email' | 'letter' | 'call_script' = 'email',
+  opts: DraftOutreachOpts = {},
 ): Promise<OutreachRow> {
   const s = getSettings()
   const sender = {
@@ -84,16 +93,25 @@ export async function draftOutreach(
     absender_ort: s.city,
     angebot: 'Modernisierung/Neubau der Website, lokale Sichtbarkeit',
   }
+  // For a follow-up step, tell the drafter so it doesn't repeat the first touch.
+  const stepNote = opts.instruction
+    ? `\n\nKontext dieser Nachricht: ${opts.instruction}. Wenn dies ein Nachfass ist: ` +
+      `deutlich kürzer als die Erstansprache, höflich, ohne Vorwurf, mit einer neuen ` +
+      `Nuance; biete erneut ein kurzes Gespräch an und akzeptiere ein Nein.`
+    : ''
   const d = await chatJSON<OutreachDraft>(
     OUTREACH_SYSTEM,
-    `Kanal: ${channel}\n\nLead:\n${leadFacts(lead)}\n\nAbsender-Kontext (nur zur Tonalität, Platzhalter im Text verwenden):\n${JSON.stringify(sender, null, 2)}`,
+    `Kanal: ${channel}\n\nLead:\n${leadFacts(lead)}\n\nAbsender-Kontext (nur zur Tonalität, Platzhalter im Text verwenden):\n${JSON.stringify(sender, null, 2)}${stepNote}`,
     { temperature: 0.5, maxTokens: 600 },
   )
   const info = db.prepare(
-    `INSERT INTO outreach (lead_id, channel, subject, body, language, legal_basis, status, model)
-     VALUES (?, ?, ?, ?, 'de', ?, 'entwurf', ?)`,
-  ).run(lead.id, channel, d.subject ?? null, d.body ?? '', d.legal_basis ?? null, AI.model)
-  audit({ actor, action: 'ai.draft_outreach', entity: 'lead', entityId: lead.id, detail: { channel, model: AI.model } })
+    `INSERT INTO outreach (lead_id, channel, subject, body, language, legal_basis, status, model, sequence_id, seq_step)
+     VALUES (?, ?, ?, ?, 'de', ?, 'entwurf', ?, ?, ?)`,
+  ).run(
+    lead.id, channel, d.subject ?? null, d.body ?? '', d.legal_basis ?? null, AI.model,
+    opts.sequenceId ?? null, opts.step ?? null,
+  )
+  audit({ actor, action: 'ai.draft_outreach', entity: 'lead', entityId: lead.id, detail: { channel, model: AI.model, sequence_id: opts.sequenceId ?? null, step: opts.step ?? null } })
   return db.prepare('SELECT * FROM outreach WHERE id = ?').get(Number(info.lastInsertRowid)) as unknown as OutreachRow
 }
 

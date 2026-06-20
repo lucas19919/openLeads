@@ -15,6 +15,9 @@ import type {
   LeadEvent,
   NewLead,
   Outreach,
+  OutreachSequence,
+  SequenceStep,
+  SequenceTemplate,
   Payment,
   PaymentSummary,
   PublicUser,
@@ -264,6 +267,20 @@ export const api = {
     }),
   sendOutreach: (id: number) =>
     req<{ ok: true; messageId: string; to: string }>(`/ai/outreach/${id}/send`, { method: 'POST' }),
+  // Follow-up sequences (multi-step cadences; each step stays human-approved).
+  leadSequences: (id: number) =>
+    req<{ sequences: OutreachSequence[]; templates: SequenceTemplate[] }>(`/ai/leads/${id}/sequences`),
+  startSequence: (id: number, body: { template?: string; steps?: SequenceStep[]; name?: string }) =>
+    req<{ sequence: OutreachSequence; outreach: Outreach | null }>(`/ai/leads/${id}/sequences`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateSequence: (id: number, status: string) =>
+    req<{ sequence: OutreachSequence }>(`/ai/sequences/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    }),
+  deleteSequence: (id: number) => req<{ ok: true }>(`/ai/sequences/${id}`, { method: 'DELETE' }),
   draftInvoice: (text: string, opts: { create?: boolean; lead_id?: number } = {}) =>
     req<{ draft: InvoiceDraft; document?: Doc }>('/ai/invoice/draft', {
       method: 'POST',

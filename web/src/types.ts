@@ -345,8 +345,34 @@ export interface Outreach {
   legal_basis: string | null
   status: string
   model: string | null
+  sequence_id: number | null
+  seq_step: number | null
   created_at: string
   updated_at: string
+}
+
+export interface SequenceStep {
+  delay_days: number
+  channel: string
+  instruction?: string
+}
+
+export interface OutreachSequence {
+  id: number
+  lead_id: number
+  name: string | null
+  steps: string // JSON SequenceStep[]
+  step_index: number
+  next_run: string
+  status: string // aktiv | pausiert | fertig | gestoppt
+  created_at: string
+  updated_at: string
+}
+
+export interface SequenceTemplate {
+  key: string
+  name: string
+  steps: SequenceStep[]
 }
 
 export interface SemanticHit {

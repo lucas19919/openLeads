@@ -1,7 +1,15 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
-import { parseTags } from '../util'
-import type { Lead, LeadAnalysis, LeadEvent, Outreach, PublicUser } from '../types'
+import { parseTags, fmtDate } from '../util'
+import type {
+  Lead,
+  LeadAnalysis,
+  LeadEvent,
+  Outreach,
+  OutreachSequence,
+  PublicUser,
+  SequenceTemplate,
+} from '../types'
 
 // talking_points / risk_flags arrive as JSON strings from the model.
 // Parse defensively: never throw, always fall back to an empty list.
@@ -28,6 +36,13 @@ const OUTREACH_STATUSES: { value: string; label: string }[] = [
   { value: 'gesendet', label: 'Gesendet' },
   { value: 'verworfen', label: 'Verworfen' },
 ]
+
+const SEQ_STATUS_LABELS: Record<string, string> = {
+  aktiv: 'Aktiv',
+  pausiert: 'Pausiert',
+  fertig: 'Abgeschlossen',
+  gestoppt: 'Gestoppt',
+}
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : 'Unbekannter Fehler'
@@ -88,6 +103,12 @@ export function LeadDetail({
   const [sentTo, setSentTo] = useState<Record<number, string>>({})
   const [sendErr, setSendErr] = useState<Record<number, string>>({})
 
+  // Folge-Sequenzen (Cadences)
+  const [sequences, setSequences] = useState<OutreachSequence[]>([])
+  const [seqTemplates, setSeqTemplates] = useState<SequenceTemplate[]>([])
+  const [seqBusy, setSeqBusy] = useState(false)
+  const [seqErr, setSeqErr] = useState<string | null>(null)
+
   // DSGVO
   const [erasing, setErasing] = useState(false)
   const [dsgvoErr, setDsgvoErr] = useState<string | null>(null)
@@ -108,6 +129,14 @@ export function LeadDetail({
       .catch((e: unknown) => {
         if (active) setOutreachErr(errMsg(e))
       })
+    api
+      .leadSequences(id)
+      .then(({ sequences, templates }) => {
+        if (!active) return
+        setSequences(sequences)
+        setSeqTemplates(templates)
+      })
+      .catch(() => {})
     api
       .listUsers()
       .then(({ users }) => {
@@ -172,6 +201,41 @@ export function LeadDetail({
       setSendErr((prev) => ({ ...prev, [o.id]: errMsg(e) }))
     } finally {
       setSendingId(null)
+    }
+  }
+
+  async function startSequence(template: string) {
+    setSeqBusy(true)
+    setSeqErr(null)
+    try {
+      const { sequence, outreach: firstDraft } = await api.startSequence(id, { template })
+      setSequences((prev) => [sequence, ...prev])
+      if (firstDraft) setOutreach((prev) => [firstDraft, ...prev])
+    } catch (e) {
+      setSeqErr(errMsg(e))
+    } finally {
+      setSeqBusy(false)
+    }
+  }
+
+  async function changeSeqStatus(seq: OutreachSequence, status: string) {
+    setSeqErr(null)
+    try {
+      const { sequence } = await api.updateSequence(seq.id, status)
+      setSequences((prev) => prev.map((x) => (x.id === sequence.id ? sequence : x)))
+    } catch (e) {
+      setSeqErr(errMsg(e))
+    }
+  }
+
+  async function removeSequence(seq: OutreachSequence) {
+    if (!window.confirm('Diese Sequenz löschen? Bereits erstellte Entwürfe bleiben erhalten.')) return
+    setSeqErr(null)
+    try {
+      await api.deleteSequence(seq.id)
+      setSequences((prev) => prev.filter((x) => x.id !== seq.id))
+    } catch (e) {
+      setSeqErr(errMsg(e))
     }
   }
 
@@ -498,6 +562,81 @@ export function LeadDetail({
                   jede Ansprache frei. Erst nach der Freigabe lässt sich „Jetzt senden" nutzen;
                   Impressum und Abmelde-Hinweis (Opt-out) werden dabei automatisch angehängt.
                 </div>
+
+                <div
+                  className="seq-block"
+                  style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 10 }}
+                >
+                  <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
+                    Folge-Sequenz: plant mehrere Nachfass-Schritte. Jeder Schritt erzeugt nur einen
+                    Entwurf — der Versand bleibt freigabepflichtig, und der nächste Schritt wird erst
+                    nach dem Senden des vorigen terminiert. Antwortet der Lead, Sequenz pausieren oder
+                    stoppen.
+                  </div>
+                  {sequences.length === 0 ? (
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {seqTemplates.map((t) => (
+                        <button key={t.key} disabled={seqBusy} onClick={() => startSequence(t.key)}>
+                          {seqBusy ? '…' : `${t.name} starten`}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    sequences.map((seq) => {
+                      let total = 0
+                      try {
+                        total = JSON.parse(seq.steps).length
+                      } catch {
+                        total = 0
+                      }
+                      return (
+                        <div
+                          key={seq.id}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            flexWrap: 'wrap',
+                            marginBottom: 4,
+                          }}
+                        >
+                          <span className="chip">{SEQ_STATUS_LABELS[seq.status] ?? seq.status}</span>
+                          <span className="muted" style={{ fontSize: 12 }}>
+                            {seq.name ?? 'Sequenz'} · Schritt {Math.min(seq.step_index + 1, total)}/
+                            {total}
+                            {seq.status === 'aktiv' && ` · nächster ab ${fmtDate(seq.next_run)}`}
+                          </span>
+                          <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                            {seq.status === 'aktiv' && (
+                              <button className="ghost" onClick={() => changeSeqStatus(seq, 'pausiert')}>
+                                Pause
+                              </button>
+                            )}
+                            {seq.status === 'pausiert' && (
+                              <button className="ghost" onClick={() => changeSeqStatus(seq, 'aktiv')}>
+                                Fortsetzen
+                              </button>
+                            )}
+                            {(seq.status === 'aktiv' || seq.status === 'pausiert') && (
+                              <button className="ghost" onClick={() => changeSeqStatus(seq, 'gestoppt')}>
+                                Stoppen
+                              </button>
+                            )}
+                            <button className="ghost" onClick={() => removeSequence(seq)}>
+                              Löschen
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })
+                  )}
+                  {seqErr && (
+                    <div className="section-error" role="alert">
+                      {seqErr}
+                    </div>
+                  )}
+                </div>
+
                 {outreachErr && (
                   <div className="section-error" role="alert">
                     {outreachErr}
@@ -515,6 +654,7 @@ export function LeadDetail({
                     >
                       <span className="muted" style={{ fontSize: 12 }}>
                         {o.channel}
+                        {o.seq_step != null ? ` · Sequenz Schritt ${o.seq_step + 1}` : ''}
                         {o.legal_basis ? ` · ${o.legal_basis}` : ''}
                       </span>
                       <select

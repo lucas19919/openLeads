@@ -6,6 +6,17 @@ import { composeOutreachEmail, sendMail, isMailConfigured } from '../mailer'
 import { probe, AI, isLocalInference, AIError } from './provider'
 import { analyzeLead, draftOutreach, draftInvoiceFromText } from './leadIntel'
 import { suggestScraperRaster } from './website'
+import {
+  SEQUENCE_TEMPLATES,
+  sanitizeSteps,
+  listSequences,
+  getSequence,
+  createSequence,
+  setSequenceStatus,
+  deleteSequence,
+  materializeDueStep,
+  advanceAfterSend,
+} from '../sequences'
 import { buildDigest } from './digest'
 import { reindexLeads, searchLeads } from './semantic'
 import { runAgent } from './agent'
@@ -227,10 +238,78 @@ export function registerAiRoutes(app: App, auth: MiddlewareHandler): void {
       db.prepare(`INSERT INTO lead_events (lead_id, actor, type, body) VALUES (?, ?, 'outreach_sent', ?)`)
         .run(lead.id, c.get('user').username, `E-Mail gesendet an ${email.to}`)
       audit({ actor: c.get('user').username, action: 'ai.outreach_send', entity: 'outreach', entityId: id, detail: { to: email.to, messageId }, ip: clientIp(c) })
+      // If this draft belongs to a follow-up sequence, schedule the next step
+      // (best-effort — a sequence hiccup must not fail a successful send).
+      try {
+        advanceAfterSend({ ...o, status: 'gesendet' })
+      } catch {
+        /* ignore */
+      }
       return c.json({ ok: true, messageId, to: email.to })
     } catch (e) {
       return c.json({ error: (e as Error).message }, 502)
     }
+  })
+
+  // --- Follow-up sequences -----------------------------------------------
+  // Available templates + a lead's sequences.
+  app.get('/api/ai/leads/:id/sequences', (c) => {
+    const id = Number(c.req.param('id'))
+    return c.json({
+      sequences: listSequences(id),
+      templates: Object.entries(SEQUENCE_TEMPLATES).map(([key, t]) => ({ key, name: t.name, steps: t.steps })),
+    })
+  })
+
+  // Start a sequence for a lead (from a template key or explicit steps) and draft
+  // the first step right away so it's there to review.
+  app.post('/api/ai/leads/:id/sequences', async (c) => {
+    const id = Number(c.req.param('id'))
+    const lead = leadOr404(c)
+    if (!lead) return c.json({ error: 'Lead nicht gefunden' }, 404)
+    const b = (await c.req.json().catch(() => ({}))) as { template?: string; steps?: unknown; name?: string }
+    let steps
+    let name = b.name
+    try {
+      if (b.template) {
+        const t = SEQUENCE_TEMPLATES[b.template]
+        if (!t) return c.json({ error: 'Unbekannte Vorlage.' }, 400)
+        steps = t.steps
+        name ??= t.name
+      } else {
+        steps = sanitizeSteps(b.steps)
+      }
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400)
+    }
+    const seq = createSequence(id, steps, name)
+    audit({ actor: c.get('user').username, action: 'ai.sequence_start', entity: 'lead', entityId: id, detail: { sequence_id: seq.id, steps: steps.length }, ip: clientIp(c) })
+    // Draft step 0 now (best-effort; if the model is down it'll retry on the tick).
+    let outreach = null
+    try {
+      outreach = await materializeDueStep(seq, c.get('user').username)
+    } catch {
+      /* model offline — scheduler will retry */
+    }
+    return c.json({ sequence: getSequence(seq.id), outreach }, 201)
+  })
+
+  // Pause / resume / stop a sequence.
+  app.patch('/api/ai/sequences/:id', async (c) => {
+    const id = Number(c.req.param('id'))
+    if (!getSequence(id)) return c.json({ error: 'not found' }, 404)
+    const b = (await c.req.json().catch(() => ({}))) as { status?: string }
+    if (!b.status) return c.json({ error: 'status fehlt' }, 400)
+    const seq = setSequenceStatus(id, b.status)
+    audit({ actor: c.get('user').username, action: 'ai.sequence_update', entity: 'sequence', entityId: id, detail: { status: b.status }, ip: clientIp(c) })
+    return c.json({ sequence: seq })
+  })
+
+  app.delete('/api/ai/sequences/:id', (c) => {
+    const id = Number(c.req.param('id'))
+    if (!deleteSequence(id)) return c.json({ error: 'not found' }, 404)
+    audit({ actor: c.get('user').username, action: 'ai.sequence_delete', entity: 'sequence', entityId: id, ip: clientIp(c) })
+    return c.json({ ok: true })
   })
 
   // --- Natural-language invoicing ----------------------------------------

@@ -48,6 +48,7 @@ import {
   runRecurring,
   processDueRecurring,
 } from './recurring'
+import { processDueSequences } from './sequences'
 import { buildDashboard } from './dashboard'
 import { listUsers, createUser, updateUser, deleteUser } from './users'
 import { startScrape, scrapeRunState, scraperReachable } from './scrape'
@@ -949,6 +950,21 @@ if (process.env.RECURRING_DISABLE !== '1') {
   }
   setTimeout(runDue, 15_000).unref() // shortly after boot
   setInterval(runDue, 6 * 60 * 60 * 1000).unref() // every 6h
+}
+
+// --- follow-up sequence scheduler -----------------------------------------
+// Draft the due step for active outreach sequences. Drafts only — every send
+// still needs human approval. Set SEQUENCES_DISABLE=1 to turn it off.
+if (process.env.SEQUENCES_DISABLE !== '1') {
+  const runDueSeq = () => {
+    processDueSequences()
+      .then(({ drafted }) => {
+        if (drafted) console.log(`sequences: ${drafted} Folge-Entwurf/-Entwürfe erzeugt`)
+      })
+      .catch((e) => console.warn('sequence scheduler error:', (e as Error).message))
+  }
+  setTimeout(runDueSeq, 20_000).unref() // shortly after boot, after recurring
+  setInterval(runDueSeq, 60 * 60 * 1000).unref() // hourly — sub-day cadence resolution
 }
 
 // --- boot -----------------------------------------------------------------

@@ -20,7 +20,8 @@ const lead = { id: 7, email: 'info@maler-mueller.de', company: 'Maler Müller' }
 function outreach(over: Partial<OutreachRow> = {}): OutreachRow {
   return {
     id: 1, lead_id: 7, channel: 'email', subject: 'Ihre Website', language: 'de',
-    legal_basis: null, status: 'freigegeben', model: 'x', created_at: '', updated_at: '',
+    legal_basis: null, status: 'freigegeben', model: 'x', sequence_id: null, seq_step: null,
+    created_at: '', updated_at: '',
     body: 'Sehr geehrte Damen und Herren,\n\n... Mit freundlichen Grüßen\n{{absender_name}}\n{{absender_firma}}',
     ...over,
   }

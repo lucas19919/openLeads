@@ -223,6 +223,24 @@ CREATE TABLE IF NOT EXISTS outreach (
 );
 CREATE INDEX IF NOT EXISTS idx_outreach_lead ON outreach(lead_id);
 
+-- Follow-up sequences (cadences). A sequence walks a lead through ordered steps;
+-- each due step spawns a *draft* outreach a human still approves and sends (the
+-- send route advances the schedule). Nothing is auto-sent — same gate as a
+-- single outreach. Replies are not auto-detected; the operator pauses/stops.
+CREATE TABLE IF NOT EXISTS outreach_sequences (
+  id          INTEGER PRIMARY KEY,
+  lead_id     INTEGER NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+  name        TEXT,
+  steps       TEXT NOT NULL DEFAULT '[]',   -- JSON: { delay_days, channel, instruction? }[]
+  step_index  INTEGER NOT NULL DEFAULT 0,   -- next step to draft
+  next_run    TEXT NOT NULL,                -- YYYY-MM-DD: when to draft the next step
+  status      TEXT NOT NULL DEFAULT 'aktiv', -- aktiv | pausiert | fertig | gestoppt
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_seq_lead ON outreach_sequences(lead_id);
+CREATE INDEX IF NOT EXISTS idx_seq_due ON outreach_sequences(status, next_run);
+
 -- Lawful-basis / consent ledger per lead (DSGVO Art. 6, Art. 7, Art. 21).
 CREATE TABLE IF NOT EXISTS consent (
   id       INTEGER PRIMARY KEY,
@@ -365,6 +383,15 @@ try {
   db.exec('ALTER TABLE leads ADD COLUMN contact_name TEXT')
 } catch {
   // column already exists
+}
+
+// Link an outreach draft back to the sequence + step that spawned it.
+for (const col of ['sequence_id INTEGER', 'seq_step INTEGER']) {
+  try {
+    db.exec(`ALTER TABLE outreach ADD COLUMN ${col}`)
+  } catch {
+    // column already exists
+  }
 }
 
 // Drop the retired follow-up date column (replaced by the "rückruf" pipeline
@@ -617,6 +644,20 @@ export interface OutreachRow {
   legal_basis: string | null
   status: string
   model: string | null
+  sequence_id: number | null
+  seq_step: number | null
+  created_at: string
+  updated_at: string
+}
+
+export interface OutreachSequenceRow {
+  id: number
+  lead_id: number
+  name: string | null
+  steps: string // JSON: { delay_days, channel, instruction? }[]
+  step_index: number
+  next_run: string
+  status: string
   created_at: string
   updated_at: string
 }
