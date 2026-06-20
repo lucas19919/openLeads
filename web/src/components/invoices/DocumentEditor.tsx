@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { api } from '../../api'
 import { euro, centsToInput, inputToCents, lineTotalCents } from '../../money'
-import { fmtDate } from '../../util'
-import type { Config, Doc, DocItem, ValidationResult } from '../../types'
+import { fmtDate, todayISO } from '../../util'
+import type { Config, Doc, DocItem, Payment, ValidationResult } from '../../types'
 
 const EMPTY_ITEM: DocItem = { description: '', quantity: 1, unit: 'Pauschal', unit_price_cents: 0 }
+const CLIENT_TYPE_LABEL: Record<string, string> = { geschaeft: 'Geschäft (B2B)', privat: 'Privat (B2C)' }
 
 export function DocumentEditor({
   id,
@@ -24,6 +25,21 @@ export function DocumentEditor({
   const [validation, setValidation] = useState<ValidationResult | null>(null)
   const [validating, setValidating] = useState(false)
   const [validationError, setValidationError] = useState<string | null>(null)
+  // Payments (only for finalised invoices).
+  const [payments, setPayments] = useState<Payment[]>([])
+  const [paySummary, setPaySummary] = useState<{ paid_cents: number; outstanding_cents: number } | null>(null)
+  const [payAmount, setPayAmount] = useState('')
+  const [payDate, setPayDate] = useState(todayISO())
+  const [payMethod, setPayMethod] = useState('Überweisung')
+
+  const isFinalInvoice = !!doc && doc.kind === 'rechnung' && !!doc.number
+
+  const loadPayments = useCallback(async () => {
+    if (!isFinalInvoice) return
+    const s = await api.listPayments(id)
+    setPayments(s.payments)
+    setPaySummary({ paid_cents: s.paid_cents, outstanding_cents: s.outstanding_cents })
+  }, [id, isFinalInvoice])
 
   useEffect(() => {
     let active = true
@@ -38,11 +54,16 @@ export function DocumentEditor({
     }
   }, [id])
 
+  useEffect(() => {
+    loadPayments()
+  }, [loadPayments])
+
   if (!doc) return <div className="center-muted">Lädt…</div>
 
   const locked = !!doc.number // finalised documents are read-only
   const isAngebot = doc.kind === 'angebot'
   const statuses = config.docStatuses[doc.kind] ?? []
+  const clientTypes = config.clientTypes ?? ['geschaeft', 'privat']
 
   function field<K extends keyof Doc>(k: K, v: Doc[K]) {
     setDoc((d) => (d ? { ...d, [k]: v } : d))
@@ -78,6 +99,7 @@ export function DocumentEditor({
         client_zip: doc!.client_zip,
         client_city: doc!.client_city,
         client_email: doc!.client_email,
+        client_type: doc!.client_type,
         buyer_reference: doc!.buyer_reference,
         title: doc!.title,
         intro: doc!.intro,
@@ -134,6 +156,38 @@ export function DocumentEditor({
       setDoc(document)
       onChanged()
     }
+  }
+
+  // Debtor type drives the §288 dunning Pauschale (B2B only). Editable even after
+  // finalisation; persisted immediately when locked (no Save button then).
+  async function changeClientType(ct: string) {
+    field('client_type', ct)
+    if (locked) {
+      const { document } = await api.updateDocument(id, { client_type: ct })
+      setDoc(document)
+      onChanged()
+    }
+  }
+
+  async function recordPayment() {
+    const amount = inputToCents(payAmount)
+    if (amount <= 0) return
+    const { document } = await api.addPayment(id, {
+      amount_cents: amount,
+      paid_on: payDate || todayISO(),
+      method: payMethod || undefined,
+    })
+    setDoc(document)
+    setPayAmount('')
+    await loadPayments()
+    onChanged()
+  }
+
+  async function removePayment(paymentId: number) {
+    const { document } = await api.deletePayment(paymentId)
+    setDoc(document)
+    await loadPayments()
+    onChanged()
   }
 
   async function validate() {
@@ -262,6 +316,19 @@ export function DocumentEditor({
             </div>
           </div>
         )}
+        {doc.kind === 'rechnung' && (
+          <div className="field">
+            <label>Kundentyp</label>
+            <select value={doc.client_type} onChange={(e) => changeClientType(e.target.value)}>
+              {clientTypes.map((t) => (
+                <option key={t} value={t}>{CLIENT_TYPE_LABEL[t] ?? t}</option>
+              ))}
+            </select>
+            <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+              Privatkunden schulden im Verzug keine €40-Pauschale (§288(5) BGB, nur B2B).
+            </div>
+          </div>
+        )}
       </div>
 
       <fieldset className="doc-block">
@@ -320,7 +387,7 @@ export function DocumentEditor({
           <tbody>
             {items.map((it, i) => (
               <tr key={i}>
-                <td>
+                <td data-label="Beschreibung">
                   <input
                     value={it.description ?? ''}
                     disabled={locked}
@@ -328,7 +395,7 @@ export function DocumentEditor({
                     onChange={(e) => setItem(i, { description: e.target.value })}
                   />
                 </td>
-                <td className="num">
+                <td data-label="Menge" className="num">
                   <input
                     type="number"
                     step="0.5"
@@ -337,22 +404,22 @@ export function DocumentEditor({
                     onChange={(e) => setItem(i, { quantity: Number(e.target.value) })}
                   />
                 </td>
-                <td>
+                <td data-label="Einheit">
                   <input
                     value={it.unit ?? ''}
                     disabled={locked}
                     onChange={(e) => setItem(i, { unit: e.target.value })}
                   />
                 </td>
-                <td className="num">
+                <td data-label="Einzelpreis" className="num">
                   <input
                     defaultValue={centsToInput(it.unit_price_cents)}
                     disabled={locked}
                     onBlur={(e) => setItem(i, { unit_price_cents: inputToCents(e.target.value) })}
                   />
                 </td>
-                <td className="num cell-total">{euro(lineTotalCents(it.quantity, it.unit_price_cents))}</td>
-                <td>
+                <td data-label="Gesamt" className="num cell-total">{euro(lineTotalCents(it.quantity, it.unit_price_cents))}</td>
+                <td data-label="">
                   {!locked && (
                     <button className="ghost" onClick={() => removeItem(i)} title="Entfernen">
                       Entfernen
@@ -392,6 +459,87 @@ export function DocumentEditor({
           <div className="kleinunternehmer">Kleinunternehmer §19 UStG — keine USt. ausgewiesen.</div>
         )}
       </div>
+
+      {isFinalInvoice && paySummary && (
+        <fieldset className="doc-block">
+          <legend>Zahlungen</legend>
+          <div className="pay-summary">
+            <div><span>Rechnungsbetrag</span><span>{euro(gross)}</span></div>
+            <div><span>Bezahlt</span><span>{euro(paySummary.paid_cents)}</span></div>
+            <div className="grand">
+              <span>Offen</span>
+              <span style={{ color: paySummary.outstanding_cents > 0 ? 'var(--danger)' : 'var(--ok)' }}>
+                {euro(paySummary.outstanding_cents)}
+              </span>
+            </div>
+          </div>
+
+          {payments.length > 0 && (
+            <div className="table-wrap">
+              <table className="items-table">
+                <thead>
+                  <tr><th>Datum</th><th>Art</th><th className="num">Betrag</th><th /></tr>
+                </thead>
+                <tbody>
+                  {payments.map((p) => (
+                    <tr key={p.id}>
+                      <td data-label="Datum">{fmtDate(p.paid_on)}</td>
+                      <td data-label="Art">{p.method ?? '—'}</td>
+                      <td data-label="Betrag" className="num">{euro(p.amount_cents)}</td>
+                      <td data-label="">
+                        <button className="ghost" onClick={() => removePayment(p.id)} title="Zahlung entfernen">Entfernen</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {doc.status !== 'storniert' && (
+            <div className="pay-form">
+              <div className="field">
+                <label>Betrag</label>
+                <input
+                  value={payAmount}
+                  placeholder={centsToInput(paySummary.outstanding_cents)}
+                  onChange={(e) => setPayAmount(e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label>Datum</label>
+                <input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} />
+              </div>
+              <div className="field">
+                <label>Art</label>
+                <input
+                  value={payMethod}
+                  list="pay-methods"
+                  onChange={(e) => setPayMethod(e.target.value)}
+                />
+                <datalist id="pay-methods">
+                  <option value="Überweisung" />
+                  <option value="Bar" />
+                  <option value="PayPal" />
+                  <option value="Lastschrift" />
+                  <option value="Karte" />
+                </datalist>
+              </div>
+              <button className="primary" onClick={recordPayment} disabled={inputToCents(payAmount) <= 0}>
+                Zahlung erfassen
+              </button>
+              {paySummary.outstanding_cents > 0 && (
+                <button
+                  onClick={() => setPayAmount(centsToInput(paySummary.outstanding_cents))}
+                  title="Offenen Betrag übernehmen"
+                >
+                  Offen übernehmen
+                </button>
+              )}
+            </div>
+          )}
+        </fieldset>
+      )}
 
       <div className="field">
         <label>Fußnote / Hinweise</label>

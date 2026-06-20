@@ -340,10 +340,13 @@ table.leads td.num, table.leads th.num { text-align: right; font-variant-numeric
   }
   .suite-nav .spacer { display: none; }
   .suite-nav .brand { order: 1; }
-  .suite-nav .user-chip { order: 2; margin-left: auto; }
-  .suite-nav button.ghost { order: 3; }
-  .suite-tabs { order: 4; flex-basis: 100%; }
-  .suite-tabs button { flex: 1; padding: 9px 8px; }
+  .suite-nav .ai-badge { order: 2; margin-right: 0; }
+  .suite-nav .user-chip { order: 3; margin-left: auto; }
+  .suite-nav button.ghost { order: 4; }
+  /* Tabs wrap to as many rows as needed so every German label stays readable
+     and tappable — no clipping, no squeezing 7 tabs into one row. */
+  .suite-tabs { order: 5; flex-basis: 100%; flex-wrap: wrap; gap: 6px; }
+  .suite-tabs button { flex: 0 0 auto; white-space: nowrap; padding: 9px 14px; }
 
   /* Per-module toolbars wrap; search/segments take the full width. */
   .toolbar {
@@ -356,22 +359,77 @@ table.leads td.num, table.leads th.num { text-align: right; font-variant-numeric
   .toolbar .seg { flex: 1 1 100%; }
   .toolbar .seg button { flex: 1; }
 
-  /* Comfortable tap targets everywhere. */
-  .toolbar button,
-  .suite-tabs button,
-  .doc-editor-head button,
-  table.leads select,
-  .items-table button { min-height: 40px; }
+  /* Comfortable tap targets everywhere (44px ≈ Apple/Material minimum).
+     `button` already covers button.chip; span.chip pills stay their natural size. */
+  button,
+  .backup-link,
+  .ghost-link,
+  .ai-result-row,
+  input, select, textarea { min-height: 44px; }
+  /* Inline controls that shouldn't be forced tall. */
+  .tag-x, .seg button { min-height: 0; }
 
-  .content { padding: 12px; }
+  .content {
+    padding: 12px;
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
 
   /* Kanban: one column ~fills the screen, swipe sideways between phases. */
   .board { gap: 10px; }
   .column { flex: 0 0 80vw; max-width: 320px; }
 
-  /* Wide data tables scroll inside their wrapper instead of breaking layout. */
-  table.leads { min-width: 640px; }
-  .items-table { min-width: 560px; }
+  /* Wide data tables collapse into labelled cards — no horizontal scrolling.
+     Each <td> carries a data-label that becomes the field name on the left. */
+  table.leads, table.leads tbody, table.leads tr, table.leads td { display: block; }
+  table.leads { min-width: 0; border: none; background: transparent; border-radius: 0; overflow: visible; }
+  table.leads thead { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); border: 0; }
+  table.leads tbody { display: flex; flex-direction: column; gap: 10px; }
+  table.leads tr {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 2px 14px; box-shadow: var(--shadow);
+  }
+  table.leads tbody tr:hover { background: var(--surface); }
+  table.leads td {
+    display: flex; align-items: center; gap: 12px; justify-content: flex-end;
+    padding: 10px 0; border-bottom: 1px solid var(--border); text-align: right;
+  }
+  table.leads tr td:last-child { border-bottom: none; }
+  table.leads td::before {
+    content: attr(data-label); margin-right: auto; text-align: left; white-space: nowrap;
+    color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.02em;
+  }
+  table.leads td[data-label=""]::before { content: none; }
+  table.leads td.cell-primary { font-weight: 700; font-size: 15px; }
+  table.leads td select { flex: 1; min-width: 0; max-width: 220px; }
+  /* Action cells: buttons/links share the row and wrap when cramped. */
+  table.leads td[data-label=""], table.leads td.dunning-actions { flex-wrap: wrap; justify-content: flex-start; gap: 8px; }
+  table.leads td[data-label=""] > *, table.leads td.dunning-actions > * { flex: 1 1 auto; text-align: center; }
+  table.leads td.dunning-actions .dunning-done, table.leads td.dunning-actions .dunning-error { flex-basis: 100%; text-align: left; }
+
+  /* Input tables (line items, payments, team) → stacked labelled fields. */
+  .items-table, .items-table tbody, .items-table tr, .items-table td { display: block; }
+  .items-table { min-width: 0; }
+  .items-table thead { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); border: 0; }
+  .items-table tbody { display: flex; flex-direction: column; gap: 10px; }
+  .items-table tr {
+    background: #fbfcfd; border: 1px solid var(--border); border-radius: var(--radius); padding: 6px 12px;
+  }
+  .items-table td { display: flex; align-items: center; gap: 12px; padding: 6px 0; width: auto !important; }
+  .items-table td::before {
+    content: attr(data-label); flex: 0 0 96px; text-align: left;
+    color: var(--muted); font-size: 12px; font-weight: 600;
+  }
+  .items-table td[data-label=""]::before { content: none; }
+  .items-table td input, .items-table td select { flex: 1; width: auto; }
+  .items-table td.num input { text-align: right; }
+  .items-table td.cell-total { justify-content: space-between; font-weight: 600; }
+  .items-table td[data-label=""] { gap: 8px; flex-wrap: wrap; }
+  .items-table td[data-label=""] > * { flex: 1 1 auto; }
+  /* An action cell with nothing in it (e.g. a finalised invoice's delete slot)
+     shouldn't leave an empty stripe in the card. */
+  table.leads td[data-label=""]:empty, .items-table td[data-label=""]:empty { display: none; }
 
   /* Stack the two-column form rows. */
   .row2, .doc-grid { grid-template-columns: 1fr; }
@@ -388,10 +446,41 @@ table.leads td.num, table.leads th.num { text-align: right; font-variant-numeric
   .doc-editor-head button { flex: 1; }
   .doc-totals { width: 100%; }
 
-  /* Drawer + modal already use min(…, 100%); make padding a touch tighter. */
+  /* Suite nav: respect the notch / status-bar inset. */
+  .suite-nav {
+    padding-top: max(8px, env(safe-area-inset-top));
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+  }
+
+  /* Drawer = full-screen sheet, with notch-safe padding. */
   .drawer { width: 100%; }
-  .drawer-body, .drawer-head { padding: 14px; }
-  .modal-card { padding: 18px; }
+  .drawer-head { padding: 14px; padding-top: max(14px, env(safe-area-inset-top)); }
+  .drawer-body {
+    padding: 14px;
+    padding-bottom: max(14px, env(safe-area-inset-bottom));
+    gap: 14px;
+  }
+
+  /* Modal becomes a near-full-width sheet that scrolls if it's tall. */
+  .modal { padding: 12px; align-items: center; }
+  .modal-card { width: 100%; max-width: 100%; padding: 18px; max-height: calc(100dvh - 24px); overflow-y: auto; }
+
+  /* Bigger, easier-to-hit tag remove control. */
+  .tag-x { font-size: 13px; min-width: 24px; min-height: 24px; padding: 4px; }
+  .tag-input { min-height: 36px; }
+
+  /* Long values (emails, URLs, IBANs) wrap instead of forcing overflow. */
+  .kv { gap: 10px; }
+  .kv > span:last-child, .kv a { overflow-wrap: anywhere; word-break: break-word; min-width: 0; text-align: right; }
+
+  /* Legibility: keep functional pills/labels at ≥12px on a phone. */
+  .badge, .tag, .doc-status, .score { font-size: 12px; }
+
+  /* Count/status chips and the drawer title wrap rather than overflow the row. */
+  .user-chip { white-space: normal; overflow-wrap: anywhere; }
+  .drawer-head strong { overflow-wrap: anywhere; }
+  .schedule-note code { overflow-wrap: anywhere; white-space: normal; }
 }
 
 /* --- Chat (KI copilot) ---------------------------------------------------- */
@@ -428,7 +517,7 @@ table.leads td.num, table.leads th.num { text-align: right; font-variant-numeric
 .chat-thread-title { font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chat-thread-when { font-size: 11px; color: var(--muted); }
 
-@media (max-width: 760px) {
+@media (max-width: 720px) {
   .chat-shell { flex-direction: column; }
   .chat-sidebar {
     flex: 0 0 auto; max-height: 156px;
@@ -582,3 +671,85 @@ button:disabled { opacity: 0.55; cursor: default; }
 .ai-result-row:hover { border-color: var(--accent); background: var(--accent-soft); }
 .ai-result-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .ai-result-company { font-weight: 600; color: var(--text); }
+
+/* --- info banner (lighter than section-error) --- */
+.section-info {
+  margin: 8px 0; padding: 8px 10px; border-radius: var(--radius);
+  background: var(--accent-soft); border: 1px solid #bcdfe6; color: var(--accent-dark); font-size: 13px;
+}
+
+/* --- dashboard --- */
+.dash-cards {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 12px; margin-bottom: 18px;
+}
+.dash-card {
+  display: flex; flex-direction: column; gap: 4px; text-align: left;
+  padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); box-shadow: var(--shadow);
+}
+.dash-clickable { cursor: pointer; }
+.dash-clickable:hover { border-color: var(--accent); }
+.dash-card-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+.dash-card-value { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.dash-card-sub { font-size: 12px; color: var(--muted); }
+
+.dash-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+.dash-bars { display: flex; flex-direction: column; gap: 6px; }
+.dash-bar-row { display: flex; align-items: center; gap: 10px; }
+.dash-bar-label { width: 56px; font-size: 12px; color: var(--muted); flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash-bar-label-stage { width: 96px; }
+.dash-bar-track { flex: 1; height: 16px; background: var(--bg); border-radius: 4px; overflow: hidden; }
+.dash-bar-fill { height: 100%; background: var(--accent); border-radius: 4px; min-width: 2px; }
+.dash-bar-stage { background: var(--accent-dark); }
+.dash-bar-value {
+  width: 90px; text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; flex-shrink: 0;
+}
+
+/* --- payments on an invoice --- */
+.pay-summary { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+.pay-summary > div { display: flex; justify-content: space-between; gap: 16px; font-variant-numeric: tabular-nums; }
+.pay-summary .grand { font-weight: 700; border-top: 1px solid var(--border); padding-top: 6px; }
+.pay-form { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-top: 10px; }
+.pay-form .field { margin: 0; }
+
+/* Mobile overrides for components defined above. Placed last on purpose: these
+   selectors' base rules appear earlier in the file, so the override must come
+   after them to win on source order (equal specificity). */
+@media (max-width: 720px) {
+  /* Dashboard */
+  .dash-row2 { grid-template-columns: 1fr; }
+  .dash-cards { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .dash-card { padding: 12px 14px; }
+  .dash-card-value { font-size: 20px; }
+  .dash-bar-label { width: 48px; }
+  .dash-bar-label-stage { width: 76px; }
+  .dash-bar-value { width: 72px; }
+
+  /* Chat / copilot */
+  .copilot { padding: 0 12px; }
+  .copilot-input { padding-bottom: max(14px, env(safe-area-inset-bottom)); }
+  /* overflow-wrap on .bubble itself catches the error bubble, whose text is not
+     wrapped in .bubble-text. */
+  .bubble { max-width: 92%; overflow-wrap: anywhere; }
+  .bubble-text, .step-trail span, .step-trail code, .erechnung-list li {
+    overflow-wrap: anywhere; word-break: break-word;
+  }
+
+  /* Lead AI-search row: drop the desktop spacer so controls wrap tidily.
+     (Placed here, after the .ai-search base rule, to stay source-order-correct.) */
+  .ai-search .spacer { display: none; }
+
+  /* Invoice payment + AI-draft action rows */
+  .pay-form { gap: 8px; }
+  .pay-form .field { flex: 1 1 100%; }
+  .pay-form > button { flex: 1; }
+  .ai-draft-actions { flex-wrap: wrap; }
+
+  /* Lead-detail outreach + analysis, dunning, settings, search */
+  .outreach-card, .ai-analysis { overflow-wrap: anywhere; }
+  .outreach-card select { font-size: 16px; min-height: 44px; }
+  .ai-result-company { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dunning-rate { font-size: 12px; }
+  .settings-hint code { overflow-wrap: anywhere; white-space: normal; }
+}

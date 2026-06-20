@@ -38,6 +38,9 @@ export interface Config {
   priorities: string[]
   docKinds: string[]
   docStatuses: Record<string, string[]>
+  clientTypes: string[]
+  roles: string[]
+  cadences: string[]
 }
 
 export interface Settings {
@@ -63,6 +66,7 @@ export interface Settings {
   angebot_next: number
   scraper_trades: string | null
   scraper_towns: string | null
+  scraper_region: string | null
   scraper_min_score: number | null
   scraper_max_pairs: number | null
   scraper_per_pair: number | null
@@ -145,10 +149,87 @@ export interface Doc {
   small_business: number
   vat_rate: number
   buyer_reference?: string | null
+  client_type: string
   created_at: string
   updated_at: string
   items: DocItem[]
   totals: DocTotals
+  paid_cents: number
+}
+
+export interface Payment {
+  id: number
+  document_id: number
+  amount_cents: number
+  paid_on: string
+  method: string | null
+  note: string | null
+  created_at: string
+}
+
+export interface PaymentSummary {
+  payments: Payment[]
+  gross_cents: number
+  paid_cents: number
+  outstanding_cents: number
+}
+
+export interface RecurringInvoice {
+  id: number
+  client_name: string | null
+  client_address: string | null
+  client_zip: string | null
+  client_city: string | null
+  client_email: string | null
+  client_type: string
+  lead_id: number | null
+  title: string | null
+  intro: string | null
+  notes: string | null
+  items: string // JSON of DocItem-shaped objects
+  small_business: number
+  vat_rate: number
+  cadence: string
+  next_run: string
+  active: number
+  last_run: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface PublicUser {
+  id: number
+  username: string
+  role: string
+  created_at: string
+}
+
+export interface MonthRevenue {
+  month: string
+  net_cents: number
+  gross_cents: number
+  count: number
+}
+
+export interface Dashboard {
+  leads: {
+    total: number
+    open: number
+    won: number
+    lost: number
+    by_stage: { stage: string; n: number }[]
+    conversion_pct: number
+  }
+  invoices: {
+    issued: number
+    drafts: number
+    gross_total_cents: number
+    paid_total_cents: number
+    open_total_cents: number
+    overdue_count: number
+    overdue_total_cents: number
+  }
+  revenue_by_month: MonthRevenue[]
 }
 
 export interface User {

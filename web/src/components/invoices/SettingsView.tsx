@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../api'
-import type { Settings } from '../../types'
+import type { Config, PublicUser, Settings, User } from '../../types'
 
-export function SettingsView() {
+export function SettingsView({ user, config }: { user: User; config: Config }) {
   const [s, setS] = useState<Settings | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -216,6 +216,71 @@ export function SettingsView() {
           </fieldset>
 
           <fieldset className="doc-block">
+            <legend>Lead-Scraper</legend>
+            <p className="settings-hint">
+              Suchraster für die Lead-Erkennung. Region und Orte sind bewusst leer —
+              trag dein Einzugsgebiet ein (nichts Ortsspezifisches ist vorbelegt).
+            </p>
+            <div className="field">
+              <label>Region (Discovery-Anker)</label>
+              <input
+                value={s.scraper_region ?? ''}
+                placeholder="z. B. Großraum Köln / Region Hannover"
+                onChange={(e) => set('scraper_region', e.target.value)}
+              />
+            </div>
+            <div className="row2">
+              <div className="field">
+                <label>Gewerke (Komma- oder zeilengetrennt)</label>
+                <textarea
+                  rows={3}
+                  value={s.scraper_trades ?? ''}
+                  placeholder="Schreiner, Maler, Dachdecker…"
+                  onChange={(e) => set('scraper_trades', e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label>Orte (Komma- oder zeilengetrennt)</label>
+                <textarea
+                  rows={3}
+                  value={s.scraper_towns ?? ''}
+                  placeholder="deine Städte / Umlandgemeinden…"
+                  onChange={(e) => set('scraper_towns', e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="row2">
+              <div className="field">
+                <label>Mindest-Score</label>
+                <input
+                  type="number"
+                  value={s.scraper_min_score ?? ''}
+                  placeholder="40"
+                  onChange={(e) => set('scraper_min_score', e.target.value === '' ? null : Number(e.target.value))}
+                />
+              </div>
+              <div className="field">
+                <label>Kombinationen pro Lauf</label>
+                <input
+                  type="number"
+                  value={s.scraper_max_pairs ?? ''}
+                  placeholder="3"
+                  onChange={(e) => set('scraper_max_pairs', e.target.value === '' ? null : Number(e.target.value))}
+                />
+              </div>
+            </div>
+            <div className="field">
+              <label>Kandidaten je Kombination</label>
+              <input
+                type="number"
+                value={s.scraper_per_pair ?? ''}
+                placeholder="8"
+                onChange={(e) => set('scraper_per_pair', e.target.value === '' ? null : Number(e.target.value))}
+              />
+            </div>
+          </fieldset>
+
+          <fieldset className="doc-block">
             <legend>KI-Anbindung</legend>
             <p className="settings-hint">
               Überschreibt die <code>AI_*</code>-Umgebungsvariablen. Leer lassen, um die
@@ -405,8 +470,131 @@ export function SettingsView() {
               </a>
             </div>
           </fieldset>
+
+          {user.role === 'admin' && <TeamSettings config={config} currentUserId={user.id} />}
         </div>
       </div>
     </>
+  )
+}
+
+// Admin-only user management: add team members, change roles, reset passwords.
+function TeamSettings({ config, currentUserId }: { config: Config; currentUserId: number }) {
+  const [users, setUsers] = useState<PublicUser[]>([])
+  const [error, setError] = useState<string | null>(null)
+  const [newName, setNewName] = useState('')
+  const [newPass, setNewPass] = useState('')
+  const [newRole, setNewRole] = useState(config.roles[0] ?? 'member')
+
+  function refresh() {
+    api.listUsers().then(({ users }) => setUsers(users)).catch(() => {})
+  }
+  useEffect(refresh, [])
+
+  async function addUser() {
+    setError(null)
+    try {
+      await api.createUser({ username: newName.trim(), password: newPass, role: newRole })
+      setNewName('')
+      setNewPass('')
+      refresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Anlegen fehlgeschlagen.')
+    }
+  }
+
+  async function changeRole(u: PublicUser, role: string) {
+    setError(null)
+    try {
+      await api.updateUser(u.id, { role })
+      refresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Änderung fehlgeschlagen.')
+    }
+  }
+
+  async function resetPassword(u: PublicUser) {
+    const pw = prompt(`Neues Passwort für ${u.username} (min. 8 Zeichen):`)
+    if (!pw) return
+    setError(null)
+    try {
+      await api.updateUser(u.id, { password: pw })
+      alert('Passwort gesetzt.')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Zurücksetzen fehlgeschlagen.')
+    }
+  }
+
+  async function removeUser(u: PublicUser) {
+    if (!confirm(`Benutzer ${u.username} löschen?`)) return
+    setError(null)
+    try {
+      await api.deleteUser(u.id)
+      refresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Löschen fehlgeschlagen.')
+    }
+  }
+
+  return (
+    <fieldset className="doc-block">
+      <legend>Team & Benutzer</legend>
+      <p className="settings-hint">
+        Admins verwalten Benutzer und Einstellungen; Mitglieder arbeiten Pipeline und Rechnungen.
+      </p>
+      {error && <div className="section-error">{error}</div>}
+      <div className="table-wrap">
+        <table className="items-table">
+          <thead>
+            <tr><th>Benutzer</th><th>Rolle</th><th /></tr>
+          </thead>
+          <tbody>
+            {users.map((u) => (
+              <tr key={u.id}>
+                <td data-label="Benutzer" className="cell-primary">{u.username}{u.id === currentUserId && <span className="user-chip" style={{ marginLeft: 6 }}>du</span>}</td>
+                <td data-label="Rolle">
+                  <select value={u.role} onChange={(e) => changeRole(u, e.target.value)}>
+                    {config.roles.map((r) => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
+                  </select>
+                </td>
+                <td data-label="">
+                  <button className="ghost" onClick={() => resetPassword(u)}>Passwort</button>
+                  {u.id !== currentUserId && (
+                    <button className="ghost" onClick={() => removeUser(u)}>Löschen</button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="row2" style={{ marginTop: 10 }}>
+        <div className="field">
+          <label>Neuer Benutzername</label>
+          <input value={newName} autoComplete="off" onChange={(e) => setNewName(e.target.value)} />
+        </div>
+        <div className="field">
+          <label>Passwort (min. 8)</label>
+          <input type="password" autoComplete="new-password" value={newPass} onChange={(e) => setNewPass(e.target.value)} />
+        </div>
+      </div>
+      <div className="row2">
+        <div className="field">
+          <label>Rolle</label>
+          <select value={newRole} onChange={(e) => setNewRole(e.target.value)}>
+            {config.roles.map((r) => (
+              <option key={r} value={r}>{r}</option>
+            ))}
+          </select>
+        </div>
+        <div className="field" style={{ alignSelf: 'end' }}>
+          <button className="primary" onClick={addUser} disabled={!newName.trim() || newPass.length < 8}>
+            Benutzer anlegen
+          </button>
+        </div>
+      </div>
+    </fieldset>
   )
 }

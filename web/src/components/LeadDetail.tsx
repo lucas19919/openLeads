@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { parseTags } from '../util'
-import type { Lead, LeadAnalysis, LeadEvent, Outreach } from '../types'
+import type { Lead, LeadAnalysis, LeadEvent, Outreach, PublicUser } from '../types'
 
 // talking_points / risk_flags arrive as JSON strings from the model.
 // Parse defensively: never throw, always fall back to an empty list.
@@ -72,6 +72,7 @@ export function LeadDetail({
   const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
   const [tagInput, setTagInput] = useState('')
+  const [users, setUsers] = useState<PublicUser[]>([])
 
   // KI-Analyse
   const [analysis, setAnalysis] = useState<LeadAnalysis | null>(null)
@@ -107,6 +108,12 @@ export function LeadDetail({
       .catch((e: unknown) => {
         if (active) setOutreachErr(errMsg(e))
       })
+    api
+      .listUsers()
+      .then(({ users }) => {
+        if (active) setUsers(users)
+      })
+      .catch(() => {})
     return () => {
       active = false
     }
@@ -275,6 +282,24 @@ export function LeadDetail({
                     ))}
                   </select>
                 </div>
+              </div>
+
+              <div className="field">
+                <label>Zuständig</label>
+                <select
+                  value={lead.assigned_to ?? ''}
+                  onChange={(e) => patch({ assigned_to: e.target.value || null })}
+                >
+                  <option value="">— nicht zugewiesen</option>
+                  {lead.assigned_to && !users.some((u) => u.username === lead.assigned_to) && (
+                    <option value={lead.assigned_to}>{lead.assigned_to}</option>
+                  )}
+                  {users.map((u) => (
+                    <option key={u.id} value={u.username}>
+                      {u.username}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="field">

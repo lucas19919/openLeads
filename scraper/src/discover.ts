@@ -15,9 +15,10 @@ export async function discoverCandidates(
   limit: number,
   region: string = REGION,
 ): Promise<Candidate[]> {
+  const regionHint = region ? ` (${region})` : ''
   const prompt =
-    `Finde bis zu ${limit} lokale Handwerksbetriebe im Bereich "${trade}" in oder um ${town} ` +
-    `(${region}), die eine EIGENE Firmen-Website haben. ` +
+    `Finde bis zu ${limit} lokale Handwerksbetriebe im Bereich "${trade}" in oder um ${town}` +
+    `${regionHint}, die eine EIGENE Firmen-Website haben. ` +
     `Keine Verzeichnisse/Portale, kein Facebook/Instagram/Google-Profil. ` +
     `Nutze die Websuche; bevorzuge kleine, inhabergeführte Betriebe.\n\n` +
     `Gib AUSSCHLIESSLICH am Ende ein JSON-Array in einem \`\`\`json Codeblock zurück, ` +

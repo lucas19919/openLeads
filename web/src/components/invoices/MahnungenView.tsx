@@ -127,23 +127,23 @@ export function MahnungenView() {
                   const state = rows[c.document_id] ?? {}
                   return (
                     <tr key={c.document_id}>
-                      <td className="no-x">{c.number ?? <em style={{ color: 'var(--muted)' }}>—</em>}</td>
-                      <td>{c.client_name ?? '—'}</td>
-                      <td>{c.due_date ? fmtDate(c.due_date) : '—'}</td>
-                      <td className="num">{c.days_overdue}</td>
-                      <td className="num">{euro(c.gross_cents)}</td>
-                      <td className="num">
+                      <td data-label="Nr." className="no-x cell-primary">{c.number ?? <em style={{ color: 'var(--muted)' }}>—</em>}</td>
+                      <td data-label="Kunde">{c.client_name ?? '—'}</td>
+                      <td data-label="Fällig seit">{c.due_date ? fmtDate(c.due_date) : '—'}</td>
+                      <td data-label="Tage überfällig" className="num">{c.days_overdue}</td>
+                      <td data-label="Betrag" className="num">{euro(c.gross_cents)}</td>
+                      <td data-label="Verzugszins" className="num">
                         {euro(c.interest_cents)}
                         <span className="dunning-rate"> ({c.interest_rate_percent.toLocaleString('de-DE')} %)</span>
                       </td>
-                      <td className="num">{euro(c.pauschale_cents)}</td>
-                      <td className="num">
+                      <td data-label="+ Pauschale" className="num">{euro(c.pauschale_cents)}</td>
+                      <td data-label="Gesamtforderung" className="num">
                         <strong>{euro(c.total_claim_cents)}</strong>
                       </td>
-                      <td>
+                      <td data-label="Mahnstufe">
                         <span className="doc-status">{mahnstufeLabel(c.suggested_level)}</span>
                       </td>
-                      <td className="dunning-actions">
+                      <td data-label="" className="dunning-actions">
                         <a
                           className="ghost-link"
                           href={api.pdfUrl(c.document_id)}

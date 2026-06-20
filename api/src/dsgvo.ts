@@ -11,6 +11,35 @@ function ip(c: Parameters<MiddlewareHandler>[0]): string | null {
 }
 
 /**
+ * Whether e-mail outreach is blocked by a recorded objection (Art. 21 DSGVO
+ * Widerspruch / UWG §7). We look at the *latest* consent entry per type so a
+ * later re-consent un-blocks; a phone-only withdrawal never blocks e-mail.
+ * Pure, so it is unit-testable without a DB.
+ */
+export function emailBlockedByConsent(
+  rows: { type: string; status: string; at?: string | null }[],
+): boolean {
+  const latest = new Map<string, { status: string; at: string }>()
+  for (const r of rows) {
+    const t = (r.type ?? '').toLowerCase()
+    if (t.includes('phone') || t.includes('telefon')) continue // phone-only objection
+    const at = r.at ?? ''
+    const prev = latest.get(t)
+    if (!prev || at >= prev.at) latest.set(t, { status: r.status, at })
+  }
+  for (const v of latest.values()) if (v.status === 'withdrawn') return true
+  return false
+}
+
+/** DB-backed check: has this lead objected to e-mail contact? */
+export function leadEmailBlocked(leadId: number): boolean {
+  const rows = db
+    .prepare('SELECT type, status, at FROM consent WHERE lead_id = ?')
+    .all(leadId) as unknown as { type: string; status: string; at: string }[]
+  return emailBlockedByConsent(rows)
+}
+
+/**
  * DSGVO operator tooling. These endpoints make the data-subject rights concrete:
  * Auskunft/Datenübertragbarkeit (Art. 15/20), Löschung (Art. 17), Verzeichnis der
  * Verarbeitungstätigkeiten (Art. 30) and the accountability log (Art. 5(2)).

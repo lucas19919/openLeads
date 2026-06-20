@@ -10,7 +10,8 @@ function settings(over: Partial<SettingsRow> = {}): SettingsRow {
     city: 'München', email: 'h@ws.de', phone: null, website: null, tax_id: 'DE123456789',
     iban: 'DE89370400440532013000', bic: null, bank: null, small_business: 0, vat_rate: 19,
     payment_terms: 14, rechnung_prefix: 'RE-', rechnung_next: 1, angebot_prefix: 'AN-',
-    angebot_next: 1, scraper_trades: null, scraper_towns: null, scraper_min_score: null,
+    angebot_next: 1, scraper_trades: null, scraper_towns: null, scraper_region: null,
+    scraper_min_score: null,
     scraper_max_pairs: null, scraper_per_pair: null, verzug_base_rate: 1.27, datev_revenue_account: null, datev_debitor_account: null, ...over,
   }
 }
@@ -26,7 +27,8 @@ function invoice(over: Partial<FullDocument> = {}): FullDocument {
     client_address: 'Dorfstr. 2', client_zip: '85435', client_city: 'Erding', client_email: null,
     title: 'Rechnung', intro: null, notes: null, status: 'versendet', issue_date: '2026-06-19',
     due_date: '2026-07-03', small_business: small ? 1 : 0, vat_rate: vatRate, buyer_reference: null,
-    created_at: '', updated_at: '', items, totals: computeTotals(items, small, vatRate), ...over,
+    client_type: 'geschaeft', created_at: '', updated_at: '', items,
+    totals: computeTotals(items, small, vatRate), paid_cents: 0, ...over,
   }
 }
 

@@ -12,6 +12,9 @@ import {
   PRIORITIES,
   DOC_KINDS,
   DOC_STATUSES,
+  CLIENT_TYPES,
+  ROLES,
+  RECURRING_CADENCES,
   normalizeDomain,
   type LeadRow,
   type UserRow,
@@ -28,13 +31,25 @@ import {
   getSettings,
   getDocument,
   replaceItems,
-  assignNumber,
+  finalizeDraft,
   type DocItemInput,
 } from './documents'
 import { renderDocumentPdf, pdfFilename } from './pdf'
 import { renderMahnungPdf, mahnungPdfFilename } from './mahnungPdf'
 import { validateInvoice } from './validate'
 import { listOverdue, computeDunning, levelLabel } from './dunning'
+import { listPayments, addPayment, deletePayment, paidCents } from './payments'
+import {
+  listRecurring,
+  getRecurring,
+  createRecurring,
+  updateRecurring,
+  deleteRecurring,
+  runRecurring,
+  processDueRecurring,
+} from './recurring'
+import { buildDashboard } from './dashboard'
+import { listUsers, createUser, updateUser, deleteUser } from './users'
 import { snapshot, snapshotFilename } from './backup'
 import { finalisedInvoices, invoicesCsv, datevCsv, exportFilename } from './export'
 import { audit } from './audit'
@@ -75,6 +90,19 @@ async function requireServiceOrAuth(c: Context<{ Variables: Vars }>, next: Next)
   return requireAuth(c, next)
 }
 
+// Gate admin-only routes (user management): a valid session whose role is admin.
+async function requireAdmin(c: Context<{ Variables: Vars }>, next: Next) {
+  const sess = readSession(getCookie(c, COOKIE))
+  if (!sess) return c.json({ error: 'unauthorized' }, 401)
+  const user = db
+    .prepare('SELECT id, username, role FROM users WHERE id = ?')
+    .get(sess.uid) as unknown as Vars['user'] | undefined
+  if (!user) return c.json({ error: 'unauthorized' }, 401)
+  if (user.role !== 'admin') return c.json({ error: 'Nur für Administratoren.' }, 403)
+  c.set('user', user)
+  await next()
+}
+
 // --- auth routes ----------------------------------------------------------
 
 app.post('/api/login', async (c) => {
@@ -109,6 +137,9 @@ app.get('/api/config', (c) =>
     priorities: PRIORITIES,
     docKinds: DOC_KINDS,
     docStatuses: DOC_STATUSES,
+    clientTypes: CLIENT_TYPES,
+    roles: ROLES,
+    cadences: RECURRING_CADENCES,
   }),
 )
 
@@ -315,8 +346,8 @@ const SETTINGS_FIELDS = new Set([
   'business_name', 'owner', 'address', 'zip', 'city', 'email', 'phone',
   'website', 'tax_id', 'iban', 'bic', 'bank', 'small_business', 'vat_rate',
   'payment_terms', 'rechnung_prefix', 'rechnung_next', 'angebot_prefix',
-  'angebot_next', 'scraper_trades', 'scraper_towns', 'scraper_min_score',
-  'scraper_max_pairs', 'scraper_per_pair', 'verzug_base_rate',
+  'angebot_next', 'scraper_trades', 'scraper_towns', 'scraper_region',
+  'scraper_min_score', 'scraper_max_pairs', 'scraper_per_pair', 'verzug_base_rate',
   'datev_revenue_account', 'datev_debitor_account',
   // Operator-editable connection config (plain). Override the matching .env var.
   'ai_base_url', 'ai_model', 'ai_label',
@@ -438,10 +469,10 @@ app.post('/api/documents', requireAuth, async (c) => {
     .prepare(
       `INSERT INTO documents
         (kind, lead_id, client_name, client_address, client_zip, client_city,
-         client_email, title, intro, notes, small_business, vat_rate)
+         client_email, client_type, title, intro, notes, small_business, vat_rate)
        VALUES
         (@kind, @lead_id, @client_name, @client_address, @client_zip, @client_city,
-         @client_email, @title, @intro, @notes, @small_business, @vat_rate)`,
+         @client_email, @client_type, @title, @intro, @notes, @small_business, @vat_rate)`,
     )
     .run({
       kind,
@@ -451,6 +482,7 @@ app.post('/api/documents', requireAuth, async (c) => {
       client_zip: (b.client_zip as string) ?? null,
       client_city: prefillCity,
       client_email: prefillEmail,
+      client_type: b.client_type === 'privat' ? 'privat' : 'geschaeft',
       title: (b.title as string) ?? (kind === 'rechnung' ? 'Rechnung' : 'Angebot'),
       intro: (b.intro as string) ?? null,
       notes: (b.notes as string) ?? null,
@@ -464,7 +496,8 @@ app.post('/api/documents', requireAuth, async (c) => {
 
 const DOC_EDITABLE = new Set([
   'client_name', 'client_address', 'client_zip', 'client_city', 'client_email',
-  'title', 'intro', 'notes', 'due_date', 'small_business', 'vat_rate', 'buyer_reference',
+  'client_type', 'title', 'intro', 'notes', 'due_date', 'small_business', 'vat_rate',
+  'buyer_reference',
 ])
 
 app.patch('/api/documents/:id', requireAuth, async (c) => {
@@ -498,24 +531,18 @@ app.patch('/api/documents/:id', requireAuth, async (c) => {
 })
 
 // Finalise a draft: assign a gapless number + issue/due dates, mark "versendet".
+// Done atomically in finalizeDraft() so a number is never consumed without the
+// matching invoice (gapless numbering, §14 UStG / GoBD).
 app.post('/api/documents/:id/finalize', requireAuth, (c) => {
   const id = Number(c.req.param('id'))
-  const doc = db.prepare('SELECT * FROM documents WHERE id = ?').get(id) as unknown as
-    | DocumentRow
-    | undefined
+  const wasFinal = !!(db.prepare('SELECT number FROM documents WHERE id = ?').get(id) as { number?: string } | undefined)?.number
+  const doc = finalizeDraft(id)
   if (!doc) return c.json({ error: 'not found' }, 404)
-  if (doc.number) return c.json({ document: getDocument(id) }) // already finalised
-  const number = assignNumber(doc.kind as never)
-  const s = getSettings()
-  const today = new Date().toISOString().slice(0, 10)
-  const due = new Date(Date.now() + s.payment_terms * 86400000).toISOString().slice(0, 10)
-  db.prepare(
-    `UPDATE documents
-       SET number = ?, issue_date = ?, due_date = COALESCE(due_date, ?),
-           status = 'versendet', updated_at = datetime('now')
-     WHERE id = ?`,
-  ).run(number, today, doc.kind === 'rechnung' ? due : null, id)
-  return c.json({ document: getDocument(id) })
+  // Audit the issuance (who finalised which number, when) — but not a re-finalise no-op.
+  if (!wasFinal) {
+    audit({ actor: c.get('user').username, action: 'document.finalize', entity: 'document', entityId: id, detail: { number: doc.number, kind: doc.kind } })
+  }
+  return c.json({ document: doc })
 })
 
 // Validate a document against EN 16931 (Factur-X/ZUGFeRD) business rules.
@@ -549,6 +576,9 @@ app.post('/api/documents/:id/dunning', requireAuth, async (c) => {
   if (doc.kind !== 'rechnung' || !doc.number) {
     return c.json({ error: 'Nur für ausgestellte Rechnungen.' }, 400)
   }
+  if (doc.status === 'bezahlt' || doc.status === 'storniert') {
+    return c.json({ error: 'Rechnung ist bereits bezahlt bzw. storniert — keine Mahnung.' }, 409)
+  }
   const b = (await c.req.json().catch(() => ({}))) as { level?: number; note?: string }
   const d = computeDunning(doc, getSettings(), b.level)
   const info = db.prepare(
@@ -574,6 +604,51 @@ app.get('/api/documents/:id/dunning/pdf', requireAuth, async (c) => {
   return c.body(buf as unknown as ArrayBuffer)
 })
 
+// --- Zahlungen (payments against an invoice) ------------------------------
+
+// List payments for an invoice plus the paid/outstanding summary.
+app.get('/api/documents/:id/payments', requireAuth, (c) => {
+  const doc = getDocument(Number(c.req.param('id')))
+  if (!doc) return c.json({ error: 'not found' }, 404)
+  return c.json({
+    payments: listPayments(doc.id),
+    gross_cents: doc.totals.gross_cents,
+    paid_cents: doc.paid_cents,
+    outstanding_cents: Math.max(0, doc.totals.gross_cents - doc.paid_cents),
+  })
+})
+
+// Record a payment. Settling the open amount flips the invoice to 'bezahlt'.
+app.post('/api/documents/:id/payments', requireAuth, async (c) => {
+  const doc = getDocument(Number(c.req.param('id')))
+  if (!doc) return c.json({ error: 'not found' }, 404)
+  if (doc.kind !== 'rechnung' || !doc.number) {
+    return c.json({ error: 'Zahlungen nur für ausgestellte Rechnungen.' }, 400)
+  }
+  const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+  const amount = Math.round(Number(b.amount_cents))
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return c.json({ error: 'Betrag (Cent) muss positiv sein.' }, 400)
+  }
+  const payment = addPayment(doc.id, {
+    amount_cents: amount,
+    paid_on: (b.paid_on as string) ?? null,
+    method: (b.method as string) ?? null,
+    note: (b.note as string) ?? null,
+  })
+  audit({ actor: c.get('user').username, action: 'invoice.payment', entity: 'document', entityId: doc.id, detail: { amount_cents: amount, paid_total_cents: paidCents(doc.id) } })
+  return c.json({ payment, document: getDocument(doc.id) }, 201)
+})
+
+// Delete a recorded payment (re-opens the invoice if it drops below the total).
+app.delete('/api/payments/:id', requireAuth, (c) => {
+  const pid = Number(c.req.param('id'))
+  const docId = deletePayment(pid)
+  if (docId === null) return c.json({ error: 'not found' }, 404)
+  audit({ actor: c.get('user').username, action: 'invoice.payment.delete', entity: 'document', entityId: docId, detail: { payment_id: pid } })
+  return c.json({ document: getDocument(docId) })
+})
+
 // Convert an Angebot into a draft Rechnung (copies client + items).
 app.post('/api/documents/:id/convert', requireAuth, (c) => {
   const id = Number(c.req.param('id'))
@@ -584,10 +659,10 @@ app.post('/api/documents/:id/convert', requireAuth, (c) => {
     .prepare(
       `INSERT INTO documents
         (kind, lead_id, client_name, client_address, client_zip, client_city,
-         client_email, title, intro, notes, small_business, vat_rate)
+         client_email, client_type, title, intro, notes, small_business, vat_rate)
        VALUES
         ('rechnung', @lead_id, @client_name, @client_address, @client_zip, @client_city,
-         @client_email, 'Rechnung', @intro, @notes, @small_business, @vat_rate)`,
+         @client_email, @client_type, 'Rechnung', @intro, @notes, @small_business, @vat_rate)`,
     )
     .run({
       lead_id: src.lead_id,
@@ -596,6 +671,7 @@ app.post('/api/documents/:id/convert', requireAuth, (c) => {
       client_zip: src.client_zip,
       client_city: src.client_city,
       client_email: src.client_email,
+      client_type: src.client_type,
       intro: src.intro,
       notes: src.notes,
       small_business: src.small_business,
@@ -630,17 +706,17 @@ app.delete('/api/documents/:id', requireAuth, (c) => {
 
 // --- scraper (config + status) --------------------------------------------
 
-// Fallback defaults if the operator hasn't customised the lists yet. Mirror the
-// scraper's built-in defaults so the panel and the scraper agree.
+// Fallback defaults if the operator hasn't customised the lists yet. Trades are
+// generic German Handwerk (region-neutral); towns and region are intentionally
+// empty so nothing location-specific ships — the operator sets their own area in
+// the Scraper settings (`using_defaults` tells the panel when they haven't).
 const DEFAULT_SCRAPER = {
   trades: [
     'Schreiner', 'Maler', 'Dachdecker', 'Elektro', 'Sanitär Heizung',
     'Metallbau', 'Glaser', 'Bodenleger', 'Raumausstatter', 'GaLaBau',
   ],
-  towns: [
-    'Dachau', 'Erding', 'Freising', 'Fürstenfeldbruck', 'Starnberg',
-    'Ebersberg', 'Olching', 'Germering', 'Ottobrunn', 'Unterschleißheim',
-  ],
+  towns: [] as string[],
+  region: '',
   min_score: 40,
   max_pairs: 3,
   per_pair: 8,
@@ -659,13 +735,15 @@ app.get('/api/scraper/config', requireServiceOrAuth, (c) => {
   const s = getSettings()
   const trades = parseList(s.scraper_trades)
   const towns = parseList(s.scraper_towns)
+  const region = (s.scraper_region ?? '').trim()
   return c.json({
     trades: trades.length ? trades : DEFAULT_SCRAPER.trades,
     towns: towns.length ? towns : DEFAULT_SCRAPER.towns,
+    region: region || DEFAULT_SCRAPER.region,
     min_score: s.scraper_min_score ?? DEFAULT_SCRAPER.min_score,
     max_pairs: s.scraper_max_pairs ?? DEFAULT_SCRAPER.max_pairs,
     per_pair: s.scraper_per_pair ?? DEFAULT_SCRAPER.per_pair,
-    using_defaults: { trades: trades.length === 0, towns: towns.length === 0 },
+    using_defaults: { trades: trades.length === 0, towns: towns.length === 0, region: !region },
   })
 })
 
@@ -725,6 +803,99 @@ app.get('/api/admin/backup', requireAuth, (c) => {
   return c.body(buf as unknown as ArrayBuffer)
 })
 
+// --- dashboard (read-only KPIs) -------------------------------------------
+
+app.get('/api/dashboard', requireAuth, (c) => c.json({ dashboard: buildDashboard() }))
+
+// --- users (multi-user; management is admin-only) -------------------------
+
+// Any signed-in user may read the roster (for the lead-assignment dropdown).
+app.get('/api/users', requireAuth, (c) => c.json({ users: listUsers() }))
+
+app.post('/api/users', requireAdmin, async (c) => {
+  const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+  try {
+    const user = createUser(String(b.username ?? ''), String(b.password ?? ''), b.role)
+    audit({ actor: c.get('user').username, action: 'user.create', entity: 'user', entityId: user.id, detail: { username: user.username, role: user.role } })
+    return c.json({ user }, 201)
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 400)
+  }
+})
+
+app.patch('/api/users/:id', requireAdmin, async (c) => {
+  const id = Number(c.req.param('id'))
+  const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+  try {
+    const user = updateUser(id, {
+      role: b.role,
+      password: typeof b.password === 'string' && b.password ? b.password : undefined,
+    })
+    if (!user) return c.json({ error: 'not found' }, 404)
+    audit({ actor: c.get('user').username, action: 'user.update', entity: 'user', entityId: id, detail: { role: user.role, password_reset: typeof b.password === 'string' && !!b.password } })
+    return c.json({ user })
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 400)
+  }
+})
+
+app.delete('/api/users/:id', requireAdmin, (c) => {
+  const id = Number(c.req.param('id'))
+  if (id === c.get('user').id) return c.json({ error: 'Das eigene Konto kann nicht gelöscht werden.' }, 400)
+  try {
+    if (!deleteUser(id)) return c.json({ error: 'not found' }, 404)
+    audit({ actor: c.get('user').username, action: 'user.delete', entity: 'user', entityId: id })
+    return c.json({ ok: true })
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 400)
+  }
+})
+
+// --- Serienrechnungen (recurring invoices) --------------------------------
+
+app.get('/api/recurring', requireAuth, (c) => c.json({ recurring: listRecurring() }))
+
+app.post('/api/recurring', requireAuth, async (c) => {
+  const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+  const r = createRecurring(b)
+  audit({ actor: c.get('user').username, action: 'recurring.create', entity: 'recurring', entityId: r.id, detail: { cadence: r.cadence, next_run: r.next_run } })
+  return c.json({ recurring: r }, 201)
+})
+
+app.patch('/api/recurring/:id', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+  const r = updateRecurring(id, b)
+  if (!r) return c.json({ error: 'not found' }, 404)
+  return c.json({ recurring: r })
+})
+
+app.delete('/api/recurring/:id', requireAuth, (c) => {
+  const id = Number(c.req.param('id'))
+  if (!deleteRecurring(id)) return c.json({ error: 'not found' }, 404)
+  audit({ actor: c.get('user').username, action: 'recurring.delete', entity: 'recurring', entityId: id })
+  return c.json({ ok: true })
+})
+
+// Generate a draft invoice from a template now (and advance its schedule).
+app.post('/api/recurring/:id/run', requireAuth, (c) => {
+  const id = Number(c.req.param('id'))
+  if (!getRecurring(id)) return c.json({ error: 'not found' }, 404)
+  const doc = runRecurring(id)
+  if (!doc) return c.json({ error: 'not found' }, 404)
+  audit({ actor: c.get('user').username, action: 'recurring.run', entity: 'recurring', entityId: id, detail: { document_id: doc.id } })
+  return c.json({ document: doc }, 201)
+})
+
+// Generate drafts for every due template (the scheduler calls the same path).
+app.post('/api/recurring/run-due', requireAuth, (c) => {
+  const result = processDueRecurring()
+  if (result.generated) {
+    audit({ actor: c.get('user').username, action: 'recurring.run_due', detail: result })
+  }
+  return c.json(result)
+})
+
 // --- AI core + DSGVO (registered with the app's auth middleware) -----------
 
 registerAiRoutes(app, requireAuth)
@@ -748,6 +919,23 @@ if (isProd) {
     console.warn(`web build not found at ${webDist} — run "npm run build" in crm/web`)
   }
   app.get('*', (c) => (indexHtml ? c.html(indexHtml) : c.text('web app not built', 503)))
+}
+
+// --- recurring-invoice scheduler ------------------------------------------
+// Generate drafts for due Serienrechnungen on an interval. Drafts only (no
+// number, no send), so this never acts on its own beyond preparing work for a
+// human. Set RECURRING_DISABLE=1 to turn it off.
+if (process.env.RECURRING_DISABLE !== '1') {
+  const runDue = () => {
+    try {
+      const { generated } = processDueRecurring()
+      if (generated) console.log(`recurring: ${generated} Rechnungsentwurf/-entwürfe erzeugt`)
+    } catch (e) {
+      console.warn('recurring scheduler error:', (e as Error).message)
+    }
+  }
+  setTimeout(runDue, 15_000).unref() // shortly after boot
+  setInterval(runDue, 6 * 60 * 60 * 1000).unref() // every 6h
 }
 
 // --- boot -----------------------------------------------------------------

@@ -183,16 +183,16 @@ export function InvoicesView({
             <tbody>
               {visible.map((d) => (
                 <tr key={d.id} onClick={() => setOpenId(d.id)}>
-                  <td>{KIND_LABEL[d.kind] ?? d.kind}</td>
-                  <td className="no-x">{d.number ?? <em style={{ color: 'var(--muted)' }}>Entwurf</em>}</td>
-                  <td>{d.client_name ?? '—'}</td>
-                  <td>{fmtDate((d.issue_date ?? d.created_at).slice(0, 10))}</td>
-                  <td>{d.due_date ? fmtDate(d.due_date) : '—'}</td>
-                  <td>
+                  <td data-label="Typ">{KIND_LABEL[d.kind] ?? d.kind}</td>
+                  <td data-label="Nummer" className="no-x cell-primary">{d.number ?? <em style={{ color: 'var(--muted)' }}>Entwurf</em>}</td>
+                  <td data-label="Empfänger">{d.client_name ?? '—'}</td>
+                  <td data-label="Datum">{fmtDate((d.issue_date ?? d.created_at).slice(0, 10))}</td>
+                  <td data-label="Fällig">{d.due_date ? fmtDate(d.due_date) : '—'}</td>
+                  <td data-label="Status">
                     <span className={`doc-status doc-status-${d.status}`}>{d.status}</span>
                   </td>
-                  <td className="num">{euro(d.totals.gross_cents)}</td>
-                  <td onClick={(e) => e.stopPropagation()}>
+                  <td data-label="Betrag" className="num">{euro(d.totals.gross_cents)}</td>
+                  <td data-label="" onClick={(e) => e.stopPropagation()}>
                     {!d.number && (
                       <button className="ghost" onClick={() => remove(d.id)} title="Entwurf löschen">
                         Löschen

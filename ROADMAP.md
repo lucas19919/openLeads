@@ -26,12 +26,27 @@ touch invoicing. OpenLeads is the one box that does the whole flow on-prem.
   Pauschale, printable Mahnung PDF.
 - GoBD / DATEV export (invoice journal + booking CSV) for the Steuerberater.
 - DSGVO toolkit: audit log, data export, erasure (with §147 AO retention),
-  consent ledger, Art. 30 processing record.
+  consent ledger, Art. 30 processing record. Opt-out blocks e-mail at send time.
+- Payments ledger: per-invoice payments (partial supported), auto-marks `bezahlt`
+  when settled, reopens on reversal; dunning interest accrues on the *outstanding*
+  amount, and the €40 Pauschale is correctly B2B-only (a `client_type` flag).
+- Serienrechnungen (recurring invoices): a template + cadence emits a *draft*
+  Rechnung each period (human still finalises); in-process scheduler + manual run.
+- Dashboard (Übersicht): live KPIs — open/overdue/paid, 12-month revenue, pipeline
+  by stage, conversion.
+- Multi-user: `admin` / `member` roles, in-app user management, lead assignment.
+- Generalisation: scraper model and region are configurable (no hardcoded Munich);
+  the scraper raster (trades/towns/region) is editable in Settings.
 
 ## Open
 
-- Multi-user roles and lead assignment (the schema leaves room; the UI assumes a
-  single operator).
+- Finer-grained permissions (today `member` can do everything except user/—
+  settings administration); per-user data scoping if teams need it.
+- Bank-statement reconciliation (CAMT.053 / MT940 import) to auto-match payments,
+  instead of recording them by hand.
+- A contacts/companies split — a lead is still one flat row (one contact each).
+- Move the scraper scoring weights + priority cut-offs into Settings (still code
+  constants today).
 - Full XRechnung Schematron (BR-DE-*) enforcement, and an XRechnung-only
   (non-PDF) output variant. Today BR-DE checks are warnings, not hard failures.
 - A reliable way to trigger the scrape step in a split-container deploy — right
@@ -40,7 +55,8 @@ touch invoicing. OpenLeads is the one box that does the whole flow on-prem.
 - E2E tests (Playwright). The unit + HTTP-smoke coverage is decent; the UI isn't
   covered.
 - Structured logging / metrics.
-- i18n beyond German, if there's ever demand for it.
+- i18n beyond German, if there's ever demand for it. (The tax/legal core is DACH
+  by design; this would be a country-pack layer, not a string swap.)
 
 ## Principles
 

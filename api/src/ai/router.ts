@@ -9,6 +9,7 @@ import { buildDigest } from './digest'
 import { reindexLeads, searchLeads } from './semantic'
 import { runAgent } from './agent'
 import { rateLimit } from '../ratelimit'
+import { leadEmailBlocked } from '../dsgvo'
 import type { ChatMessage } from './types'
 
 // Cap free-text inputs so a single request can't blow up the model context.
@@ -194,6 +195,14 @@ export function registerAiRoutes(app: App, auth: MiddlewareHandler): void {
     if (!isMailConfigured()) return c.json({ error: 'SMTP ist nicht konfiguriert.' }, 400)
     const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(o.lead_id) as unknown as LeadRow | undefined
     if (!lead) return c.json({ error: 'Lead nicht gefunden' }, 404)
+    // Honour a recorded objection: never e-mail a lead who has opted out
+    // (Art. 21 DSGVO Widerspruch / UWG §7). The opt-out footer promises this.
+    if (leadEmailBlocked(lead.id)) {
+      return c.json(
+        { error: 'Dieser Lead hat der E-Mail-Ansprache widersprochen (Art. 21 DSGVO / UWG §7) — kein Versand.' },
+        409,
+      )
+    }
     try {
       const email = composeOutreachEmail(o, lead, getSettings())
       const { messageId } = await sendMail(email)

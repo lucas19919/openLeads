@@ -1,6 +1,8 @@
 import './env'
 
-export const MODEL = 'claude-sonnet-4-6'
+// Discovery model. Defaults to Sonnet but is overridable so the scraper isn't
+// pinned to one model/provider.
+export const MODEL = process.env.SCRAPER_MODEL ?? 'claude-sonnet-4-6'
 export const MIN_SCORE = Number(process.env.MIN_SCORE ?? 40)
 
 export const CRM_API_URL = process.env.CRM_API_URL ?? 'http://127.0.0.1:8787'
@@ -9,6 +11,7 @@ export const CRM_SERVICE_TOKEN = process.env.CRM_SERVICE_TOKEN ?? ''
 export interface RemoteScraperConfig {
   trades: string[]
   towns: string[]
+  region: string
   min_score: number
   max_pairs: number
   per_pair: number
@@ -30,6 +33,7 @@ export async function fetchScraperConfig(): Promise<RemoteScraperConfig | null> 
     return {
       trades: c.trades,
       towns: c.towns,
+      region: typeof c.region === 'string' ? c.region : '',
       min_score: Number(c.min_score ?? MIN_SCORE),
       max_pairs: Number(c.max_pairs ?? 3),
       per_pair: Number(c.per_pair ?? 8),
@@ -47,10 +51,12 @@ export const USER_AGENT =
   process.env.SCRAPER_USER_AGENT ??
   'OpenLeadsBot/1.0 (+https://github.com/lucas19919/openleads; self-hosted lead finder)'
 
-// Region phrase injected into the discovery prompt. MUST stay consistent with the
-// configured TOWNS, or discovery is anchored to the wrong area. `--region` and
-// SCRAPER_REGION override it.
-export const REGION = process.env.SCRAPER_REGION ?? 'Großraum München'
+// Region phrase injected into the discovery prompt. Anchors discovery to an
+// area, so it MUST stay consistent with the configured TOWNS. Set it in the
+// Scraper settings (preferred), or via `--region` / SCRAPER_REGION. Empty by
+// default — nothing location-specific ships; an empty region just drops the
+// anchor from the prompt.
+export const REGION = process.env.SCRAPER_REGION ?? ''
 
 // Politeness / safety knobs for site fetching.
 export const FETCH_TIMEOUT_MS = Number(process.env.SCRAPER_FETCH_TIMEOUT_MS ?? 12000)
@@ -70,7 +76,8 @@ export function staleCopyrightCutoff(now: Date = new Date()): number {
   return now.getUTCFullYear() - STALE_BEFORE_YEARS
 }
 
-// Munich-area trades worth a static rebuild.
+// Generic German Handwerk trades (region-neutral) used when nothing is
+// configured. Override per install via the Scraper settings or SCRAPER_TRADES.
 export const TRADES = (process.env.SCRAPER_TRADES?.split(',').map((s) => s.trim())) ?? [
   'Schreiner',
   'Maler',
@@ -84,19 +91,9 @@ export const TRADES = (process.env.SCRAPER_TRADES?.split(',').map((s) => s.trim(
   'GaLaBau',
 ]
 
-// Munich Umland towns.
-export const TOWNS = (process.env.SCRAPER_TOWNS?.split(',').map((s) => s.trim())) ?? [
-  'Dachau',
-  'Erding',
-  'Freising',
-  'Fürstenfeldbruck',
-  'Starnberg',
-  'Ebersberg',
-  'Olching',
-  'Germering',
-  'Ottobrunn',
-  'Unterschleißheim',
-]
+// Towns to scan. Empty by default so no location ships baked in — set the towns
+// for your area in the Scraper settings or via SCRAPER_TOWNS.
+export const TOWNS = (process.env.SCRAPER_TOWNS?.split(',').map((s) => s.trim())) ?? []
 
 // Directories / portals to drop — we only want real individual business sites.
 export const DIRECTORY_BLOCKLIST = [

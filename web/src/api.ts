@@ -3,6 +3,7 @@ import type {
   AiThread,
   ChatResponse,
   Config,
+  Dashboard,
   Digest,
   Doc,
   DocItem,
@@ -14,6 +15,10 @@ import type {
   LeadEvent,
   NewLead,
   Outreach,
+  Payment,
+  PaymentSummary,
+  PublicUser,
+  RecurringInvoice,
   ScraperConfig,
   SemanticHit,
   ScraperStatus,
@@ -140,6 +145,51 @@ export const api = {
   pdfUrl: (id: number) => `/api/documents/${id}/pdf`,
   validateDocument: (id: number) =>
     req<{ validation: ValidationResult }>(`/documents/${id}/validate`),
+
+  // --- Zahlungen (payments) ---
+  listPayments: (id: number) => req<PaymentSummary>(`/documents/${id}/payments`),
+  addPayment: (
+    id: number,
+    body: { amount_cents: number; paid_on?: string; method?: string; note?: string },
+  ) =>
+    req<{ payment: Payment; document: Doc }>(`/documents/${id}/payments`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  deletePayment: (paymentId: number) =>
+    req<{ document: Doc }>(`/payments/${paymentId}`, { method: 'DELETE' }),
+
+  // --- Serienrechnungen (recurring invoices) ---
+  listRecurring: () => req<{ recurring: RecurringInvoice[] }>('/recurring'),
+  createRecurring: (body: Omit<Partial<RecurringInvoice>, 'items'> & { items?: DocItem[] }) =>
+    req<{ recurring: RecurringInvoice }>('/recurring', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateRecurring: (
+    id: number,
+    patch: Omit<Partial<RecurringInvoice>, 'items'> & { items?: DocItem[] },
+  ) =>
+    req<{ recurring: RecurringInvoice }>(`/recurring/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  deleteRecurring: (id: number) => req<{ ok: true }>(`/recurring/${id}`, { method: 'DELETE' }),
+  runRecurring: (id: number) =>
+    req<{ document: Doc }>(`/recurring/${id}/run`, { method: 'POST' }),
+  runDueRecurring: () =>
+    req<{ generated: number; document_ids: number[] }>('/recurring/run-due', { method: 'POST' }),
+
+  // --- dashboard ---
+  dashboard: () => req<{ dashboard: Dashboard }>('/dashboard'),
+
+  // --- users (multi-user) ---
+  listUsers: () => req<{ users: PublicUser[] }>('/users'),
+  createUser: (body: { username: string; password: string; role: string }) =>
+    req<{ user: PublicUser }>('/users', { method: 'POST', body: JSON.stringify(body) }),
+  updateUser: (id: number, patch: { role?: string; password?: string }) =>
+    req<{ user: PublicUser }>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  deleteUser: (id: number) => req<{ ok: true }>(`/users/${id}`, { method: 'DELETE' }),
 
   // --- Mahnwesen (dunning) ---
   overdueInvoices: () => req<{ overdue: DunningComputation[] }>('/invoices/overdue'),

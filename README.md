@@ -17,13 +17,20 @@ The modules, behind one login:
   dated they are, then drops them into a CRM pipeline (kanban + table, stages,
   tags, notes, `.xlsx` import, dedupe by domain). Each lead can be qualified and
   have outreach drafted by the AI.
+- **Übersicht** — a dashboard of live KPIs: open and overdue amounts, paid totals,
+  a 12-month revenue chart, the pipeline by stage and lead conversion.
 - **Rechnungen** — Angebote and Rechnungen with line items and a print-ready PDF.
   A finalised invoice is a ZUGFeRD / Factur-X e-invoice (PDF/A-3 with embedded
   EN 16931 XML), Kleinunternehmer (§19 UStG) aware, with gapless numbering and a
-  built-in EN 16931 validator. You can also describe a job in plain text and get
-  a draft.
+  built-in EN 16931 validator. Record payments against an invoice (partial
+  payments supported; it marks itself paid when settled). You can also describe a
+  job in plain text and get a draft.
+- **Serienrechnungen** — recurring invoices: a template + cadence (monthly /
+  quarterly / yearly) produces a draft Rechnung each period for you to review and
+  finalise. Nothing is auto-sent.
 - **Offene Posten** — overdue invoices with one-click Mahnungen, §288 BGB
-  Verzugszinsen and the €40 Pauschale.
+  Verzugszinsen and the €40 Pauschale (B2B only; private-customer invoices are
+  handled correctly). Interest accrues on the still-open amount.
 - **Scraper** — a panel to tune the search raster (trades × towns), the staleness
   threshold and the run limits, with a status readout. It identifies itself with
   an honest bot User-Agent, respects `robots.txt`, throttles its requests, and
@@ -98,15 +105,17 @@ npm start                     # live run
 | `SESSION_SECRET`    | api         | signs session cookies (long random string)       |
 | `SERVICE_TOKEN`     | api+scraper | bearer token the scraper uses to post leads      |
 | `ANTHROPIC_API_KEY` | scraper     | Claude API key for discovery / scoring           |
-| `SCRAPER_REGION`    | scraper     | region phrase in the discovery prompt — match your towns (default `Großraum München`) |
+| `SCRAPER_MODEL`     | scraper     | discovery model (default `claude-sonnet-4-6`)     |
+| `SCRAPER_REGION`    | scraper     | region phrase in the discovery prompt — match your towns (empty by default; prefer setting it under Settings → Lead-Scraper) |
 | `DB_PATH`           | api         | SQLite file location (default `./data/leads.db`)  |
 | `WEB_ORIGIN`        | api         | CORS origin in dev                               |
 
-The scraper's search raster, staleness threshold and run limits are edited in the
-Scraper tab and stored in the DB; the scraper reads them at the start of each live
-run (CLI flags > saved config > built-in defaults). If you scan outside Munich,
-set `SCRAPER_REGION` (or `--region`) to match — the discovery prompt is anchored
-to it. More politeness/cost knobs are in [`scraper/.env.example`](scraper/.env.example).
+The scraper's search raster (trades, towns, region), staleness threshold and run
+limits are edited under **Settings → Lead-Scraper** and stored in the DB; the
+scraper reads them at the start of each live run (CLI flags > saved config >
+built-in defaults). Towns and region ship empty — set them for your area (nothing
+is Munich-locked); the run aborts cleanly if no towns are configured. More
+politeness/cost knobs are in [`scraper/.env.example`](scraper/.env.example).
 
 ## Deployment
 

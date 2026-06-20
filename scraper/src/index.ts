@@ -105,10 +105,20 @@ async function liveRun(): Promise<void> {
   if (remote) console.log('Konfiguration aus dem CRM geladen.')
   const trades = argValue('trade')?.split(',').map((s) => s.trim()) ?? remote?.trades ?? TRADES
   const towns = argValue('town')?.split(',').map((s) => s.trim()) ?? remote?.towns ?? TOWNS
-  const region = argValue('region') ?? REGION
+  const region = argValue('region') ?? (remote?.region || REGION)
   const maxPairs = Number(argValue('max-pairs') ?? remote?.max_pairs ?? 3)
   const perPair = Number(argValue('limit') ?? remote?.per_pair ?? 8)
   const minScore = Number(argValue('min-score') ?? remote?.min_score ?? MIN_SCORE)
+
+  if (towns.length === 0) {
+    console.error(
+      'Keine Orte konfiguriert — in den Scraper-Einstellungen, via --town=... oder SCRAPER_TOWNS setzen. Lauf abgebrochen.',
+    )
+    process.exit(1)
+  }
+  if (!region) {
+    console.warn('Hinweis: keine Region gesetzt — Discovery läuft ohne Regions-Anker (weniger zielgenau).')
+  }
 
   const pairs = pickPairs(trades, towns, maxPairs)
   console.log(

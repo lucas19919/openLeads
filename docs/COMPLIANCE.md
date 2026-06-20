@@ -19,7 +19,10 @@ Implemented support:
   (§147 AO, §14b UStG = 10 years), so they are *detached* from the personal
   record (lead link nulled) rather than destroyed, and the erasure is logged.
 - **Art. 21 objection / opt-out** — consent ledger (`consent` table) records the
-  lawful basis per lead and channel; entries can be withdrawn.
+  lawful basis per lead and channel; entries can be withdrawn, and a withdrawal
+  **blocks further e-mail outreach at send time** (`POST /api/ai/outreach/:id/send`
+  returns 409). A phone-only withdrawal does not block e-mail; a later re-consent
+  lifts the block.
 - **Art. 30 record of processing** — `GET /api/dsgvo/processing` returns a living
   Verzeichnis, including whether AI inference is local or via a processor.
 

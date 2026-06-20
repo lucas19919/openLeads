@@ -16,6 +16,8 @@ export interface DocTotals {
 export interface FullDocument extends DocumentRow {
   items: DocumentItemRow[]
   totals: DocTotals
+  /** Sum of recorded payments (cents). `gross_cents - paid_cents` = open amount. */
+  paid_cents: number
 }
 
 export function getSettings(): SettingsRow {
@@ -58,10 +60,14 @@ export function getDocument(id: number): FullDocument | null {
   const items = db
     .prepare('SELECT * FROM document_items WHERE document_id = ? ORDER BY sort, id')
     .all(id) as unknown as DocumentItemRow[]
+  const paid = db
+    .prepare('SELECT COALESCE(SUM(amount_cents), 0) AS p FROM payments WHERE document_id = ?')
+    .get(id) as unknown as { p: number }
   return {
     ...doc,
     items,
     totals: computeTotals(items, !!doc.small_business, doc.vat_rate),
+    paid_cents: paid.p,
   }
 }
 
@@ -87,18 +93,39 @@ export function replaceItems(documentId: number, items: DocItemInput[]): void {
 }
 
 /**
- * Assign the next gapless number for a kind and bump the counter, atomically.
- * Format: <PREFIX><YEAR>-<0001>. The counter only ever increases, so the
- * sequence stays gapless even across a year boundary.
+ * Finalise a draft document in a single transaction: assign the next gapless
+ * number (<PREFIX><YEAR>-<0001>), set issue/due dates, and mark it 'versendet'.
+ *
+ * Number assignment and the document write share one transaction so the counter
+ * can never be consumed without the matching invoice — gaplessness is a legal
+ * requirement (§14 UStG / GoBD). The counter only ever increases, so the
+ * sequence stays gapless across a year boundary too.
+ *
+ * Returns the finalised document, the already-finalised document unchanged if it
+ * had a number, or null if the id doesn't exist.
  */
-export function assignNumber(kind: (typeof DOC_KINDS)[number]): string {
+export function finalizeDraft(id: number): FullDocument | null {
   return tx(() => {
+    const doc = db.prepare('SELECT * FROM documents WHERE id = ?').get(id) as unknown as
+      | DocumentRow
+      | undefined
+    if (!doc) return null
+    if (doc.number) return getDocument(id) // already finalised — no-op
     const s = getSettings()
+    const kind = doc.kind as (typeof DOC_KINDS)[number]
     const prefix = kind === 'rechnung' ? s.rechnung_prefix : s.angebot_prefix
     const next = kind === 'rechnung' ? s.rechnung_next : s.angebot_next
     const col = kind === 'rechnung' ? 'rechnung_next' : 'angebot_next'
+    const number = `${prefix}${new Date().getFullYear()}-${String(next).padStart(4, '0')}`
+    const today = new Date().toISOString().slice(0, 10)
+    const due = new Date(Date.now() + s.payment_terms * 86400000).toISOString().slice(0, 10)
     db.prepare(`UPDATE settings SET ${col} = ? WHERE id = 1`).run(next + 1)
-    const year = new Date().getFullYear()
-    return `${prefix}${year}-${String(next).padStart(4, '0')}`
+    db.prepare(
+      `UPDATE documents
+         SET number = ?, issue_date = ?, due_date = COALESCE(due_date, ?),
+             status = 'versendet', updated_at = datetime('now')
+       WHERE id = ?`,
+    ).run(number, today, kind === 'rechnung' ? due : null, id)
+    return getDocument(id)
   })
 }

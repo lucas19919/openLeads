@@ -39,6 +39,8 @@ export interface DunningComputation {
   number: string | null
   client_name: string | null
   gross_cents: number
+  paid_cents: number
+  outstanding_cents: number
   issue_date: string | null
   due_date: string | null
   days_overdue: number
@@ -61,21 +63,29 @@ export function computeDunning(
   today: string = new Date().toISOString().slice(0, 10),
 ): DunningComputation {
   const gross = doc.totals.gross_cents
+  const paid = doc.paid_cents
+  // Interest and the claim accrue on what is still open, not the original gross —
+  // a partially paid invoice is only overdue for its remainder.
+  const outstanding = Math.max(0, gross - paid)
   const daysOverdue = doc.due_date ? Math.max(0, daysBetween(doc.due_date, today)) : 0
   const lvl = level ?? suggestedLevel(daysOverdue)
   const ratePercent = s.verzug_base_rate + 9 // §288(2) BGB, B2B
 
   let interest = 0
   let pauschale = 0
-  if (lvl >= 1 && daysOverdue > 0) {
-    interest = Math.round((gross * ratePercent * daysOverdue) / (100 * 365))
-    pauschale = VERZUG_PAUSCHALE_CENTS
+  if (lvl >= 1 && daysOverdue > 0 && outstanding > 0) {
+    interest = Math.round((outstanding * ratePercent * daysOverdue) / (100 * 365))
+    // The €40 flat fee is a B2B remedy (§288(5) BGB); it is not owed by a
+    // consumer debtor, so only add it for a business (Geschäft) invoice.
+    if (doc.client_type !== 'privat') pauschale = VERZUG_PAUSCHALE_CENTS
   }
   return {
     document_id: doc.id,
     number: doc.number,
     client_name: doc.client_name,
     gross_cents: gross,
+    paid_cents: paid,
+    outstanding_cents: outstanding,
     issue_date: doc.issue_date,
     due_date: doc.due_date,
     days_overdue: daysOverdue,
@@ -83,7 +93,7 @@ export function computeDunning(
     interest_rate_percent: ratePercent,
     interest_cents: interest,
     pauschale_cents: pauschale,
-    total_claim_cents: gross + interest + pauschale,
+    total_claim_cents: outstanding + interest + pauschale,
   }
 }
 

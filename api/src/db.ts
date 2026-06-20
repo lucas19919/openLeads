@@ -31,6 +31,21 @@ export type Stage = (typeof STAGES)[number]
 export const PRIORITIES = ['hoch', 'mittel', 'niedrig'] as const
 export type Priority = (typeof PRIORITIES)[number]
 
+// Login roles. `admin` may manage users + settings; `member` works the pipeline
+// and invoicing but cannot administer the instance. Single-operator installs are
+// all `admin`, which stays the default so nothing changes for them.
+export const ROLES = ['admin', 'member'] as const
+export type Role = (typeof ROLES)[number]
+
+// Whom an invoice is billed to. The €40 Verzugspauschale (§288(5) BGB) and B2B
+// default interest only apply to a business debtor, so dunning needs to know.
+export const CLIENT_TYPES = ['geschaeft', 'privat'] as const
+export type ClientType = (typeof CLIENT_TYPES)[number]
+
+// Cadence for a Serienrechnung (recurring invoice).
+export const RECURRING_CADENCES = ['monatlich', 'quartalsweise', 'jährlich'] as const
+export type RecurringCadence = (typeof RECURRING_CADENCES)[number]
+
 // --- Rechnungen / Angebote (invoicing module) ---
 // Two document kinds share one table: a quote (Angebot) and an invoice (Rechnung).
 export const DOC_KINDS = ['angebot', 'rechnung'] as const
@@ -251,6 +266,46 @@ CREATE TABLE IF NOT EXISTS mahnungen (
 );
 CREATE INDEX IF NOT EXISTS idx_mahnungen_doc ON mahnungen(document_id);
 
+-- Payments recorded against an invoice. An invoice can be settled in parts, so
+-- "paid" is the sum of these rows, not a single flag. Money in integer cents.
+CREATE TABLE IF NOT EXISTS payments (
+  id           INTEGER PRIMARY KEY,
+  document_id  INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  amount_cents INTEGER NOT NULL,
+  paid_on      TEXT NOT NULL,           -- YYYY-MM-DD value date
+  method       TEXT,                    -- Überweisung / Bar / PayPal / Lastschrift / ...
+  note         TEXT,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_payments_doc ON payments(document_id);
+
+-- Serienrechnungen: a template + schedule that emits a *draft* invoice each
+-- period (a human still finalises it — the in-loop principle holds). Items are
+-- stored as JSON; on each run they are copied into a real documents row.
+CREATE TABLE IF NOT EXISTS recurring_invoices (
+  id             INTEGER PRIMARY KEY,
+  client_name    TEXT,
+  client_address TEXT,
+  client_zip     TEXT,
+  client_city    TEXT,
+  client_email   TEXT,
+  client_type    TEXT NOT NULL DEFAULT 'geschaeft',
+  lead_id        INTEGER REFERENCES leads(id) ON DELETE SET NULL,
+  title          TEXT,
+  intro          TEXT,
+  notes          TEXT,
+  items          TEXT NOT NULL DEFAULT '[]', -- JSON: {description,quantity,unit,unit_price_cents}[]
+  small_business INTEGER NOT NULL DEFAULT 1,
+  vat_rate       INTEGER NOT NULL DEFAULT 19,
+  cadence        TEXT NOT NULL DEFAULT 'monatlich', -- monatlich | quartalsweise | jährlich
+  next_run       TEXT NOT NULL,           -- YYYY-MM-DD: next issue date
+  active         INTEGER NOT NULL DEFAULT 1,
+  last_run       TEXT,                    -- YYYY-MM-DD of the last generated draft
+  created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_recurring_active ON recurring_invoices(active, next_run);
+
 -- Lead embeddings for semantic search (vector stored as JSON; small datasets,
 -- so a linear cosine scan in JS is plenty — no vector-DB dependency).
 CREATE TABLE IF NOT EXISTS lead_embeddings (
@@ -288,6 +343,14 @@ try {
   // column already exists
 }
 
+// Debtor type (Geschäft/Privat). Drives the §288 BGB B2B-only Pauschale in
+// dunning. Defaults to 'geschaeft' so existing invoices keep today's behaviour.
+try {
+  db.exec("ALTER TABLE documents ADD COLUMN client_type TEXT NOT NULL DEFAULT 'geschaeft'")
+} catch {
+  // column already exists
+}
+
 // --- migrations for existing databases (idempotent) ---
 // tags: free-form, comma-separated labels per lead (e.g. "vip,umbau").
 try {
@@ -308,6 +371,7 @@ try {
 for (const col of [
   'scraper_trades TEXT',
   'scraper_towns TEXT',
+  'scraper_region TEXT', // region phrase for the discovery prompt (was hardcoded)
   'scraper_min_score INTEGER',
   'scraper_max_pairs INTEGER',
   'scraper_per_pair INTEGER',
@@ -410,6 +474,7 @@ export interface SettingsRow {
   angebot_next: number
   scraper_trades: string | null
   scraper_towns: string | null
+  scraper_region: string | null
   scraper_min_score: number | null
   scraper_max_pairs: number | null
   scraper_per_pair: number | null
@@ -462,6 +527,40 @@ export interface DocumentRow {
   small_business: number
   vat_rate: number
   buyer_reference: string | null
+  client_type: string
+  created_at: string
+  updated_at: string
+}
+
+export interface PaymentRow {
+  id: number
+  document_id: number
+  amount_cents: number
+  paid_on: string
+  method: string | null
+  note: string | null
+  created_at: string
+}
+
+export interface RecurringInvoiceRow {
+  id: number
+  client_name: string | null
+  client_address: string | null
+  client_zip: string | null
+  client_city: string | null
+  client_email: string | null
+  client_type: string
+  lead_id: number | null
+  title: string | null
+  intro: string | null
+  notes: string | null
+  items: string // JSON
+  small_business: number
+  vat_rate: number
+  cadence: string
+  next_run: string
+  active: number
+  last_run: string | null
   created_at: string
   updated_at: string
 }
