@@ -7,6 +7,7 @@ export interface Lead {
   website: string | null
   phone: string | null
   email: string | null
+  contact_name: string | null
   mobile_friendly: number | null
   tech: string | null
   staleness_signal: string | null

@@ -10,6 +10,7 @@ function leadFacts(lead: LeadRow): string {
     gewerk: lead.trade,
     ort: lead.city,
     website: lead.website,
+    ansprechpartner: lead.contact_name,
     telefon: lead.phone,
     email: lead.email,
     mobilfaehig: lead.mobile_friendly === null ? 'unbekannt' : !!lead.mobile_friendly,

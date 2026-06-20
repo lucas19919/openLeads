@@ -194,10 +194,10 @@ function insertLead(b: Record<string, unknown>, actor: string): { id: number; de
   const info = db
     .prepare(
       `INSERT INTO leads
-        (domain, company, trade, city, website, phone, email, mobile_friendly,
+        (domain, company, trade, city, website, phone, email, contact_name, mobile_friendly,
          tech, staleness_signal, score, priority, why_lead, stage, source)
        VALUES
-        (@domain, @company, @trade, @city, @website, @phone, @email, @mobile_friendly,
+        (@domain, @company, @trade, @city, @website, @phone, @email, @contact_name, @mobile_friendly,
          @tech, @staleness_signal, @score, @priority, @why_lead, @stage, @source)`,
     )
     .run({
@@ -208,6 +208,7 @@ function insertLead(b: Record<string, unknown>, actor: string): { id: number; de
       website: (b.website as string) ?? null,
       phone: (b.phone as string) ?? null,
       email: (b.email as string) ?? null,
+      contact_name: (b.contact_name as string) ?? null,
       mobile_friendly:
         b.mobile_friendly === undefined || b.mobile_friendly === null
           ? null
@@ -266,7 +267,7 @@ app.post('/api/leads/import', requireAuth, async (c) => {
 })
 
 const EDITABLE = new Set([
-  'company', 'trade', 'city', 'website', 'phone', 'email',
+  'company', 'trade', 'city', 'website', 'phone', 'email', 'contact_name',
   'mobile_friendly', 'tech', 'staleness_signal', 'score', 'priority',
   'why_lead', 'notes', 'assigned_to', 'tags',
 ])

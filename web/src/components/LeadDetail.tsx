@@ -350,6 +350,12 @@ export function LeadDetail({
                     </a>
                   </div>
                 )}
+                {lead.contact_name && (
+                  <div className="kv">
+                    <span className="k">Ansprechpartner</span>
+                    <span>{lead.contact_name}</span>
+                  </div>
+                )}
                 {lead.phone && (
                   <div className="kv">
                     <span className="k">Telefon</span>

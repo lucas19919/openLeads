@@ -42,6 +42,7 @@ export async function processCandidate(
     website: finalUrl,
     phone: contact.phone,
     email: contact.email,
+    contact_name: contact.name,
     mobile_friendly: s.mobileFriendly,
     tech: s.tech,
     staleness_signal: s.signals.join(', '),

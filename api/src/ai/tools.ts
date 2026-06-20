@@ -95,7 +95,7 @@ export const TOOLS: AgentTool[] = [
       const id = Number(a.id)
       const lead = getLeadRow(id)
       if (!lead) return { error: 'Lead nicht gefunden' }
-      const allowed = new Set(['company', 'trade', 'city', 'website', 'phone', 'email', 'priority', 'why_lead', 'notes', 'tags'])
+      const allowed = new Set(['company', 'trade', 'city', 'website', 'phone', 'email', 'contact_name', 'priority', 'why_lead', 'notes', 'tags'])
       const fields = (a.fields ?? {}) as Record<string, unknown>
       const sets: string[] = []
       const params: Record<string, string | number | null> = { id }

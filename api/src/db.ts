@@ -75,6 +75,7 @@ CREATE TABLE IF NOT EXISTS leads (
   website          TEXT,
   phone            TEXT,
   email            TEXT,
+  contact_name     TEXT,                   -- Ansprechpartner (aus dem Impressum)
   mobile_friendly  INTEGER,                -- 1 / 0 / NULL (Mobilfähig)
   tech             TEXT,                   -- Technik (e.g. "Jimdo", "WordPress 4.x")
   staleness_signal TEXT,                   -- Veraltungs-Signal
@@ -359,6 +360,13 @@ try {
   // column already exists
 }
 
+// contact_name: the responsible person pulled from the Impressum (Ansprechpartner).
+try {
+  db.exec('ALTER TABLE leads ADD COLUMN contact_name TEXT')
+} catch {
+  // column already exists
+}
+
 // Drop the retired follow-up date column (replaced by the "rückruf" pipeline
 // stage). Fails harmlessly on fresh databases that never had the column.
 try {
@@ -425,6 +433,7 @@ export interface LeadRow {
   website: string | null
   phone: string | null
   email: string | null
+  contact_name: string | null
   mobile_friendly: number | null
   tech: string | null
   staleness_signal: string | null

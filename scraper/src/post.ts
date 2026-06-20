@@ -7,6 +7,7 @@ export interface LeadPayload {
   website: string
   phone?: string
   email?: string
+  contact_name?: string
   mobile_friendly: boolean
   tech: string | null
   staleness_signal: string

@@ -179,6 +179,49 @@ function stripTags(html: string): string {
 export interface Contact {
   phone?: string
   email?: string
+  name?: string
+}
+
+// A German Impressum names the responsible person behind a clear role label
+// ("Inhaber:", "Geschäftsführer:", "vertreten durch …"). We only take a name
+// when such a label vouches for it — a person's name is personal data, so we
+// stay conservative rather than guess from arbitrary capitalised words.
+const PERSON = '([A-ZÄÖÜ][a-zäöüß]+(?:[- ][A-ZÄÖÜ][a-zäöüß]+){1,2})'
+const CONTACT_NAME_RE = new RegExp(
+  '(?:Inhaber(?:in)?|Gesch[äa]ftsf[üu]hrer(?:in)?|Gesch[äa]ftsf[üu]hrung|' +
+    '[Vv]ertreten durch|[Vv]ertretungsberechtigte[rn]?)' +
+    '\\s*(?:ist|sind)?\\s*[:–-]?\\s*' +
+    '(?:(?:Dr\\.|Prof\\.|Dipl\\.[-\\s]?\\w+\\.?)\\s*){0,2}' +
+    PERSON,
+)
+// Legal-form / address fragments that mark where a name ends (the greedy capture
+// can run one word into "… Mustermann GmbH"); we cut the name there.
+const NAME_STOP = /^(Gmb\w*|mbH|UG|GbR|Co\.?|KG|OHG|AG|e\.?K\.?|e\.?V\.?|Stra\w*|Str\.?|Platz|Weg|Allee|Ring|Gasse|Inhaber\w*|Gesch\w*|Tel\w*|Fax|Email|E-Mail)$/i
+
+// Like stripTags but keeps block/line boundaries as newlines, so a name on one
+// line ("Inhaber: Max Mustermann") doesn't run into the street on the next.
+function stripToLines(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(?:p|div|li|tr|td|h[1-6]|address|section)>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&middot;|&nbsp;|&ndash;|&amp;/gi, ' ')
+    .replace(/[^\S\n]+/g, ' ')
+    .replace(/ *\n */g, '\n')
+}
+
+function pickContactName(html: string): string | undefined {
+  const m = CONTACT_NAME_RE.exec(stripToLines(html))
+  if (!m) return undefined
+  let words = m[1].trim().split(/\s+/)
+  const cut = words.findIndex((w) => NAME_STOP.test(w))
+  if (cut !== -1) words = words.slice(0, cut)
+  if (words.length < 2 || words.length > 4) return undefined
+  const name = words.join(' ')
+  if (/\d/.test(name)) return undefined
+  return name
 }
 
 function isJunkEmail(e: string): boolean {
@@ -229,7 +272,7 @@ function pickPhone(text: string): string | undefined {
   return undefined
 }
 
-/** Pull a phone + email out of page text. */
+/** Pull a phone + email (+ Impressum contact name) out of page text. */
 export function extractContact(html: string): Contact {
   const text = stripTags(html)
   const out: Contact = {}
@@ -237,6 +280,8 @@ export function extractContact(html: string): Contact {
   if (email) out.email = email
   const phone = pickPhone(text)
   if (phone) out.phone = phone
+  const name = pickContactName(html)
+  if (name) out.name = name
   return out
 }
 
@@ -257,14 +302,18 @@ export async function enrichContact(baseUrl: string, homepageHtml?: string): Pro
     const c = extractContact(homepageHtml)
     out.email ??= c.email
     out.phone ??= c.phone
+    out.name ??= c.name
   }
+  // The contact name almost always lives on the Impressum page, so keep crawling
+  // until we have it too (not just phone + email).
   for (const path of ['/impressum', '/kontakt', '/impressum.html', '/kontakt.html', '/contact']) {
-    if (out.phone && out.email) break
+    if (out.phone && out.email && out.name) break
     const r = await fetchHtml(origin + path)
     if (!r) continue
     const c = extractContact(r.html)
     out.email ??= c.email
     out.phone ??= c.phone
+    out.name ??= c.name
   }
   return out
 }
