@@ -103,11 +103,27 @@ The scraper reads its search raster / limits from the **Scraper** tab in the app
   docker compose run --rm -v /path/leads.xlsx:/tmp/leads.xlsx \
     -e CRM_API_URL=http://api:8787 api npm run import -- /tmp/leads.xlsx
   ```
-- **Backup the DB** (one file in the named volume):
+- **Backup the DB** — a consistent, WAL-safe snapshot (`VACUUM INTO`), written to
+  `./backups/` on the host. A bare `cp` of `leads.db` can miss un-checkpointed
+  WAL, so prefer this (or the **Settings → "Backup herunterladen (.db)"** button,
+  which downloads the same snapshot):
   ```bash
-  docker run --rm -v openleads_crm-data:/data -v "$PWD":/out alpine \
-    sh -c 'cp /data/leads.db /out/leads-$(date +%F).db'
+  docker compose run --rm -e BACKUP_DIR=/out -v "$PWD/backups":/out api npm run backup
   ```
+
+- **Restore a backup** — replace the live DB with a snapshot. Stop the API first
+  so nothing has the file open mid-swap; the current DB is snapshotted to
+  `pre-restore-<ts>.db` in the volume before the swap, so this is reversible:
+  ```bash
+  docker compose stop api
+  docker compose run --rm -v "$PWD/openleads-backup-XXXX.db":/in/backup.db \
+    api npm run restore -- /in/backup.db
+  docker compose up -d api
+  ```
+  `npm run restore` validates the file (integrity check + expected tables) and
+  drops the stale `-wal`/`-shm` before starting, refusing to run if a write is
+  in flight. There is no in-app DB upload by design: swapping the whole database
+  is an operator/volume action, not a web request.
 
 ## CI/CD (optional)
 

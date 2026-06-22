@@ -175,6 +175,19 @@ export function DocumentEditor({
     }
   }
 
+  // Recipient e-mail for "Per E-Mail senden". Editable even after finalisation
+  // (the invoice is sent after festschreiben); persisted immediately when locked
+  // since there is no Save button then.
+  async function changeClientEmail(email: string) {
+    const v = email || null
+    field('client_email', v)
+    if (locked) {
+      const { document } = await api.updateDocument(id, { client_email: v })
+      setDoc(document)
+      onChanged()
+    }
+  }
+
   // Whether a Stripe/GoCardless pay link is attached when this invoice is e-mailed.
   // Editable on finalised invoices (no Save button then) → persist immediately.
   async function changeIncludePayLink(on: boolean) {
@@ -467,6 +480,18 @@ export function DocumentEditor({
           <div className="field">
             <label>Ort</label>
             <input value={doc.client_city ?? ''} disabled={locked} onChange={(e) => field('client_city', e.target.value)} />
+          </div>
+        </div>
+        <div className="field">
+          <label>E-Mail (Empfänger)</label>
+          <input
+            type="email"
+            value={doc.client_email ?? ''}
+            placeholder="kunde@example.de"
+            onChange={(e) => changeClientEmail(e.target.value)}
+          />
+          <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+            Adresse für „Per E-Mail senden". Kann auch nach dem Festschreiben hinterlegt werden.
           </div>
         </div>
         <div className="field">

@@ -24,7 +24,12 @@ async function main() {
   }
 
   const wb = new ExcelJS.Workbook()
-  await wb.xlsx.readFile(path)
+  try {
+    await wb.xlsx.readFile(path)
+  } catch (e) {
+    console.error(`Datei konnte nicht gelesen werden (${path}): ${(e as Error).message}`)
+    process.exit(1)
+  }
   const ws = wb.worksheets[0]
   if (!ws) {
     console.error('No worksheet found.')
@@ -51,8 +56,9 @@ async function main() {
       skipped++
       continue
     }
-    const body = (await res.json()) as { deduped?: boolean }
-    if (body.deduped) deduped++
+    const body = (await res.json().catch(() => null)) as { deduped?: boolean } | null
+    if (!body) skipped++
+    else if (body.deduped) deduped++
     else posted++
   }
 

@@ -8,6 +8,7 @@
     "seed": "tsx scripts/set-password.ts",
     "import": "tsx scripts/import-xlsx.ts",
     "backup": "tsx scripts/backup.ts",
+    "restore": "tsx scripts/restore.ts",
     "test": "node --import tsx --test --test-concurrency=1 src/documents.test.ts src/validate.test.ts src/dunning.test.ts src/facturx.test.ts src/mailer.test.ts src/export.test.ts src/dsgvo.test.ts src/payments.test.ts src/recurring.test.ts src/webhooks.test.ts src/publicapi.test.ts src/integrations.test.ts src/leads.test.ts src/connections.test.ts"
   },
   "dependencies": {

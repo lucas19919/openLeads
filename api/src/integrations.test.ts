@@ -126,3 +126,80 @@ test('splitVatId handles empty + lowercase + spaced input', () => {
   assert.deepEqual(splitVatId(''), { country: '', number: '' })
   assert.deepEqual(splitVatId('de 123 456'), { country: 'DE', number: '123456' })
 })
+
+test('payment webhook applies once, dedups replays, and rolls the event back on a side-effect failure', async () => {
+  const { Hono } = await import('hono')
+  const { registerIntegrationRoutes } = await import('./integrations/router')
+
+  // An active Stripe connection with a known signing secret (upserts payment:stripe).
+  const secret = 'whsec_rollback_test'
+  const cid = saveConnection({
+    category: 'payment',
+    provider: 'stripe',
+    config: { success_url: 'https://shop.example/ok' },
+    secrets: { secret_key: 'sk_test', webhook_secret: secret },
+    actor: 'admin',
+  })
+  activate(cid, 'admin')
+
+  // A finalised invoice to be paid.
+  const docId = Number(
+    db.prepare("INSERT INTO documents (kind, number, status) VALUES ('rechnung', 'RE-TEST-1', 'versendet')").run()
+      .lastInsertRowid,
+  )
+
+  const app = new Hono()
+  // The webhook route is unauthenticated by design; the admin guard is a no-op here.
+  registerIntegrationRoutes(app, async (_c, next) => {
+    await next()
+  })
+
+  const post = (evtId: string) => {
+    const body = JSON.stringify({
+      id: evtId,
+      type: 'checkout.session.completed',
+      data: { object: { amount_total: 5000, currency: 'eur', payment_status: 'paid', metadata: { document_id: String(docId) } } },
+    })
+    const sig = signPayload(secret, body, Math.floor(Date.now() / 1000))
+    return app.fetch(
+      new Request('http://x/api/integrations/webhooks/stripe', {
+        method: 'POST',
+        headers: { 'stripe-signature': sig, 'content-type': 'application/json' },
+        body,
+      }),
+    )
+  }
+  const paymentCount = () =>
+    (db.prepare('SELECT COUNT(*) AS c FROM payments WHERE document_id = ?').get(docId) as { c: number }).c
+  const eventCount = (evt: string) =>
+    (db.prepare('SELECT COUNT(*) AS c FROM integration_events WHERE external_id = ?').get(evt) as { c: number }).c
+
+  // 1. First delivery records exactly one payment and marks the event processed.
+  let res = await post('evt_pay_1')
+  assert.equal(res.status, 200)
+  assert.equal(paymentCount(), 1)
+  assert.equal(
+    (db.prepare("SELECT processed FROM integration_events WHERE external_id = 'evt_pay_1'").get() as { processed: number }).processed,
+    1,
+  )
+
+  // 2. A replay is a no-op duplicate — the payment is not applied twice.
+  res = await post('evt_pay_1')
+  assert.equal(res.status, 200)
+  assert.deepEqual(await res.json(), { ok: true, duplicate: true })
+  assert.equal(paymentCount(), 1)
+
+  // 3. A side-effect failure must roll the event row back so the retry re-applies.
+  //    Force addPayment's INSERT to throw by hiding the payments table mid-flight.
+  db.exec('ALTER TABLE payments RENAME TO payments_bak')
+  res = await post('evt_pay_2')
+  assert.equal(res.status, 500) // handler rethrew → Hono 500, transaction rolled back
+  assert.equal(eventCount('evt_pay_2'), 0) // event row did NOT survive the rollback
+  db.exec('ALTER TABLE payments_bak RENAME TO payments')
+
+  // The provider's retry now succeeds and the payment is finally recorded.
+  res = await post('evt_pay_2')
+  assert.equal(res.status, 200)
+  assert.equal(eventCount('evt_pay_2'), 1)
+  assert.equal(paymentCount(), 2)
+})

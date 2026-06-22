@@ -25,7 +25,7 @@ export function getSettings(): SettingsRow {
 }
 
 // node:sqlite has no .transaction() helper (unlike better-sqlite3) — wrap manually.
-function tx<T>(fn: () => T): T {
+export function tx<T>(fn: () => T): T {
   db.exec('BEGIN')
   try {
     const r = fn()

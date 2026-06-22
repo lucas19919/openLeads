@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { db, type IntegrationConnectionRow } from '../db'
 import { audit } from '../audit'
 import { rateLimit } from '../ratelimit'
-import { getDocument } from '../documents'
+import { getDocument, tx } from '../documents'
 import { addPayment, paidCents } from '../payments'
 import { emit } from '../webhooks/bus'
 import {
@@ -211,58 +211,78 @@ export function registerIntegrationRoutes(app: App, requireAdmin: MiddlewareHand
           ? parsed.external_id
           : `sha256:${createHash('sha256').update(rawBody).digest('hex')}`
 
-      // Idempotency: UNIQUE(provider, external_id). A replay is a no-op 200.
-      try {
-        db.prepare(
-          `INSERT INTO integration_events (category, provider, external_id, type, payload, signature_ok)
-           VALUES (?, ?, ?, ?, ?, 1)`,
-        ).run(connection.category, provider, externalId, parsed.type, rawBody)
-      } catch {
+      // Idempotency: a replay (same provider + event id) is a no-op 200. Backed
+      // by UNIQUE(provider, external_id); this fast pre-check skips the work and
+      // the catch below still closes the concurrent-redelivery race.
+      if (db.prepare('SELECT 1 FROM integration_events WHERE provider = ? AND external_id = ?').get(provider, externalId)) {
         return c.json({ ok: true, duplicate: true })
       }
-      const eventId = Number(
-        (db.prepare('SELECT last_insert_rowid() AS id').get() as { id: number }).id,
-      )
 
-      // Apply the side effect: a paid invoice → record the payment (idempotent via
-      // the event dedup above). Amounts are validated as positive integer cents,
-      // exactly like the manual payment route — a float/negative is ignored.
-      let result: Record<string, unknown> = { applied: false }
-      if (parsed.paid && parsed.document_id) {
-        const doc = getDocument(parsed.document_id)
-        const amount = Math.round(Number(parsed.amount_cents))
-        if (
-          doc &&
-          doc.kind === 'rechnung' &&
-          doc.number &&
-          doc.status !== 'bezahlt' &&
-          doc.status !== 'storniert' &&
-          Number.isFinite(amount) &&
-          amount > 0
-        ) {
-          const payment = addPayment(doc.id, {
-            amount_cents: amount,
-            paid_on: null,
-            method: 'Stripe',
-            note: `${provider} ${parsed.external_id ?? ''}`.trim(),
-          })
-          emit('payment.recorded', {
-            document_id: doc.id,
-            amount_cents: amount,
-            paid_total_cents: paidCents(doc.id),
-            source: provider,
-          })
-          result = { applied: true, payment_id: payment.id, document_id: doc.id }
-        } else {
-          result = { applied: false, reason: 'Rechnung nicht zahlbar oder Betrag ungültig.' }
+      // Persist the event AND apply its side effect in ONE transaction. If the
+      // side effect throws, the event row rolls back with it, so the provider's
+      // retry re-runs cleanly. Otherwise a transient failure would leave a
+      // processed=0 row that dedups every retry into a no-op 200 — permanently
+      // losing a real paid-invoice event, since nothing reprocesses such rows.
+      // Amounts are validated as positive integer cents, like the manual route.
+      let outcome: { eventId: number; result: Record<string, unknown> }
+      try {
+        outcome = tx(() => {
+          const ins = db
+            .prepare(
+              `INSERT INTO integration_events (category, provider, external_id, type, payload, signature_ok)
+               VALUES (?, ?, ?, ?, ?, 1)`,
+            )
+            .run(connection.category, provider, externalId, parsed.type, rawBody)
+          const eventId = Number(ins.lastInsertRowid)
+
+          let result: Record<string, unknown> = { applied: false }
+          if (parsed.paid && parsed.document_id) {
+            const doc = getDocument(parsed.document_id)
+            const amount = Math.round(Number(parsed.amount_cents))
+            if (
+              doc &&
+              doc.kind === 'rechnung' &&
+              doc.number &&
+              doc.status !== 'bezahlt' &&
+              doc.status !== 'storniert' &&
+              Number.isFinite(amount) &&
+              amount > 0
+            ) {
+              const payment = addPayment(doc.id, {
+                amount_cents: amount,
+                paid_on: null,
+                method: 'Stripe',
+                note: `${provider} ${parsed.external_id ?? ''}`.trim(),
+              })
+              emit('payment.recorded', {
+                document_id: doc.id,
+                amount_cents: amount,
+                paid_total_cents: paidCents(doc.id),
+                source: provider,
+              })
+              result = { applied: true, payment_id: payment.id, document_id: doc.id }
+            } else {
+              result = { applied: false, reason: 'Rechnung nicht zahlbar oder Betrag ungültig.' }
+            }
+          }
+          db.prepare('UPDATE integration_events SET processed = 1, result = ? WHERE id = ?').run(
+            JSON.stringify(result),
+            eventId,
+          )
+          return { eventId, result }
+        })
+      } catch (e) {
+        // A concurrent redelivery that slipped past the pre-check trips the UNIQUE
+        // index — benign duplicate. Anything else is a genuine failure: let it 500
+        // (the event row rolled back) so the provider retries and re-applies.
+        if (/UNIQUE constraint failed/i.test(String((e as Error)?.message ?? e))) {
+          return c.json({ ok: true, duplicate: true })
         }
+        throw e
       }
-      db.prepare("UPDATE integration_events SET processed = 1, result = ? WHERE id = ?").run(
-        JSON.stringify(result),
-        eventId,
-      )
-      audit({ actor: provider, action: 'integration.webhook', entity: 'integration_event', entityId: eventId, detail: { provider, type: parsed.type, external_id: externalId, ...result } })
-      return c.json({ ok: true, ...result })
+
+      audit({ actor: provider, action: 'integration.webhook', entity: 'integration_event', entityId: outcome.eventId, detail: { provider, type: parsed.type, external_id: externalId, ...outcome.result } })
+      return c.json({ ok: true, ...outcome.result })
     },
   )
 }
