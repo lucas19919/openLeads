@@ -3,6 +3,7 @@ import type {
   CalendarProvider,
   ConfigFieldSchema,
   IntegrationContext,
+  MailAttachment,
   MailProvider,
   ProbeResult,
   ProviderDefinition,
@@ -36,13 +37,27 @@ function graphDateTime(iso: string): string {
   return new Date(iso).toISOString().slice(0, 19)
 }
 
-/** Build the Graph /me/sendMail body. Pure. */
-export function buildGraphSendMailBody(msg: { to: string; subject: string; text: string }) {
+/** Build the Graph /me/sendMail body. Pure. Adds fileAttachments when present. */
+export function buildGraphSendMailBody(msg: {
+  to: string
+  subject: string
+  text: string
+  attachments?: MailAttachment[]
+}) {
+  const attachments = msg.attachments?.length
+    ? msg.attachments.map((a) => ({
+        '@odata.type': '#microsoft.graph.fileAttachment',
+        name: a.filename,
+        contentType: a.contentType ?? 'application/octet-stream',
+        contentBytes: a.content.toString('base64'),
+      }))
+    : undefined
   return {
     message: {
       subject: msg.subject,
       body: { contentType: 'Text', content: msg.text },
       toRecipients: [{ emailAddress: { address: msg.to } }],
+      attachments, // undefined → dropped by JSON.stringify
     },
     saveToSentItems: true,
   }
@@ -99,7 +114,10 @@ class MsGraphMail implements MailProvider {
   async probe(): Promise<ProbeResult> {
     return connectedProbe(this.connId)
   }
-  async send(msg: { to: string; from: string; subject: string; text: string }, _ctx: IntegrationContext) {
+  async send(
+    msg: { to: string; from: string; subject: string; text: string; attachments?: MailAttachment[] },
+    _ctx: IntegrationContext,
+  ) {
     const token = await getAccessToken(this.connId)
     // /me/sendMail returns 202 with no body — synthesise a messageId marker.
     await graphPost('/me/sendMail', token, buildGraphSendMailBody(msg))

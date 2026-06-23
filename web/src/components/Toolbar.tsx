@@ -9,6 +9,7 @@ export function Toolbar({
   onNew,
   onImportFile,
   importing,
+  exportHref,
 }: {
   view: 'board' | 'table'
   setView: (v: 'board' | 'table') => void
@@ -18,6 +19,7 @@ export function Toolbar({
   onNew: () => void
   onImportFile: (file: File) => void
   importing: boolean
+  exportHref: string
 }) {
   const fileRef = useRef<HTMLInputElement>(null)
   return (
@@ -59,6 +61,9 @@ export function Toolbar({
           e.target.value = ''
         }}
       />
+      <a className="chip" href={exportHref} download title="Sichtbare Leads als CSV exportieren">
+        Export CSV
+      </a>
       <button onClick={onNew}>+ Lead</button>
     </div>
   )

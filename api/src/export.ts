@@ -1,4 +1,4 @@
-import { db, EXPENSE_CATEGORIES, type SettingsRow } from './db'
+import { db, EXPENSE_CATEGORIES, type SettingsRow, type LeadRow } from './db'
 import { getDocument, getSettings, type FullDocument } from './documents'
 import { listExpenses, categoryAccount, type Expense } from './expenses'
 
@@ -160,8 +160,28 @@ export function expensesDatevCsv(expenses: Expense[], s: SettingsRow): string {
   return lines.join('\r\n') + '\r\n'
 }
 
+// --- leads (the export counterpart to the .xlsx import) ---------------------
+
+/** The CRM pipeline as a spreadsheet-friendly CSV. One row per lead. */
+export function leadsCsv(leads: LeadRow[]): string {
+  const header = [
+    'Firma', 'Gewerk', 'Ort', 'Website', 'Telefon', 'E-Mail', 'Score', 'Priorität',
+    'Stage', 'Tags', 'Quelle', 'Angelegt',
+  ]
+  const lines = [csvRow(header)]
+  for (const l of leads) {
+    lines.push(
+      csvRow([
+        l.company, l.trade, l.city, l.website, l.phone, l.email, l.score, l.priority,
+        l.stage, l.tags, l.source, deDate((l.created_at ?? '').slice(0, 10)),
+      ]),
+    )
+  }
+  return lines.join('\r\n') + '\r\n'
+}
+
 export function exportFilename(
-  kind: 'rechnungen' | 'datev' | 'ausgaben' | 'ausgaben-datev',
+  kind: 'rechnungen' | 'datev' | 'ausgaben' | 'ausgaben-datev' | 'leads',
   from?: string,
   to?: string,
 ): string {

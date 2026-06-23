@@ -1,8 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { invoicesCsv, datevCsv, deAmount, deDate } from './export'
+import { invoicesCsv, datevCsv, leadsCsv, deAmount, deDate } from './export'
 import { computeTotals, type FullDocument } from './documents'
-import type { SettingsRow } from './db'
+import type { LeadRow, SettingsRow } from './db'
 
 function settings(over: Partial<SettingsRow> = {}): SettingsRow {
   return { small_business: 0, datev_revenue_account: null, datev_debitor_account: null, ...over } as unknown as SettingsRow
@@ -23,6 +23,18 @@ function inv(over: Partial<FullDocument> = {}): FullDocument {
 test('deAmount / deDate use German conventions', () => {
   assert.equal(deAmount(250000), '2500,00')
   assert.equal(deDate('2026-06-19'), '19.06.2026')
+})
+
+test('leads CSV has the header + one row per lead with German date', () => {
+  const lead = {
+    company: 'Maler Müller', trade: 'Maler', city: 'Erding', website: 'https://x.de',
+    phone: '08122', email: 'k@x.de', score: 80, priority: 'hoch', stage: 'neu',
+    tags: 'vip,umbau', source: 'import', created_at: '2026-06-19 10:00:00',
+  } as unknown as LeadRow
+  const [head, row] = leadsCsv([lead]).trim().split('\r\n')
+  assert.equal(head, 'Firma;Gewerk;Ort;Website;Telefon;E-Mail;Score;Priorität;Stage;Tags;Quelle;Angelegt')
+  assert.match(row, /^Maler Müller;Maler;Erding;https:\/\/x\.de;08122;k@x\.de;80;hoch;neu;/)
+  assert.match(row, /19\.06\.2026$/)
 })
 
 test('invoice journal CSV has header + tax fields', () => {

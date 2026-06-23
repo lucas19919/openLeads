@@ -8,6 +8,7 @@ import type {
   ApiKey,
   Doc,
   DocItem,
+  CalendarEvent,
   DunningComputation,
   Expense,
   ExpenseSummary,
@@ -87,6 +88,16 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(lead),
     }),
+  createCalendarEvent: (
+    leadId: number,
+    body: { title: string; start: string; end: string; description?: string },
+  ) =>
+    req<{ event: CalendarEvent }>(`/leads/${leadId}/calendar-event`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  startCall: (leadId: number) =>
+    req<{ call_id: string }>(`/leads/${leadId}/call`, { method: 'POST' }),
   updateLead: (id: number, patch: Partial<Lead>) =>
     req<{ lead: Lead }>(`/leads/${id}`, {
       method: 'PATCH',
@@ -164,9 +175,10 @@ export const api = {
   validateVat: (id: number) =>
     req<{ validation: VatValidation }>(`/documents/${id}/validate-vat`, { method: 'POST' }),
   pushAccounting: (id: number) =>
-    req<{ result: { external_id: string; url?: string } }>(`/documents/${id}/push-accounting`, {
-      method: 'POST',
-    }),
+    req<{ result: { external_id: string; url?: string; provider?: string | null; pushed_at?: string | null; already_pushed?: boolean } }>(
+      `/documents/${id}/push-accounting`,
+      { method: 'POST' },
+    ),
 
   // --- Zahlungen (payments) ---
   listPayments: (id: number) => req<PaymentSummary>(`/documents/${id}/payments`),
@@ -278,7 +290,13 @@ export const api = {
       { method: 'POST', body: JSON.stringify(body) },
     ),
 
-  // --- exports (Steuerberater) ---
+  // --- exports ---
+  exportLeadsUrl: (params: { stage?: string; q?: string } = {}) => {
+    const qs = new URLSearchParams()
+    if (params.stage) qs.set('stage', params.stage)
+    if (params.q) qs.set('q', params.q)
+    return `/api/export/leads.csv${qs.toString() ? `?${qs}` : ''}`
+  },
   exportInvoicesUrl: (from?: string, to?: string) => {
     const qs = new URLSearchParams()
     if (from) qs.set('from', from)
@@ -294,6 +312,22 @@ export const api = {
 
   // --- admin ---
   backupUrl: () => '/api/admin/backup',
+  restoreBackup: async (file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    const res = await fetch('/api/admin/restore', { method: 'POST', credentials: 'include', body: fd })
+    if (!res.ok) {
+      let msg = res.statusText
+      try {
+        const b = await res.json()
+        if (b?.error) msg = b.error
+      } catch {
+        /* ignore */
+      }
+      throw new ApiError(res.status, msg)
+    }
+    return res.json() as Promise<{ ok: true; tables: number; rows: number }>
+  },
 
   // --- scraper ---
   scraperConfig: () => req<ScraperConfig>('/scraper/config'),

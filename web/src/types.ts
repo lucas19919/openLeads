@@ -184,6 +184,9 @@ export interface Doc {
   client_type: string
   client_vat_id?: string | null
   include_payment_link?: number
+  accounting_provider?: string | null
+  accounting_external_id?: string | null
+  accounting_pushed_at?: string | null
   created_at: string
   updated_at: string
   items: DocItem[]
@@ -260,6 +263,14 @@ export interface ExpenseSummary {
   net_cents: number
   vat_cents: number
   by_category: { category: string; count: number; gross_cents: number; net_cents: number }[]
+}
+
+export interface CalendarEvent {
+  id: string
+  title: string
+  start: string
+  end: string
+  url?: string | null
 }
 
 export interface PublicUser {
@@ -470,6 +481,9 @@ export interface IntegrationProvider {
   provider: string
   label: string
   configSchema: IntegrationConfigField[]
+  // True when the app actually consumes this category's active adapter today.
+  // False = registered/configurable but not yet wired to any action.
+  wired: boolean
 }
 
 export interface IntegrationConnection {

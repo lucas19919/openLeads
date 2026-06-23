@@ -3,6 +3,7 @@ import type {
   CalendarProvider,
   ConfigFieldSchema,
   IntegrationContext,
+  MailAttachment,
   MailProvider,
   ProbeResult,
   ProviderDefinition,
@@ -36,17 +37,65 @@ function rfc2047(s: string): string {
   return /[^\x00-\x7F]/.test(s) ? `=?UTF-8?B?${Buffer.from(s, 'utf8').toString('base64')}?=` : s
 }
 
-/** Build a base64url RFC-2822 message for the Gmail send API. Pure. */
-export function buildGmailRaw(msg: { to: string; from?: string; subject: string; text: string }): string {
-  const headers = [
-    msg.from ? `From: ${msg.from}` : null,
-    `To: ${msg.to}`,
-    `Subject: ${rfc2047(msg.subject)}`,
+// Strip CR/LF (and other control chars) from a value going into a raw MIME
+// header — otherwise a newline in `to`/`from`/`subject` (which can originate from
+// lead/document data) could inject extra headers (Bcc:, etc.). Header-injection guard.
+function headerSafe(s: string): string {
+  return (s ?? '').replace(/[\r\n\t\f\v\0]+/g, ' ').trim()
+}
+
+// Fixed MIME boundary — fine for our short text + a PDF (collision with content
+// is effectively impossible). Constant keeps buildGmailRaw pure + unit-testable.
+const GMAIL_BOUNDARY = 'ol_mixed_b7f3a1c9e2'
+
+/** Build a base64url RFC-2822 message for the Gmail send API. Pure. With
+ *  attachments it emits a multipart/mixed message; otherwise a plain text part. */
+export function buildGmailRaw(msg: {
+  to: string
+  from?: string
+  subject: string
+  text: string
+  attachments?: MailAttachment[]
+}): string {
+  const baseHeaders = [
+    msg.from ? `From: ${headerSafe(msg.from)}` : null,
+    `To: ${headerSafe(msg.to)}`,
+    `Subject: ${rfc2047(headerSafe(msg.subject))}`,
     'MIME-Version: 1.0',
-    'Content-Type: text/plain; charset="UTF-8"',
-    'Content-Transfer-Encoding: 8bit',
-  ].filter(Boolean)
-  return Buffer.from(headers.join('\r\n') + '\r\n\r\n' + msg.text, 'utf8').toString('base64url')
+  ]
+  const atts = msg.attachments ?? []
+  let raw: string
+  if (atts.length === 0) {
+    raw =
+      [...baseHeaders, 'Content-Type: text/plain; charset="UTF-8"', 'Content-Transfer-Encoding: 8bit']
+        .filter(Boolean)
+        .join('\r\n') +
+      '\r\n\r\n' +
+      msg.text
+  } else {
+    let body =
+      `--${GMAIL_BOUNDARY}\r\n` +
+      'Content-Type: text/plain; charset="UTF-8"\r\n' +
+      'Content-Transfer-Encoding: 8bit\r\n\r\n' +
+      msg.text +
+      '\r\n'
+    for (const a of atts) {
+      const b64 = a.content.toString('base64').replace(/(.{76})/g, '$1\r\n')
+      body +=
+        `--${GMAIL_BOUNDARY}\r\n` +
+        `Content-Type: ${a.contentType ?? 'application/octet-stream'}; name="${a.filename}"\r\n` +
+        'Content-Transfer-Encoding: base64\r\n' +
+        `Content-Disposition: attachment; filename="${a.filename}"\r\n\r\n` +
+        b64 +
+        '\r\n'
+    }
+    body += `--${GMAIL_BOUNDARY}--`
+    raw =
+      [...baseHeaders, `Content-Type: multipart/mixed; boundary="${GMAIL_BOUNDARY}"`].filter(Boolean).join('\r\n') +
+      '\r\n\r\n' +
+      body
+  }
+  return Buffer.from(raw, 'utf8').toString('base64url')
 }
 
 /** Map a generic calendar event to the Google Calendar event body. Pure. */
@@ -100,7 +149,10 @@ class GoogleMail implements MailProvider {
   async probe(): Promise<ProbeResult> {
     return connectedProbe(this.connId)
   }
-  async send(msg: { to: string; from: string; subject: string; text: string }, _ctx: IntegrationContext) {
+  async send(
+    msg: { to: string; from: string; subject: string; text: string; attachments?: MailAttachment[] },
+    _ctx: IntegrationContext,
+  ) {
     const token = await getAccessToken(this.connId)
     const r = await googleFetch(GMAIL_BASE, '/gmail/v1/users/me/messages/send', token, { raw: buildGmailRaw(msg) })
     return { messageId: String(r.id ?? '') }

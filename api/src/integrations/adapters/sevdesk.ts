@@ -28,7 +28,10 @@ const TIMEOUT_MS = 12_000
 
 const CONFIG_SCHEMA: ConfigFieldSchema[] = [
   { key: 'api_token', label: 'sevDesk API-Token', type: 'string', secret: true, required: true, placeholder: '32-stelliger Token' },
-  { key: 'contact_id', label: 'sevDesk Kontakt-ID (Rechnungsempfänger)', type: 'string', required: true, placeholder: 'z. B. 1000001' },
+  // NOTE: a single contact for ALL pushed invoices. Per-client contact mapping
+  // would need the sevDesk Contact API (create/lookup) — a roadmap item; until
+  // then the label makes the limitation explicit rather than silently misfiling.
+  { key: 'contact_id', label: 'sevDesk Kontakt-ID — Sammelkontakt für ALLE Übergaben', type: 'string', required: true, placeholder: 'z. B. 1000001' },
   { key: 'default_unity_id', label: 'Standard-Einheit-ID (Unity, optional)', type: 'string', placeholder: 'Standard: 1 (Stück)' },
 ]
 

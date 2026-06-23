@@ -130,6 +130,7 @@ export function LeadsView({
         onNew={() => setShowNew(true)}
         onImportFile={importFile}
         importing={importing}
+        exportHref={api.exportLeadsUrl({ q: search.trim() || undefined })}
       />
       <div className="content">
         <div className="ai-search">

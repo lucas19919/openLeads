@@ -67,6 +67,16 @@ export function SettingsView({ user, config }: { user: User; config: Config }) {
 
       <div className="content">
         <div className="settings-form">
+          {s.settings_key_configured === false && (
+            <div className="settings-keywarn">
+              <strong><code>SETTINGS_KEY</code> ist nicht gesetzt.</strong> Gespeicherte Zugangsdaten
+              (KI-/SMTP-Schlüssel) werden sonst mit einem unsicheren Standardschlüssel verschlüsselt —
+              im Produktivbetrieb wird das Speichern dieser Felder abgelehnt. Trage in{' '}
+              <code>api/.env</code> eine lange Zufallszeichenkette ein und starte die API neu:
+              <pre>SETTINGS_KEY=$(node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))")</pre>
+            </div>
+          )}
+
           <fieldset className="doc-block">
             <legend>Absender</legend>
             <div className="field">
@@ -195,7 +205,7 @@ export function SettingsView({ user, config }: { user: User; config: Config }) {
                 onChange={(e) => set('verzug_base_rate', Number(e.target.value))}
               />
             </div>
-            <div className="row2">
+            <div className="row3">
               <div className="field">
                 <label>DATEV Erlöskonto</label>
                 <input
@@ -212,10 +222,8 @@ export function SettingsView({ user, config }: { user: User; config: Config }) {
                   onChange={(e) => set('datev_debitor_account', e.target.value)}
                 />
               </div>
-            </div>
-            <div className="row2">
               <div className="field">
-                <label>DATEV Bank-/Gegenkonto (Ausgaben)</label>
+                <label>DATEV Gegenkonto (Ausgaben)</label>
                 <input
                   value={s.datev_bank_account ?? ''}
                   placeholder="1200"
@@ -258,27 +266,15 @@ export function SettingsView({ user, config }: { user: User; config: Config }) {
                 onChange={(e) => set('ai_label', e.target.value)}
               />
             </div>
-            <div className="field">
-              <label>API-Schlüssel {s.ai_api_key_set && <span className="user-chip">gespeichert</span>}</label>
-              <input
-                type="password"
-                autoComplete="new-password"
-                value={aiApiKey}
-                disabled={clearAiKey}
-                placeholder={s.ai_api_key_set ? '******** (leer lassen zum Beibehalten)' : 'nur für gehostete Endpunkte nötig'}
-                onChange={(e) => { setAiApiKey(e.target.value); setSaved(false) }}
-              />
-              {s.ai_api_key_set && (
-                <label className="check-row">
-                  <input
-                    type="checkbox"
-                    checked={clearAiKey}
-                    onChange={(e) => { setClearAiKey(e.target.checked); setSaved(false) }}
-                  />
-                  Gespeicherten Schlüssel löschen
-                </label>
-              )}
-            </div>
+            <SecretField
+              label="API-Schlüssel"
+              isSet={!!s.ai_api_key_set}
+              value={aiApiKey}
+              onChange={(v) => { setAiApiKey(v); setSaved(false) }}
+              clear={clearAiKey}
+              onClearChange={(v) => { setClearAiKey(v); setSaved(false) }}
+              unsetPlaceholder="nur für gehostete Endpunkte nötig"
+            />
           </fieldset>
 
           <fieldset className="doc-block">
@@ -333,46 +329,17 @@ export function SettingsView({ user, config }: { user: User; config: Config }) {
               />
               Implizites TLS (Port 465) — sonst STARTTLS
             </label>
-            <div className="field">
-              <label>Passwort {s.smtp_pass_set && <span className="user-chip">gespeichert</span>}</label>
-              <input
-                type="password"
-                autoComplete="new-password"
-                value={smtpPass}
-                disabled={clearSmtpPass}
-                placeholder={s.smtp_pass_set ? '******** (leer lassen zum Beibehalten)' : ''}
-                onChange={(e) => { setSmtpPass(e.target.value); setSaved(false) }}
-              />
-              {s.smtp_pass_set && (
-                <label className="check-row">
-                  <input
-                    type="checkbox"
-                    checked={clearSmtpPass}
-                    onChange={(e) => { setClearSmtpPass(e.target.checked); setSaved(false) }}
-                  />
-                  Gespeichertes Passwort löschen
-                </label>
-              )}
-            </div>
-            {s.settings_key_configured === false && (
-              <p className="settings-hint" style={{ color: 'var(--danger, #c0392b)' }}>
-                <code>SETTINGS_KEY</code> ist nicht gesetzt. Zugangsdaten werden dann mit einem
-                unsicheren Standardschlüssel verschlüsselt — im Produktivbetrieb wird das Speichern
-                abgelehnt. Bitte <code>SETTINGS_KEY</code> (langer Zufallswert) in der Umgebung setzen.
-              </p>
-            )}
+            <SecretField
+              label="Passwort"
+              isSet={!!s.smtp_pass_set}
+              value={smtpPass}
+              onChange={(v) => { setSmtpPass(v); setSaved(false) }}
+              clear={clearSmtpPass}
+              onClearChange={(v) => { setClearSmtpPass(v); setSaved(false) }}
+            />
           </fieldset>
 
-          <fieldset className="doc-block">
-            <legend>Datensicherung</legend>
-            <p className="settings-hint">
-              Lade eine konsistente SQLite-Momentaufnahme deiner Datenbank herunter — die Sicherung
-              gehört dir als Betreiber/in.
-            </p>
-            <a className="backup-link" href={api.backupUrl()} download>
-              Backup herunterladen (.db)
-            </a>
-          </fieldset>
+          {user.role === 'admin' && <BackupSection />}
 
           <fieldset className="doc-block">
             <legend>Steuerberater-Export</legend>
@@ -434,6 +401,111 @@ export function SettingsView({ user, config }: { user: User; config: Config }) {
         </div>
       </div>
     </>
+  )
+}
+
+// Admin-only data safety: download a full snapshot, or restore one (overwriting
+// all current data). The download/restore pair lives together so the capability
+// is obviously symmetric — you can get your data out AND back in.
+function BackupSection() {
+  const [file, setFile] = useState<File | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+
+  async function restore() {
+    if (!file) return
+    if (
+      !confirm(
+        'Achtung: Die Wiederherstellung ÜBERSCHREIBT alle aktuellen Daten mit der hochgeladenen ' +
+          'Sicherung und kann nicht rückgängig gemacht werden. Fortfahren?',
+      )
+    )
+      return
+    setBusy(true)
+    setErr(null)
+    setMsg(null)
+    try {
+      const r = await api.restoreBackup(file)
+      setMsg(`Wiederhergestellt: ${r.rows} Datensätze in ${r.tables} Tabellen. Seite wird neu geladen…`)
+      setTimeout(() => window.location.reload(), 1500)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Wiederherstellung fehlgeschlagen.')
+      setBusy(false)
+    }
+  }
+
+  return (
+    <fieldset className="doc-block">
+      <legend>Datensicherung</legend>
+      <p className="settings-hint">
+        Lade eine konsistente SQLite-Momentaufnahme deiner Datenbank herunter — oder spiele eine
+        frühere Sicherung wieder ein. Die Sicherung gehört dir als Betreiber/in.
+      </p>
+      <a className="backup-link" href={api.backupUrl()} download>
+        Backup herunterladen (.db)
+      </a>
+      <div className="field" style={{ marginTop: 14 }}>
+        <label>Sicherung wiederherstellen (.db)</label>
+        <input
+          type="file"
+          accept=".db,application/octet-stream,application/x-sqlite3"
+          onChange={(e) => {
+            setFile(e.target.files?.[0] ?? null)
+            setMsg(null)
+            setErr(null)
+          }}
+        />
+      </div>
+      <button className="ghost danger-text" onClick={restore} disabled={busy || !file}>
+        {busy ? '…' : 'Wiederherstellen (überschreibt alle Daten)'}
+      </button>
+      {msg && <p className="settings-hint" style={{ color: 'var(--ok)', marginTop: 8 }}>{msg}</p>}
+      {err && <div className="section-error">{err}</div>}
+    </fieldset>
+  )
+}
+
+// A write-only credential field: never pre-filled with the stored value, shows a
+// "gespeichert" chip when one exists, and offers an explicit "clear" toggle.
+// Shared by the AI key and the SMTP password (same behaviour, was duplicated).
+function SecretField({
+  label,
+  isSet,
+  value,
+  onChange,
+  clear,
+  onClearChange,
+  unsetPlaceholder,
+}: {
+  label: string
+  isSet: boolean
+  value: string
+  onChange: (v: string) => void
+  clear: boolean
+  onClearChange: (v: boolean) => void
+  unsetPlaceholder?: string
+}) {
+  return (
+    <div className="field">
+      <label>
+        {label} {isSet && <span className="user-chip">gespeichert</span>}
+      </label>
+      <input
+        type="password"
+        autoComplete="new-password"
+        value={value}
+        disabled={clear}
+        placeholder={isSet ? '******** (leer lassen zum Beibehalten)' : unsetPlaceholder ?? ''}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      {isSet && (
+        <label className="check-row">
+          <input type="checkbox" checked={clear} onChange={(e) => onClearChange(e.target.checked)} />
+          Gespeicherten Wert löschen
+        </label>
+      )}
+    </div>
   )
 }
 

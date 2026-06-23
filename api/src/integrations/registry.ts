@@ -57,7 +57,10 @@ function resolveRow(r: IntegrationConnectionRow): ResolvedConnection {
 export function resolve(category: IntegrationCategory): AnyAdapter | null {
   const row = db
     .prepare(
-      `SELECT * FROM integration_connections WHERE category = ? AND active = 1 LIMIT 1`,
+      // ORDER BY id so resolution is deterministic even if the one-active-per-
+      // category invariant is ever violated (it's now also enforced by a partial
+      // unique index, but the ordering is cheap defence-in-depth).
+      `SELECT * FROM integration_connections WHERE category = ? AND active = 1 ORDER BY id LIMIT 1`,
     )
     .get(category) as unknown as IntegrationConnectionRow | undefined
   if (!row) return null
@@ -169,8 +172,19 @@ export function activate(id: number, actor: string | null): boolean {
     | { category: string }
     | undefined
   if (!row) return false
-  db.prepare('UPDATE integration_connections SET active = 0 WHERE category = ?').run(row.category)
-  db.prepare("UPDATE integration_connections SET active = 1, updated_at = datetime('now') WHERE id = ?").run(id)
+  // Atomic swap: deactivate the category's siblings and activate this one in ONE
+  // transaction, so a crash between the two writes can't leave the category with
+  // zero (or, under concurrency, two) active adapters. The partial unique index
+  // idx_intconn_one_active is the hard backstop; this keeps the window closed.
+  db.exec('BEGIN')
+  try {
+    db.prepare('UPDATE integration_connections SET active = 0 WHERE category = ?').run(row.category)
+    db.prepare("UPDATE integration_connections SET active = 1, updated_at = datetime('now') WHERE id = ?").run(id)
+    db.exec('COMMIT')
+  } catch (e) {
+    db.exec('ROLLBACK')
+    throw e
+  }
   audit({ actor, action: 'integration.activate', entity: 'integration', entityId: id, detail: { category: row.category } })
   return true
 }

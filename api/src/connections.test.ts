@@ -11,7 +11,7 @@ const { db } = await import('./db')
 await import('./integrations') // registers all adapters
 const { available } = await import('./integrations/registry')
 const { verifyGcSignature, mapGcEvent, gocardlessDefinition } = await import('./integrations/adapters/gocardless')
-const { mapDocToLexoffice } = await import('./integrations/adapters/lexoffice')
+const { mapDocToLexoffice, lexofficeDefinition, lexofficeIdempotencyKey } = await import('./integrations/adapters/lexoffice')
 const { mapDocToSevdesk } = await import('./integrations/adapters/sevdesk')
 const { normalizeE164, buildSipgateCallBody } = await import('./integrations/adapters/sipgate')
 const { buildAuthorizeUrl, parseIdTokenEmail, scopesFor, GOOGLE_SPEC, MSGRAPH_SPEC, getAccessToken, isOAuthConnected, storeTokens } = await import('./integrations/oauth')
@@ -46,7 +46,8 @@ function fixtureDoc(over: Partial<FullDocument> = {}): FullDocument {
     client_address: 'Dorfstr. 2', client_zip: '85435', client_city: 'Erding', client_email: 'k@x.de',
     title: 'Rechnung', intro: null, notes: null, status: 'versendet', issue_date: '2026-06-20', due_date: '2026-07-04',
     small_business: 0, vat_rate: 19, buyer_reference: null, client_type: 'geschaeft', client_vat_id: 'DE123456789',
-    include_payment_link: 1, created_at: '', updated_at: '', items, totals: { net_cents: 110000, vat_cents: 20900, gross_cents: 130900 }, paid_cents: 0,
+    include_payment_link: 1, accounting_provider: null, accounting_external_id: null, accounting_pushed_at: null,
+    created_at: '', updated_at: '', items, totals: { net_cents: 110000, vat_cents: 20900, gross_cents: 130900 }, paid_cents: 0,
     ...over,
   }
 }
@@ -189,6 +190,25 @@ test('lexoffice mapper: cents→EUR, §19 → vatfree + 0% + remark', () => {
   assert.match(klein.remark ?? '', /§ ?19/)
 })
 
+test('lexoffice push sends a stable Idempotency-Key per invoice (dedups retries)', async () => {
+  const adapter = lexofficeDefinition.build({
+    id: 0, category: 'accounting', provider: 'lexoffice', label: null, config: {}, secrets: { api_key: 'lxk' },
+  })
+  const doc = fixtureDoc()
+  const seen: (string | null)[] = []
+  const impl = (async (_url: string | URL, init?: RequestInit) => {
+    seen.push(new Headers(init?.headers).get('idempotency-key'))
+    return { ok: true, status: 200, json: async () => ({ id: 'lxinv_1', resourceUri: 'https://api.lexware.io/v1/invoices/lxinv_1' }) } as Response
+  }) as unknown as typeof globalThis.fetch
+
+  const r1 = await withFetch(impl, () => adapter.pushInvoice!(doc, { actor: null }))
+  await withFetch(impl, () => adapter.pushInvoice!(doc, { actor: null }))
+  assert.equal(r1.external_id, 'lxinv_1')
+  assert.ok(seen[0]) // a key was sent
+  assert.equal(seen[0], seen[1]) // stable across retries → lexoffice dedups
+  assert.equal(seen[0], lexofficeIdempotencyKey(doc.id))
+})
+
 test('sevDesk mapper: price in euros, taxRate 19 / 0', () => {
   const std = mapDocToSevdesk(fixtureDoc(), { contactId: '42' })
   assert.equal(std.invoice.contact.id, '42')
@@ -248,6 +268,31 @@ test('Gmail/Graph mail + calendar builders are well-formed (pure)', () => {
   const gm = buildGraphSendMailBody({ to: 'k@x.de', subject: 'Hi', text: 'Body' })
   assert.equal(gm.message.toRecipients[0].emailAddress.address, 'k@x.de')
   assert.equal(gm.message.body.contentType, 'Text')
+
+  // With an attachment: Gmail emits multipart/mixed with the base64 part; Graph
+  // emits a fileAttachment carrying the base64 bytes.
+  const pdf = Buffer.from('%PDF-1.4 hello')
+  const rawA = Buffer.from(
+    buildGmailRaw({ to: 'k@x.de', subject: 'Mit Anhang', text: 'Hallo', attachments: [{ filename: 'rechnung.pdf', content: pdf, contentType: 'application/pdf' }] }),
+    'base64url',
+  ).toString('utf8')
+  assert.match(rawA, /Content-Type: multipart\/mixed; boundary=/)
+  assert.match(rawA, /Content-Disposition: attachment; filename="rechnung\.pdf"/)
+  assert.match(rawA, new RegExp(pdf.toString('base64').slice(0, 16)))
+
+  const gmA = buildGraphSendMailBody({ to: 'k@x.de', subject: 'Mit Anhang', text: 'Hallo', attachments: [{ filename: 'rechnung.pdf', content: pdf, contentType: 'application/pdf' }] })
+  const att = gmA.message.attachments
+  assert.equal(att?.[0]['@odata.type'], '#microsoft.graph.fileAttachment')
+  assert.equal(att?.[0].name, 'rechnung.pdf')
+  assert.equal(att?.[0].contentBytes, pdf.toString('base64'))
+
+  // CRLF in a header value must NOT inject an extra header (e.g. Bcc) into the raw MIME.
+  const injected = buildGmailRaw({ to: 'k@x.de\r\nBcc: evil@x.de', subject: 'Hi\r\nX-Evil: 1', text: 'Body' })
+  const injectedRaw = Buffer.from(injected, 'base64url').toString('utf8')
+  // The CRLF is stripped, so Bcc/X-Evil never appear at the start of a header line.
+  assert.doesNotMatch(injectedRaw, /(^|\r\n)Bcc:/)
+  assert.doesNotMatch(injectedRaw, /(^|\r\n)X-Evil:/)
+  assert.match(injectedRaw, /To: k@x\.de Bcc: evil@x\.de/) // folded into the To value, harmless
 
   const gev = mapGraphEvent({ title: 'Termin', start: '2026-06-21T09:00:00Z', end: '2026-06-21T10:00:00Z' })
   assert.equal(gev.start.timeZone, 'UTC')

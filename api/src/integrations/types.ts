@@ -138,10 +138,16 @@ export interface AccountingProvider extends IntegrationAdapter {
 // --- mail -------------------------------------------------------------------
 // The existing SMTP mailer is wrapped to satisfy this so it unifies under the
 // interface without changing its call sites or its UWG §7 / Art. 21 gates.
+export interface MailAttachment {
+  filename: string
+  content: Buffer
+  contentType?: string
+}
+
 export interface MailProvider extends IntegrationAdapter {
   readonly category: 'mail'
   send(
-    msg: { to: string; from: string; subject: string; text: string },
+    msg: { to: string; from: string; subject: string; text: string; attachments?: MailAttachment[] },
     ctx: IntegrationContext,
   ): Promise<{ messageId: string }>
 }

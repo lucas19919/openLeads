@@ -142,11 +142,17 @@ test('payment webhook applies once, dedups replays, and rolls the event back on 
   })
   activate(cid, 'admin')
 
-  // A finalised invoice to be paid.
+  // A finalised invoice to be paid. Gross 200,00 € so the two 50,00 € webhook
+  // payments are each within the receiver's plausibility cap AND leave the invoice
+  // partially paid (so the retried evt_pay_2 still applies — not refused as
+  // already-bezahlt).
   const docId = Number(
     db.prepare("INSERT INTO documents (kind, number, status) VALUES ('rechnung', 'RE-TEST-1', 'versendet')").run()
       .lastInsertRowid,
   )
+  db.prepare(
+    "INSERT INTO document_items (document_id, description, quantity, unit_price_cents, sort) VALUES (?, 'Leistung', 1, 20000, 0)",
+  ).run(docId)
 
   const app = new Hono()
   // The webhook route is unauthenticated by design; the admin guard is a no-op here.
@@ -202,4 +208,140 @@ test('payment webhook applies once, dedups replays, and rolls the event back on 
   assert.equal(res.status, 200)
   assert.equal(eventCount('evt_pay_2'), 1)
   assert.equal(paymentCount(), 2)
+})
+
+test('payment webhook refuses an implausible amount or a non-EUR currency (no auto-mark-paid)', async () => {
+  const { Hono } = await import('hono')
+  const { registerIntegrationRoutes } = await import('./integrations/router')
+
+  const secret = 'whsec_amount_test'
+  const cid = saveConnection({
+    category: 'payment', provider: 'stripe',
+    config: { success_url: 'https://shop.example/ok' },
+    secrets: { secret_key: 'sk_test', webhook_secret: secret },
+    actor: 'admin',
+  })
+  activate(cid, 'admin')
+
+  // A 50,00 € invoice (one 5000-cent item).
+  const docId = Number(
+    db.prepare("INSERT INTO documents (kind, number, status) VALUES ('rechnung', 'RE-AMT-1', 'versendet')").run()
+      .lastInsertRowid,
+  )
+  db.prepare(
+    "INSERT INTO document_items (document_id, description, quantity, unit_price_cents, sort) VALUES (?, 'Leistung', 1, 5000, 0)",
+  ).run(docId)
+
+  const app = new Hono()
+  registerIntegrationRoutes(app, async (_c, next) => { await next() })
+
+  const post = (evtId: string, amount_total: number, currency: string) => {
+    const body = JSON.stringify({
+      id: evtId, type: 'checkout.session.completed',
+      data: { object: { amount_total, currency, payment_status: 'paid', metadata: { document_id: String(docId) } } },
+    })
+    const sig = signPayload(secret, body, Math.floor(Date.now() / 1000))
+    return app.fetch(new Request('http://x/api/integrations/webhooks/stripe', {
+      method: 'POST', headers: { 'stripe-signature': sig, 'content-type': 'application/json' }, body,
+    }))
+  }
+  const paymentCount = () =>
+    (db.prepare('SELECT COUNT(*) AS c FROM payments WHERE document_id = ?').get(docId) as { c: number }).c
+
+  const applied = async (res: Response) => ((await res.json()) as { applied?: boolean }).applied
+
+  // €50,000 against a €50 invoice — refused (unit/magnitude error or wrong invoice).
+  let res = await post('evt_big', 5_000_000, 'eur')
+  assert.equal(res.status, 200)
+  assert.equal(await applied(res), false)
+  assert.equal(paymentCount(), 0)
+
+  // Right magnitude but wrong currency — refused (the ledger is EUR-only).
+  res = await post('evt_usd', 5000, 'usd')
+  assert.equal(res.status, 200)
+  assert.equal(await applied(res), false)
+  assert.equal(paymentCount(), 0)
+
+  // The matching EUR amount is accepted.
+  res = await post('evt_ok', 5000, 'eur')
+  assert.equal(res.status, 200)
+  assert.equal(await applied(res), true)
+  assert.equal(paymentCount(), 1)
+})
+
+test('activating a provider deactivates its category siblings (one active per category)', () => {
+  const stripe = saveConnection({
+    category: 'payment', provider: 'stripe',
+    config: { success_url: 'https://x' }, secrets: { secret_key: 'sk' }, actor: 'admin',
+  })
+  const gc = saveConnection({
+    category: 'payment', provider: 'gocardless',
+    config: { success_redirect_url: 'https://x' }, secrets: { access_token: 'tok' }, actor: 'admin',
+  })
+
+  activate(stripe, 'admin')
+  assert.equal(resolve('payment')?.provider, 'stripe')
+
+  activate(gc, 'admin')
+  assert.equal(resolve('payment')?.provider, 'gocardless')
+
+  const active = db
+    .prepare("SELECT COUNT(*) AS c FROM integration_connections WHERE category = 'payment' AND active = 1")
+    .get() as { c: number }
+  assert.equal(active.c, 1)
+})
+
+test('the partial unique index rejects a second active connection in a category', () => {
+  const inactive = db
+    .prepare("SELECT id FROM integration_connections WHERE category = 'payment' AND active = 0 ORDER BY id LIMIT 1")
+    .get() as { id: number } | undefined
+  assert.ok(inactive, 'expected an inactive payment connection from the previous test')
+  // Forcing a second active=1 via raw SQL must violate idx_intconn_one_active.
+  assert.throws(
+    () => db.prepare('UPDATE integration_connections SET active = 1 WHERE id = ?').run(inactive!.id),
+    /UNIQUE/,
+  )
+})
+
+test('the connections route enforces required fields (rejects missing, accepts complete)', async () => {
+  const { Hono } = await import('hono')
+  const { registerIntegrationRoutes } = await import('./integrations/router')
+  const app = new Hono()
+  registerIntegrationRoutes(app, async (_c, next) => {
+    await next()
+  })
+  const errOf = async (res: Response) => ((await res.json()) as { error?: string }).error
+
+  // An unconfigured provider that has at least one required field.
+  const def = available().find(
+    (d) =>
+      d.configSchema.some((f) => f.required) &&
+      !listConnections().some((c) => c.category === d.category && c.provider === d.provider),
+  )
+  assert.ok(def, 'expected an unconfigured provider with a required field')
+  const post = (fields: Record<string, unknown>) =>
+    app.fetch(
+      new Request('http://x/api/integrations/connections', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ category: def!.category, provider: def!.provider, fields }),
+      }),
+    )
+
+  // Empty submission → rejected, nothing persisted.
+  const bad = await post({})
+  assert.equal(bad.status, 400)
+  assert.match((await errOf(bad)) ?? '', /Pflichtfeld/)
+  assert.equal(
+    listConnections().some((c) => c.category === def!.category && c.provider === def!.provider),
+    false,
+  )
+
+  // All required fields provided → accepted.
+  const fields: Record<string, unknown> = {}
+  for (const f of def!.configSchema) {
+    if (f.required) fields[f.key] = f.type === 'number' ? 1 : 'https://example.test/x'
+  }
+  const ok = await post(fields)
+  assert.equal(ok.status, 201)
 })

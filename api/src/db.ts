@@ -540,6 +540,40 @@ try {
   // column already exists
 }
 
+// Record of an accounting-system push (lexoffice/sevDesk). Once external_id is
+// set, a re-push is refused so the same invoice is never double-booked. Combined
+// with the adapter's idempotency key (lexoffice), this also covers the
+// timeout-but-actually-succeeded case.
+for (const col of [
+  'accounting_provider TEXT',
+  'accounting_external_id TEXT',
+  'accounting_pushed_at TEXT',
+]) {
+  try {
+    db.exec(`ALTER TABLE documents ADD COLUMN ${col}`)
+  } catch {
+    // column already exists
+  }
+}
+
+// Enforce "at most one active connection per category" at the DB level. Before the
+// activate() swap was transactional, a crash or race could leave two active rows
+// in a category, so dedupe any existing violation first (keep the lowest id active,
+// deactivate the rest) and only then add the partial unique index. Idempotent.
+try {
+  db.exec(`
+    UPDATE integration_connections SET active = 0
+    WHERE active = 1 AND id NOT IN (
+      SELECT MIN(id) FROM integration_connections WHERE active = 1 GROUP BY category
+    );
+  `)
+  db.exec(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_intconn_one_active ON integration_connections(category) WHERE active = 1',
+  )
+} catch {
+  // table not present yet / index already exists
+}
+
 // Debtor type (Geschäft/Privat). Drives the §288 BGB B2B-only Pauschale in
 // dunning. Defaults to 'geschaeft' so existing invoices keep today's behaviour.
 try {
@@ -757,6 +791,9 @@ export interface DocumentRow {
   client_type: string
   client_vat_id: string | null
   include_payment_link: number
+  accounting_provider: string | null
+  accounting_external_id: string | null
+  accounting_pushed_at: string | null
   created_at: string
   updated_at: string
 }

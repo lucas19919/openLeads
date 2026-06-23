@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type {
   AccountingProvider,
   ConfigFieldSchema,
@@ -8,6 +9,15 @@ import type {
   VatValidation,
 } from '../types'
 import type { FullDocument } from '../../documents'
+
+/** A stable, UUID-shaped idempotency key for an invoice push (derived from the
+ *  document id, so retries reuse it). lexoffice recommends a v4 UUID; this is
+ *  UUID-shaped and deterministic, which is what idempotent retries need. Exported
+ *  for the unit test. */
+export function lexofficeIdempotencyKey(documentId: number): string {
+  const h = createHash('sha1').update(`openleads-invoice-${documentId}`).digest('hex')
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`
+}
 
 // lexoffice (Lexware Office) accounting adapter — fetch only, no SDK
 // (dependency-light). The base host is HARDCODED to api.lexoffice.io: the API
@@ -140,7 +150,12 @@ class LexofficeAdapter implements AccountingProvider {
     this.apiKey = conn.secrets.api_key ?? ''
   }
 
-  private async call(path: string, method: 'GET' | 'POST', body?: unknown): Promise<unknown> {
+  private async call(
+    path: string,
+    method: 'GET' | 'POST',
+    body?: unknown,
+    idempotencyKey?: string,
+  ): Promise<unknown> {
     if (!this.apiKey) throw new Error('lexoffice: API-Schlüssel nicht konfiguriert.')
     let res: Response
     try {
@@ -150,6 +165,10 @@ class LexofficeAdapter implements AccountingProvider {
           authorization: `Bearer ${this.apiKey}`,
           accept: 'application/json',
           ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
+          // lexoffice dedups POSTs carrying the same Idempotency-Key (~24h window),
+          // so a retried push after a timeout returns the SAME invoice instead of
+          // creating a duplicate.
+          ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
         },
         body: body !== undefined ? JSON.stringify(body) : undefined,
         signal: AbortSignal.timeout(TIMEOUT_MS),
@@ -199,7 +218,9 @@ class LexofficeAdapter implements AccountingProvider {
     if (!doc.client_name) throw new Error('lexoffice: Empfängername (client_name) fehlt.')
     if (!doc.items.length) throw new Error('lexoffice: Rechnung enthält keine Positionen.')
     const body = mapDocToLexoffice(doc)
-    const res = (await this.call('/v1/invoices?finalize=true', 'POST', body)) as {
+    // Stable per-invoice idempotency key (UUID-shaped, derived from the document
+    // id) so a retried push dedups at lexoffice instead of double-booking.
+    const res = (await this.call('/v1/invoices?finalize=true', 'POST', body, lexofficeIdempotencyKey(doc.id))) as {
       id?: string
       resourceUri?: string
     }

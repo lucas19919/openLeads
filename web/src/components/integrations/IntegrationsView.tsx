@@ -61,10 +61,27 @@ function ConnectionsSection() {
   const [error, setError] = useState<string | null>(null)
 
   function refresh() {
-    api.integrationProviders().then(({ providers }) => setProviders(providers)).catch(() => {})
-    api.integrationConnections().then(({ connections }) => setConnections(connections)).catch(() => {})
+    api.integrationProviders().then(({ providers }) => setProviders(providers))
+      .catch((e) => setError(e instanceof Error ? e.message : 'Anbieter konnten nicht geladen werden.'))
+    api.integrationConnections().then(({ connections }) => setConnections(connections))
+      .catch((e) => setError(e instanceof Error ? e.message : 'Verbindungen konnten nicht geladen werden.'))
   }
   useEffect(refresh, [])
+
+  const connOf = (p: IntegrationProvider) =>
+    connections.find((c) => c.category === p.category && c.provider === p.provider)
+  const card = (p: IntegrationProvider, prepared = false) => (
+    <ProviderCard
+      key={`${p.category}:${p.provider}`}
+      provider={p}
+      connection={connOf(p)}
+      prepared={prepared}
+      onChange={refresh}
+      onError={setError}
+    />
+  )
+  const wired = providers.filter((p) => p.wired)
+  const prepared = providers.filter((p) => !p.wired)
 
   return (
     <fieldset className="doc-block">
@@ -74,15 +91,18 @@ function ConnectionsSection() {
         (AES-256-GCM) und nie zurückgegeben. Pro Kategorie ist eine Verbindung aktiv.
       </p>
       {error && <div className="section-error">{error}</div>}
-      {providers.map((p) => (
-        <ProviderCard
-          key={`${p.category}:${p.provider}`}
-          provider={p}
-          connection={connections.find((c) => c.category === p.category && c.provider === p.provider)}
-          onChange={refresh}
-          onError={setError}
-        />
-      ))}
+      {wired.map((p) => card(p))}
+      {prepared.length > 0 && (
+        <>
+          <div className="int-group-head">Vorbereitet — noch nicht angebunden</div>
+          <p className="settings-hint">
+            Diese Kategorien sind angelegt, werden aber noch nicht genutzt: Speichern/Aktivieren ist
+            möglich, löst aber noch keine Aktion aus. Der <strong>E-Mail-Versand</strong> wird derzeit
+            unter <strong>Einstellungen → E-Mail-Versand (SMTP)</strong> konfiguriert, nicht hier.
+          </p>
+          {prepared.map((p) => card(p, true))}
+        </>
+      )}
       {providers.length === 0 && <p className="settings-hint">Keine Anbieter registriert.</p>}
     </fieldset>
   )
@@ -91,11 +111,13 @@ function ConnectionsSection() {
 function ProviderCard({
   provider,
   connection,
+  prepared = false,
   onChange,
   onError,
 }: {
   provider: IntegrationProvider
   connection?: IntegrationConnection
+  prepared?: boolean
   onChange: () => void
   onError: (e: string | null) => void
 }) {
@@ -117,6 +139,21 @@ function ProviderCard({
   const setField = (k: string, v: string) => setFields((cur) => ({ ...cur, [k]: v }))
 
   async function save() {
+    // Validate required fields before hitting the server. A required secret counts
+    // as satisfied when one is already stored (credentials_set) — blank means keep.
+    const missing = provider.configSchema
+      .filter((f) => f.required)
+      .filter((f) => {
+        const v = fields[f.key]
+        if (v !== undefined && String(v).trim() !== '') return false
+        if (f.secret && connection?.credentials_set) return false
+        return true
+      })
+      .map((f) => f.label)
+    if (missing.length) {
+      onError(`Pflichtfelder fehlen: ${missing.join(', ')}.`)
+      return
+    }
     setBusy(true)
     onError(null)
     setProbe(null)
@@ -148,11 +185,15 @@ function ProviderCard({
 
   async function activate() {
     if (!connection) return
+    setBusy(true)
+    onError(null)
     try {
       await api.activateIntegration(connection.id)
       onChange()
     } catch (e) {
       onError((e as Error).message)
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -173,11 +214,15 @@ function ProviderCard({
 
   async function remove() {
     if (!connection || !confirm(`${provider.label} entfernen?`)) return
+    setBusy(true)
+    onError(null)
     try {
       await api.deleteIntegration(connection.id)
       onChange()
     } catch (e) {
       onError((e as Error).message)
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -189,23 +234,56 @@ function ProviderCard({
       onError('Bitte zuerst speichern.')
       return
     }
+    setBusy(true)
     onError(null)
+    let url: string
     try {
-      const { url } = await api.startOAuth(connection.id)
-      window.open(url, '_blank', 'width=520,height=680')
-      setTimeout(onChange, 4000) // refresh state after the popup completes
+      ;({ url } = await api.startOAuth(connection.id))
     } catch (e) {
       onError((e as Error).message)
+      setBusy(false)
+      return
     }
+    const popup = window.open(url, 'openleads-oauth', 'width=520,height=680')
+    if (!popup) {
+      onError('Popup wurde blockiert — bitte Popups für diese Seite erlauben.')
+      setBusy(false)
+      return
+    }
+    // Refresh the moment the callback page signals completion (postMessage), or
+    // when the popup closes, or after a safety timeout — no more blind delay.
+    let settled = false
+    const finish = () => {
+      if (settled) return
+      settled = true
+      window.removeEventListener('message', onMsg)
+      window.clearInterval(poll)
+      window.clearTimeout(timeout)
+      setBusy(false)
+      onChange()
+    }
+    const onMsg = (ev: MessageEvent) => {
+      if ((ev.data as { source?: string } | null)?.source !== 'openleads-oauth') return
+      if ((ev.data as { ok?: boolean }).ok === false) onError('OAuth-Verbindung fehlgeschlagen.')
+      finish()
+    }
+    window.addEventListener('message', onMsg)
+    const poll = window.setInterval(() => {
+      if (popup.closed) finish()
+    }, 700)
+    const timeout = window.setTimeout(finish, 180_000)
   }
   async function disconnectAccount() {
     if (!connection) return
+    setBusy(true)
     onError(null)
     try {
       await api.disconnectOAuth(connection.id)
       onChange()
     } catch (e) {
       onError((e as Error).message)
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -214,6 +292,7 @@ function ProviderCard({
       <div className="int-card-head">
         <strong>{provider.label}</strong>
         <span className="muted-mono">{provider.category}</span>
+        {prepared && <span className="status-pill unconfigured" title="Noch nicht an eine Aktion angebunden">geplant</span>}
         {connection?.active && <span className="status-pill ok">aktiv</span>}
         {connection && <span className={`status-pill ${connection.status}`}>{statusLabel(connection.status)}</span>}
         {isOAuth && connection?.oauth_connected && (
@@ -291,7 +370,10 @@ function FieldInput({
   if (field.type === 'select') {
     return (
       <div className="field">
-        <label>{field.label}</label>
+        <label>
+          {field.label}
+          {field.required && <span className="req-star" title="Pflichtfeld"> *</span>}
+        </label>
         <select value={value} onChange={(e) => onChange(e.target.value)}>
           <option value="">—</option>
           {(field.options ?? []).map((o) => (
@@ -307,6 +389,7 @@ function FieldInput({
     <div className="field">
       <label>
         {field.label}
+        {field.required && <span className="req-star" title="Pflichtfeld"> *</span>}
         {field.secret && credentialsSet && (
           <span className="user-chip" style={{ marginLeft: 6 }}>
             gespeichert
@@ -333,8 +416,11 @@ function ApiKeysSection() {
   const [error, setError] = useState<string | null>(null)
   const [newToken, setNewToken] = useState<string | null>(null)
 
+  const [busy, setBusy] = useState(false)
+
   function refresh() {
-    api.listApiKeys().then(({ keys }) => setKeys(keys)).catch(() => {})
+    api.listApiKeys().then(({ keys }) => setKeys(keys))
+      .catch((e) => setError(e instanceof Error ? e.message : 'Schlüssel konnten nicht geladen werden.'))
   }
   useEffect(refresh, [])
 
@@ -342,6 +428,7 @@ function ApiKeysSection() {
     setScopes((cur) => (cur.includes(s) ? cur.filter((x) => x !== s) : [...cur, s]))
 
   async function create() {
+    setBusy(true)
     setError(null)
     try {
       const { token } = await api.createApiKey({ name: name.trim() || undefined, scopes })
@@ -351,6 +438,8 @@ function ApiKeysSection() {
       refresh()
     } catch (e) {
       setError((e as Error).message)
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -438,8 +527,8 @@ function ApiKeysSection() {
           ))}
         </div>
       </div>
-      <button className="primary" onClick={create} disabled={scopes.length === 0}>
-        Schlüssel erzeugen
+      <button className="primary" onClick={create} disabled={busy || scopes.length === 0}>
+        {busy ? '…' : 'Schlüssel erzeugen'}
       </button>
     </fieldset>
   )
@@ -456,9 +545,11 @@ function WebhooksSection() {
   const [error, setError] = useState<string | null>(null)
   const [newSecret, setNewSecret] = useState<string | null>(null)
   const [openDeliveries, setOpenDeliveries] = useState<number | null>(null)
+  const [busy, setBusy] = useState(false)
 
   function refresh() {
-    api.listWebhooks().then(({ endpoints }) => setEndpoints(endpoints)).catch(() => {})
+    api.listWebhooks().then(({ endpoints }) => setEndpoints(endpoints))
+      .catch((e) => setError(e instanceof Error ? e.message : 'Webhooks konnten nicht geladen werden.'))
   }
   useEffect(() => {
     refresh()
@@ -469,6 +560,7 @@ function WebhooksSection() {
     setSelected((cur) => (cur.includes(ev) ? cur.filter((x) => x !== ev) : [...cur, ev]))
 
   async function create() {
+    setBusy(true)
     setError(null)
     try {
       const { secret } = await api.createWebhook({
@@ -483,6 +575,8 @@ function WebhooksSection() {
       refresh()
     } catch (e) {
       setError((e as Error).message)
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -581,8 +675,8 @@ function WebhooksSection() {
         <label>Beschreibung (optional)</label>
         <input value={desc} onChange={(e) => setDesc(e.target.value)} />
       </div>
-      <button className="primary" onClick={create} disabled={!url.trim()}>
-        Webhook anlegen
+      <button className="primary" onClick={create} disabled={busy || !url.trim()}>
+        {busy ? '…' : 'Webhook anlegen'}
       </button>
     </fieldset>
   )

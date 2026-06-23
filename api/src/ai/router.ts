@@ -2,7 +2,8 @@ import type { Hono, MiddlewareHandler } from 'hono'
 import { db, type LeadRow, type AiMessageRow, type OutreachRow } from '../db'
 import { getDocument, getSettings, replaceItems } from '../documents'
 import { audit } from '../audit'
-import { composeOutreachEmail, sendMail, isMailConfigured } from '../mailer'
+import { composeOutreachEmail } from '../mailer'
+import { deliverMail, mailReady } from '../maildispatch'
 import { probe, AI, isLocalInference, AIError } from './provider'
 import { analyzeLead, draftOutreach, draftInvoiceFromText } from './leadIntel'
 import { buildDigest } from './digest'
@@ -192,7 +193,7 @@ export function registerAiRoutes(app: App, auth: MiddlewareHandler): void {
     if (o.status !== 'freigegeben') {
       return c.json({ error: 'Entwurf muss zuerst freigegeben werden (Vier-Augen-Prinzip).' }, 409)
     }
-    if (!isMailConfigured()) return c.json({ error: 'SMTP ist nicht konfiguriert.' }, 400)
+    if (!mailReady()) return c.json({ error: 'Kein Mailversand konfiguriert (SMTP oder aktiver Mail-Anbieter).' }, 400)
     const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(o.lead_id) as unknown as LeadRow | undefined
     if (!lead) return c.json({ error: 'Lead nicht gefunden' }, 404)
     // Honour a recorded objection: never e-mail a lead who has opted out
@@ -205,7 +206,7 @@ export function registerAiRoutes(app: App, auth: MiddlewareHandler): void {
     }
     try {
       const email = composeOutreachEmail(o, lead, getSettings())
-      const { messageId } = await sendMail(email)
+      const { messageId } = await deliverMail(email, { actor: c.get('user').username })
       db.prepare("UPDATE outreach SET status = 'gesendet', updated_at = datetime('now') WHERE id = ?").run(id)
       db.prepare(`INSERT INTO lead_events (lead_id, actor, type, body) VALUES (?, ?, 'outreach_sent', ?)`)
         .run(lead.id, c.get('user').username, `E-Mail gesendet an ${email.to}`)

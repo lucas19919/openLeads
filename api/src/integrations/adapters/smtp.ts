@@ -1,5 +1,6 @@
 import type {
   IntegrationContext,
+  MailAttachment,
   MailProvider,
   ProbeResult,
   ProviderDefinition,
@@ -25,10 +26,13 @@ class SmtpAdapter implements MailProvider {
   }
 
   async send(
-    msg: { to: string; from: string; subject: string; text: string },
+    msg: { to: string; from: string; subject: string; text: string; attachments?: MailAttachment[] },
     _ctx: IntegrationContext,
   ): Promise<{ messageId: string }> {
-    return sendMail(msg)
+    return sendMail(
+      { to: msg.to, from: msg.from, subject: msg.subject, text: msg.text },
+      msg.attachments,
+    )
   }
 }
 

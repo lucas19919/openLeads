@@ -83,28 +83,17 @@ export function composeOutreachEmail(o: OutreachRow, lead: LeadRow, s: SettingsR
   return { to: lead.email, from: SMTP.from || s.email || '', subject, text: body }
 }
 
-/** Actually send via SMTP. Separated from composition so tests stay offline. */
-export async function sendMail(email: ComposedEmail): Promise<{ messageId: string }> {
-  if (!isMailConfigured()) throw new Error('SMTP ist nicht konfiguriert (SMTP_HOST/SMTP_FROM).')
-  const transport = nodemailer.createTransport({
-    host: SMTP.host,
-    port: SMTP.port,
-    secure: SMTP.secure,
-    auth: SMTP.user ? { user: SMTP.user, pass: SMTP.pass } : undefined,
-  })
-  const info = await transport.sendMail({
-    from: email.from,
-    to: email.to,
-    subject: email.subject,
-    text: email.text,
-  })
-  return { messageId: info.messageId }
+export interface MailAttachment {
+  filename: string
+  content: Buffer
+  contentType?: string
 }
 
-/** Send an email with a PDF attachment (used to deliver a Rechnung/Angebot). */
-export async function sendInvoiceMail(
+/** Actually send via SMTP. Separated from composition so tests stay offline.
+ *  Optional attachments are forwarded to nodemailer (a Rechnung/Angebot PDF, …). */
+export async function sendMail(
   email: ComposedEmail,
-  attachment: { filename: string; content: Buffer },
+  attachments?: MailAttachment[],
 ): Promise<{ messageId: string }> {
   if (!isMailConfigured()) throw new Error('SMTP ist nicht konfiguriert (SMTP_HOST/SMTP_FROM).')
   const transport = nodemailer.createTransport({
@@ -118,9 +107,19 @@ export async function sendInvoiceMail(
     to: email.to,
     subject: email.subject,
     text: email.text,
-    attachments: [
-      { filename: attachment.filename, content: attachment.content, contentType: 'application/pdf' },
-    ],
+    attachments: attachments?.map((a) => ({
+      filename: a.filename,
+      content: a.content,
+      contentType: a.contentType ?? 'application/octet-stream',
+    })),
   })
   return { messageId: info.messageId }
+}
+
+/** Send an email with a PDF attachment (used to deliver a Rechnung/Angebot). */
+export async function sendInvoiceMail(
+  email: ComposedEmail,
+  attachment: { filename: string; content: Buffer },
+): Promise<{ messageId: string }> {
+  return sendMail(email, [{ filename: attachment.filename, content: attachment.content, contentType: 'application/pdf' }])
 }

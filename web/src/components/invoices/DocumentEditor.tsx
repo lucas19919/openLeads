@@ -286,7 +286,11 @@ export function DocumentEditor({
     setActionMsg(null)
     try {
       const { result } = await api.pushAccounting(id)
-      setActionMsg(`An Buchhaltung übergeben (Beleg ${result.external_id}).`)
+      setActionMsg(
+        result.already_pushed
+          ? `Bereits an die Buchhaltung übergeben (Beleg ${result.external_id}) — kein erneuter Export.`
+          : `An Buchhaltung übergeben (Beleg ${result.external_id}).`,
+      )
     } catch (e) {
       setActionMsg((e as Error).message)
     } finally {

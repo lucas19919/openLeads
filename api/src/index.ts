@@ -63,7 +63,7 @@ import {
 } from './expenses'
 import { listUsers, createUser, updateUser, deleteUser } from './users'
 import { startScrape, scrapeRunState, scraperReachable, serviceTokenConfigured } from './scrape'
-import { snapshot, snapshotFilename } from './backup'
+import { snapshot, snapshotFilename, restoreFromBuffer } from './backup'
 import {
   finalisedInvoices,
   invoicesCsv,
@@ -71,6 +71,7 @@ import {
   expensesInRange,
   expensesCsv,
   expensesDatevCsv,
+  leadsCsv,
   exportFilename,
 } from './export'
 import { audit } from './audit'
@@ -86,9 +87,10 @@ import { registerPublicApiRoutes } from './publicapi/router'
 import { registerWebhookRoutes } from './webhooks/router'
 import { startWebhookDispatcher } from './webhooks/dispatcher'
 import { resolve as resolveAdapter } from './integrations/registry'
-import type { PaymentProvider, AccountingProvider } from './integrations/types'
+import type { PaymentProvider, AccountingProvider, CalendarProvider, TelephonyProvider } from './integrations/types'
 import { splitVatId } from './integrations/adapters/vies'
-import { sendInvoiceMail, SMTP } from './mailer'
+import { SMTP } from './mailer'
+import { deliverMail } from './maildispatch'
 
 type Vars = { user: Pick<UserRow, 'id' | 'username' | 'role'> }
 const app = new Hono<{ Variables: Vars }>()
@@ -265,6 +267,56 @@ app.patch('/api/leads/:id', requireAuth, async (c) => {
     return c.json({ lead })
   } catch (e) {
     return c.json({ error: (e as Error).message }, 400)
+  }
+})
+
+// Book a calendar event (e.g. a follow-up) for a lead via the active calendar
+// integration. Deliberately an INTERNAL reminder: the lead is NOT added as an
+// attendee, so booking never sends the prospect an unsolicited invite (UWG §7 /
+// consent). start/end are ISO 8601 (the client converts local time to UTC).
+app.post('/api/leads/:id/calendar-event', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(id) as unknown as LeadRow | undefined
+  if (!lead) return c.json({ error: 'not found' }, 404)
+  const cal = resolveAdapter('calendar') as CalendarProvider | null
+  if (!cal) return c.json({ error: 'Kein aktiver Kalender-Anbieter konfiguriert (Integrationen → Kalender).' }, 400)
+  const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+  const title = String(b.title ?? '').trim()
+  const start = String(b.start ?? '')
+  const end = String(b.end ?? '')
+  if (!title || !start || !end) return c.json({ error: 'Titel, Start und Ende sind erforderlich.' }, 400)
+  try {
+    const event = await cal.createEvent(
+      { title, start, end, description: (b.description as string) ?? undefined },
+      { actor: c.get('user').username },
+    )
+    db.prepare(`INSERT INTO lead_events (lead_id, actor, type, body) VALUES (?, ?, 'calendar', ?)`)
+      .run(id, c.get('user').username, `Termin angelegt: ${title}`)
+    audit({ actor: c.get('user').username, action: 'lead.calendar_event', entity: 'lead', entityId: id, detail: { title, external_id: event.id } })
+    return c.json({ event })
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 502)
+  }
+})
+
+// Click-to-call a lead via the active telephony integration (sipgate). The
+// provider rings the operator's own device first, then connects to the lead —
+// so this is an operator-initiated call, not an automated dialer.
+app.post('/api/leads/:id/call', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(id) as unknown as LeadRow | undefined
+  if (!lead) return c.json({ error: 'not found' }, 404)
+  if (!lead.phone) return c.json({ error: 'Lead hat keine Telefonnummer.' }, 400)
+  const tel = resolveAdapter('telephony') as TelephonyProvider | null
+  if (!tel) return c.json({ error: 'Kein aktiver Telefonie-Anbieter konfiguriert (Integrationen → Telefonie).' }, 400)
+  try {
+    const { call_id } = await tel.startCall({ to: lead.phone }, { actor: c.get('user').username })
+    db.prepare(`INSERT INTO lead_events (lead_id, actor, type, body) VALUES (?, ?, 'call', ?)`)
+      .run(id, c.get('user').username, `Anruf gestartet an ${lead.phone}`)
+    audit({ actor: c.get('user').username, action: 'lead.call', entity: 'lead', entityId: id, detail: { to: lead.phone, call_id } })
+    return c.json({ call_id })
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 502)
   }
 })
 
@@ -565,8 +617,11 @@ app.post('/api/documents/:id/send', requireAuth, async (c) => {
     `Mit freundlichen Grüßen\n${s.business_name ?? ''}`
   const email = { to: doc.client_email, from: SMTP.from || s.email || '', subject: `${label} ${doc.number}`, text: body }
   try {
-    const { messageId } = await sendInvoiceMail(email, { filename: pdfFilename(doc), content: pdf })
-    audit({ actor: c.get('user').username, action: 'invoice.send', entity: 'document', entityId: doc.id, detail: { to: email.to, messageId, payment_link: !!payLine } })
+    const { messageId, via } = await deliverMail(email, {
+      attachments: [{ filename: pdfFilename(doc), content: pdf, contentType: 'application/pdf' }],
+      actor: c.get('user').username,
+    })
+    audit({ actor: c.get('user').username, action: 'invoice.send', entity: 'document', entityId: doc.id, detail: { to: email.to, messageId, via, payment_link: !!payLine } })
     emit('invoice.sent', { id: doc.id, number: doc.number, kind: doc.kind, to: email.to })
     return c.json({ ok: true, messageId, to: email.to })
   } catch (e) {
@@ -604,8 +659,28 @@ app.post('/api/documents/:id/push-accounting', requireAuth, async (c) => {
   if (!acc || !acc.pushInvoice) {
     return c.json({ error: 'Kein Buchhaltungs-Anbieter mit Export aktiv (lexoffice/sevDesk).' }, 400)
   }
+  // Idempotency: once an invoice has been pushed, refuse to push it again so it is
+  // never double-booked. Return the stored record instead. (The lexoffice adapter
+  // additionally sends a stable Idempotency-Key, covering the case where the first
+  // push reached the provider but timed out before we could persist its id.)
+  if (doc.accounting_external_id) {
+    return c.json({
+      result: {
+        external_id: doc.accounting_external_id,
+        provider: doc.accounting_provider,
+        pushed_at: doc.accounting_pushed_at,
+        already_pushed: true,
+      },
+    })
+  }
   try {
     const result = await acc.pushInvoice(doc, { actor: c.get('user').username })
+    db.prepare(
+      `UPDATE documents
+         SET accounting_provider = ?, accounting_external_id = ?,
+             accounting_pushed_at = datetime('now'), updated_at = datetime('now')
+       WHERE id = ?`,
+    ).run(acc.provider, result.external_id, doc.id)
     audit({ actor: c.get('user').username, action: 'invoice.push_accounting', entity: 'document', entityId: doc.id, detail: { provider: acc.provider, external_id: result.external_id } })
     return c.json({ result })
   } catch (e) {
@@ -1015,14 +1090,60 @@ app.get('/api/export/expenses-datev.csv', requireAuth, (c) => {
   return csvResponse(c, expensesDatevCsv(expenses, getSettings()), exportFilename('ausgaben-datev', from, to))
 })
 
+// Export the lead pipeline as CSV — the counterpart to the .xlsx import. Honours
+// the same stage/q filters as GET /api/leads, so it exports what you're viewing.
+app.get('/api/export/leads.csv', requireAuth, (c) => {
+  const stage = c.req.query('stage')
+  const q = c.req.query('q')?.trim()
+  const clauses: string[] = []
+  const params: string[] = []
+  if (stage && STAGES.includes(stage as never)) {
+    clauses.push('stage = ?')
+    params.push(stage)
+  }
+  if (q) {
+    clauses.push('(company LIKE ? OR city LIKE ? OR trade LIKE ? OR website LIKE ?)')
+    const like = `%${q}%`
+    params.push(like, like, like, like)
+  }
+  const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''
+  const rows = db
+    .prepare(`SELECT * FROM leads ${where} ORDER BY score DESC, created_at DESC`)
+    .all(...params) as unknown as LeadRow[]
+  audit({ actor: c.get('user').username, action: 'export.leads', detail: { stage, q, count: rows.length } })
+  return csvResponse(c, leadsCsv(rows), exportFilename('leads'))
+})
+
 // --- admin: database backup (operator owns their data) ---------------------
 
-app.get('/api/admin/backup', requireAuth, (c) => {
+// A full DB snapshot contains every tenant's data — admin-only (the route lives
+// under /api/admin but was previously gated by requireAuth, so any member could
+// pull the whole database; tightened to requireAdmin).
+app.get('/api/admin/backup', requireAdmin, (c) => {
   const buf = snapshot()
   audit({ actor: c.get('user').username, action: 'admin.backup', detail: { bytes: buf.length } })
   c.header('Content-Type', 'application/octet-stream')
   c.header('Content-Disposition', `attachment; filename="${snapshotFilename()}"`)
   return c.body(buf as unknown as ArrayBuffer)
+})
+
+// Restore a previously downloaded snapshot — the upload counterpart to the backup
+// download. Validates the file, then replaces the live data in one transaction
+// (rolls back on any failure). Admin-only and audited; destructive by design.
+const RESTORE_MAX_BYTES = 200 * 1024 * 1024 // 200 MB
+app.post('/api/admin/restore', requireAdmin, async (c) => {
+  const form = await c.req.parseBody()
+  const file = form['file']
+  if (!(file instanceof File)) return c.json({ error: 'Keine Datei hochgeladen.' }, 400)
+  if (file.size > RESTORE_MAX_BYTES) return c.json({ error: 'Datei zu groß (max. 200 MB).' }, 413)
+  let result
+  try {
+    result = restoreFromBuffer(Buffer.from(await file.arrayBuffer()))
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 400)
+  }
+  audit({ actor: c.get('user').username, action: 'admin.restore', detail: { ...result, bytes: file.size } })
+  return c.json({ ok: true, ...result })
 })
 
 // --- dashboard (read-only KPIs) -------------------------------------------

@@ -52,6 +52,128 @@ function describe(ev: LeadEvent): string {
   }
 }
 
+// Click-to-call via the active telephony integration. Hidden when the lead has no
+// phone; a clear error is shown inline if no telephony provider is active.
+function CallButton({ lead }: { lead: Lead }) {
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+  if (!lead.phone) return null
+
+  async function call() {
+    setBusy(true)
+    setErr(null)
+    setMsg(null)
+    try {
+      await api.startCall(lead.id)
+      setMsg(`Anruf an ${lead.phone} wird aufgebaut — Ihr Telefon klingelt zuerst.`)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Anruf konnte nicht gestartet werden.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <>
+      <button className="ghost" disabled={busy} onClick={call} title={`Anruf an ${lead.phone}`}>
+        {busy ? '…' : 'Anrufen'}
+      </button>
+      {msg && (
+        <span className="settings-hint" style={{ flexBasis: '100%', color: 'var(--ok)', margin: 0 }}>
+          {msg}
+        </span>
+      )}
+      {err && <span className="section-error" style={{ flexBasis: '100%' }}>{err}</span>}
+    </>
+  )
+}
+
+// Book a follow-up in the active calendar integration. Collapsed by default; if no
+// calendar provider is active the backend returns a clear error shown inline.
+function CalendarBooking({ lead }: { lead: Lead }) {
+  const [open, setOpen] = useState(false)
+  const [title, setTitle] = useState(`Rückruf ${lead.company ?? ''}`.trim())
+  const [when, setWhen] = useState('')
+  const [duration, setDuration] = useState(30)
+  const [busy, setBusy] = useState(false)
+  const [doneUrl, setDoneUrl] = useState<string | null | undefined>(undefined)
+  const [err, setErr] = useState<string | null>(null)
+
+  async function book() {
+    if (!when) {
+      setErr('Bitte Datum und Uhrzeit wählen.')
+      return
+    }
+    setBusy(true)
+    setErr(null)
+    setDoneUrl(undefined)
+    try {
+      const start = new Date(when)
+      const end = new Date(start.getTime() + duration * 60000)
+      const { event } = await api.createCalendarEvent(lead.id, {
+        title: title.trim() || 'Termin',
+        start: start.toISOString(),
+        end: end.toISOString(),
+      })
+      setDoneUrl(event.url ?? null)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Termin konnte nicht angelegt werden.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (!open) {
+    return (
+      <button className="ghost" onClick={() => setOpen(true)}>
+        Termin anlegen
+      </button>
+    )
+  }
+  return (
+    <div className="cal-book">
+      <div className="field">
+        <label>Titel</label>
+        <input value={title} onChange={(e) => setTitle(e.target.value)} />
+      </div>
+      <div className="row2">
+        <div className="field">
+          <label>Datum / Uhrzeit</label>
+          <input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} />
+        </div>
+        <div className="field">
+          <label>Dauer</label>
+          <select value={duration} onChange={(e) => setDuration(Number(e.target.value))}>
+            <option value={30}>30 Minuten</option>
+            <option value={60}>60 Minuten</option>
+            <option value={15}>15 Minuten</option>
+          </select>
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button className="primary" disabled={busy} onClick={book}>
+          {busy ? '…' : 'Im Kalender eintragen'}
+        </button>
+        <button className="ghost" onClick={() => setOpen(false)}>
+          Schließen
+        </button>
+      </div>
+      {doneUrl !== undefined && (
+        <p className="settings-hint" style={{ color: 'var(--ok)' }}>
+          Termin angelegt.{' '}
+          {doneUrl && (
+            <a href={doneUrl} target="_blank" rel="noreferrer">
+              Im Kalender öffnen
+            </a>
+          )}
+        </p>
+      )}
+      {err && <div className="section-error">{err}</div>}
+    </div>
+  )
+}
+
 export function LeadDetail({
   id,
   stages,
@@ -250,10 +372,12 @@ export function LeadDetail({
               <div style={{ color: 'var(--muted)', marginTop: 4 }}>
                 {[lead.trade, lead.city].filter(Boolean).join(' · ') || '—'}
               </div>
-              <div style={{ marginTop: 10 }}>
+              <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <button onClick={() => onCreateInvoice(lead)}>
                   Angebot / Rechnung erstellen
                 </button>
+                <CalendarBooking lead={lead} />
+                <CallButton lead={lead} />
               </div>
             </div>
 

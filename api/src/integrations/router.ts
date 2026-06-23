@@ -20,10 +20,19 @@ import {
 import type { IntegrationCategory, PaymentProvider } from './types'
 import { createPendingAuthUrl, completeCallback, isOAuthConnected, disconnectOAuth } from './oauth'
 
-// Minimal self-closing page shown after the OAuth redirect (sanitised message).
-function oauthHtml(message: string): string {
+// Self-closing page shown after the OAuth redirect (sanitised message). It also
+// postMessages the opener (the SPA tab that started the connect) so the UI can
+// refresh the connection's state immediately instead of guessing with a timer.
+// The payload carries NO secret (tokens live server-side), so targetOrigin '*'
+// is fine — the SPA only treats it as a "refresh now" signal.
+function oauthHtml(message: string, ok = false): string {
   const safe = message.replace(/[<>&]/g, '')
-  return `<!doctype html><meta charset="utf-8"><title>OpenLeads</title><body style="font-family:system-ui;padding:40px;text-align:center;color:#1c2733"><p>${safe}</p><script>setTimeout(function(){window.close()},2500)</script></body>`
+  return (
+    `<!doctype html><meta charset="utf-8"><title>OpenLeads</title>` +
+    `<body style="font-family:system-ui;padding:40px;text-align:center;color:#1c2733"><p>${safe}</p>` +
+    `<script>try{if(window.opener){window.opener.postMessage({source:'openleads-oauth',ok:${ok ? 'true' : 'false'}},'*')}}catch(e){}` +
+    `setTimeout(function(){window.close()},1200)</script></body>`
+  )
 }
 
 // /api/integrations/* — management routes are admin-only; the inbound provider
@@ -33,6 +42,16 @@ function oauthHtml(message: string): string {
 type App = Hono<any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
 const MAX_WEBHOOK_BODY = 1_000_000 // 1 MB cap on inbound bodies
+
+// Categories whose active adapter is actually CONSUMED by the app today (i.e.
+// resolve(category) has call sites). payment → payment links + reconciliation;
+// accounting → VAT check + invoice push; mail → invoice + outreach delivery via
+// deliverMail (maildispatch.ts); calendar → "Termin anlegen" on a lead; telephony
+// → "Anrufen" (click-to-call) on a lead. enrichment ships no adapter yet, so it
+// never appears. The catalogue flags any prepared-but-unwired category so the UI
+// doesn't present it as if it did something. Add a category here when it gets a
+// real consumer.
+const WIRED_CATEGORIES = new Set<string>(['payment', 'accounting', 'mail', 'calendar', 'telephony'])
 
 // Ledger payment-method label per webhook provider (a SEPA settlement isn't "Stripe").
 const PAYMENT_METHOD_LABEL: Record<string, string> = {
@@ -77,6 +96,7 @@ export function registerIntegrationRoutes(app: App, requireAdmin: MiddlewareHand
       provider: d.provider,
       label: d.label,
       configSchema: d.configSchema,
+      wired: WIRED_CATEGORIES.has(d.category),
     }))
     return c.json({ providers })
   })
@@ -97,6 +117,41 @@ export function registerIntegrationRoutes(app: App, requireAdmin: MiddlewareHand
     // driven by the definition's schema. Empty values are ignored (so an update
     // that omits a secret keeps the stored one).
     const fields = (b.fields && typeof b.fields === 'object' ? b.fields : {}) as Record<string, unknown>
+
+    // Enforce `required` fields server-side (the schema declared them but nothing
+    // checked them, so a direct call or a UI bug could persist a half-configured
+    // connection). A field counts as satisfied if it's submitted now OR already
+    // stored — so an update that omits a secret to keep it doesn't trip the check.
+    const existing = listConnections().find((r) => r.category === category && r.provider === provider)
+    let existingConfig: Record<string, unknown> = {}
+    if (existing) {
+      try {
+        existingConfig = JSON.parse(existing.config)
+      } catch {
+        /* keep {} */
+      }
+    }
+    const submitted = (k: string) => {
+      const v = fields[k]
+      return v !== undefined && v !== null && String(v).trim() !== ''
+    }
+    const missing = def.configSchema
+      .filter((f) => f.required)
+      .filter((f) =>
+        f.secret
+          ? // coarse but matches the credentials_set granularity: any stored secret
+            // blob counts (most providers have a single secret).
+            !submitted(f.key) && !existing?.credentials_enc
+          : !submitted(f.key) && !(existingConfig[f.key] != null && String(existingConfig[f.key]).trim() !== ''),
+      )
+      .map((f) => f.label)
+    if (missing.length) {
+      return c.json({ error: `Pflichtfelder fehlen: ${missing.join(', ')}.` }, 400)
+    }
+
+    // Split the submitted `fields` into non-secret config and encrypted secrets,
+    // driven by the definition's schema. Empty values are ignored (so an update
+    // that omits a secret keeps the stored one).
     const config: Record<string, unknown> = {}
     const secrets: Record<string, string> = {}
     for (const f of def.configSchema) {
@@ -169,7 +224,7 @@ export function registerIntegrationRoutes(app: App, requireAdmin: MiddlewareHand
       const { connection_id, account_email } = await completeCallback(state, code)
       setStatus(connection_id, 'ok', account_email ? `Verbunden als ${account_email}` : 'Verbunden')
       audit({ actor: 'oauth', action: 'integration.oauth.connect', entity: 'integration', entityId: connection_id, detail: { account_email } })
-      return c.html(oauthHtml(`Verbunden${account_email ? ' als ' + account_email : ''}. Du kannst dieses Fenster schließen.`))
+      return c.html(oauthHtml(`Verbunden${account_email ? ' als ' + account_email : ''}. Du kannst dieses Fenster schließen.`, true))
     } catch (e) {
       return c.html(oauthHtml((e as Error).message), 400)
     }
@@ -258,6 +313,14 @@ export function registerIntegrationRoutes(app: App, requireAdmin: MiddlewareHand
             // to record a payment reported in another currency at face value, which
             // would silently mis-state the books.
             const currencyOk = !parsed.currency || parsed.currency.toLowerCase() === 'eur'
+            // Plausibility cap: we only ever create payment links for ≤ the invoice
+            // total, so a settlement should never exceed the gross by more than a
+            // small rounding/fee margin. A wildly-larger amount (unit/currency-
+            // magnitude error, or a webhook pointed at the wrong/smaller invoice) is
+            // refused for manual review rather than auto-marking the invoice paid.
+            // gross 0 (degenerate invoice with no items) = can't validate → allow.
+            const gross = doc ? doc.totals.gross_cents : 0
+            const amountPlausible = gross <= 0 || amount <= gross + Math.max(100, Math.round(gross * 0.01))
             if (
               doc &&
               doc.kind === 'rechnung' &&
@@ -266,7 +329,8 @@ export function registerIntegrationRoutes(app: App, requireAdmin: MiddlewareHand
               doc.status !== 'storniert' &&
               currencyOk &&
               Number.isFinite(amount) &&
-              amount > 0
+              amount > 0 &&
+              amountPlausible
             ) {
               const payment = addPayment(doc.id, {
                 amount_cents: amount,
@@ -283,7 +347,7 @@ export function registerIntegrationRoutes(app: App, requireAdmin: MiddlewareHand
               })
               result = { applied: true, payment_id: payment.id, document_id: doc.id }
             } else {
-              result = { applied: false, reason: 'Rechnung nicht zahlbar, Währung ≠ EUR oder Betrag ungültig.' }
+              result = { applied: false, reason: 'Rechnung nicht zahlbar, Währung ≠ EUR oder Betrag unplausibel.' }
             }
           }
           db.prepare('UPDATE integration_events SET processed = 1, result = ? WHERE id = ?').run(
