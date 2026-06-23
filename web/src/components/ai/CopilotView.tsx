@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { createElement, useEffect, useRef, useState, type ReactNode } from 'react'
 import { api } from '../../api'
 import type { AiStatus, AiThread, Digest } from '../../types'
 
@@ -161,7 +161,9 @@ export function CopilotView() {
           {turns.map((t, i) => (
             <div key={i} className={`bubble bubble-${t.role}`}>
               {t.steps && t.steps.length > 0 && <StepTrail steps={t.steps} />}
-              <div className="bubble-text">{t.content || '—'}</div>
+              <div className="bubble-text">
+                {t.role === 'assistant' ? <Markdown text={t.content || '—'} /> : t.content || '—'}
+              </div>
             </div>
           ))}
           {busy && (
@@ -215,6 +217,123 @@ function StepTrail({ steps }: { steps: ToolStep[] }) {
       </ul>
     </details>
   )
+}
+
+// --- Minimal Markdown -------------------------------------------------------
+// The model answers in Markdown (bold, links, lists, headings). We render the
+// common subset to React nodes — no dependency, and no dangerouslySetInnerHTML,
+// so untrusted model output can't inject HTML. Anything unrecognised falls
+// through as plain text.
+
+function safeHref(url: string): string | null {
+  const u = (url || '').trim()
+  if (/^(https?:|mailto:|tel:)/i.test(u)) return u
+  if (/^www\.[\w.-]+\.[a-z]{2,}/i.test(u)) return 'https://' + u
+  return null
+}
+
+const INLINE_RULES: { re: RegExp; kind: 'code' | 'link' | 'bold' | 'em' }[] = [
+  { re: /`([^`]+)`/, kind: 'code' },
+  { re: /\[([^\]]*)\]\(([^)]+)\)/, kind: 'link' },
+  { re: /\*\*([\s\S]+?)\*\*/, kind: 'bold' },
+  { re: /__([\s\S]+?)__/, kind: 'bold' },
+  { re: /\*([\s\S]+?)\*/, kind: 'em' },
+]
+
+function renderInline(text: string, kp: string): ReactNode[] {
+  const out: ReactNode[] = []
+  let rest = text
+  let guard = 0
+  while (rest && guard++ < 500) {
+    let best: { idx: number; kind: string; m: RegExpExecArray } | null = null
+    for (const rule of INLINE_RULES) {
+      const m = rule.re.exec(rest)
+      if (m && (best === null || m.index < best.idx)) best = { idx: m.index, kind: rule.kind, m }
+    }
+    if (!best) break
+    if (best.idx > 0) out.push(rest.slice(0, best.idx))
+    const { m, kind } = best
+    const key = `${kp}-${out.length}`
+    if (kind === 'code') out.push(<code key={key}>{m[1]}</code>)
+    else if (kind === 'link') {
+      const href = safeHref(m[2])
+      out.push(
+        href ? (
+          <a key={key} href={href} target="_blank" rel="noopener noreferrer">
+            {renderInline(m[1], key)}
+          </a>
+        ) : (
+          m[0]
+        ),
+      )
+    } else if (kind === 'bold') out.push(<strong key={key}>{renderInline(m[1], key)}</strong>)
+    else out.push(<em key={key}>{renderInline(m[1], key)}</em>)
+    rest = rest.slice(best.idx + m[0].length)
+  }
+  if (rest) out.push(rest)
+  return out
+}
+
+function Markdown({ text }: { text: string }) {
+  const lines = text.replace(/\r\n/g, '\n').split('\n')
+  const blocks: ReactNode[] = []
+  let i = 0
+  let bk = 0
+  while (i < lines.length) {
+    const line = lines[i]
+    if (!line.trim()) {
+      i++
+      continue
+    }
+    const h = /^(#{1,6})\s+(.*)$/.exec(line)
+    if (h) {
+      const level = Math.min(h[1].length, 4)
+      blocks.push(createElement(`h${level}`, { key: `b${bk++}` }, renderInline(h[2], `h${bk}`)))
+      i++
+      continue
+    }
+    if (/^\s*[-*+]\s+/.test(line)) {
+      const items: ReactNode[] = []
+      while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) {
+        items.push(<li key={`li${i}`}>{renderInline(lines[i].replace(/^\s*[-*+]\s+/, ''), `li${i}`)}</li>)
+        i++
+      }
+      blocks.push(<ul key={`b${bk++}`}>{items}</ul>)
+      continue
+    }
+    if (/^\s*\d+\.\s+/.test(line)) {
+      const start = Number(/^\s*(\d+)\./.exec(line)![1])
+      const items: ReactNode[] = []
+      while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) {
+        items.push(<li key={`li${i}`}>{renderInline(lines[i].replace(/^\s*\d+\.\s+/, ''), `li${i}`)}</li>)
+        i++
+      }
+      blocks.push(
+        <ol key={`b${bk++}`} start={Number.isFinite(start) ? start : 1}>
+          {items}
+        </ol>,
+      )
+      continue
+    }
+    const para: string[] = []
+    while (
+      i < lines.length &&
+      lines[i].trim() &&
+      !/^\s*[-*+]\s+/.test(lines[i]) &&
+      !/^\s*\d+\.\s+/.test(lines[i]) &&
+      !/^#{1,6}\s+/.test(lines[i])
+    ) {
+      para.push(lines[i])
+      i++
+    }
+    const nodes: ReactNode[] = []
+    para.forEach((p, idx) => {
+      if (idx > 0) nodes.push(<br key={`br${bk}-${idx}`} />)
+      nodes.push(...renderInline(p, `p${bk}-${idx}`))
+    })
+    blocks.push(<p key={`b${bk++}`}>{nodes}</p>)
+  }
+  return <div className="md">{blocks}</div>
 }
 
 export function AiBadge({ status }: { status: AiStatus | null }) {
