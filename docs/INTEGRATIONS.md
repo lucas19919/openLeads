@@ -155,7 +155,8 @@ event fires. Manage under **Settings → Webhooks** (admin); the signing secret
 ### Events
 
 `lead.created` · `lead.stage_changed` · `document.created` · `document.finalized`
-· `payment.recorded` · `payment.deleted`. Subscribe to specific events (CSV) or `*`.
+· `invoice.sent` · `payment.recorded` · `payment.deleted` · `expense.created` ·
+`expense.updated` · `expense.deleted`. Subscribe to specific events (CSV) or `*`.
 
 ### Envelope & delivery
 

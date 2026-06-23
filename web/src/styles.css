@@ -439,8 +439,8 @@ table.leads td.num, table.leads th.num { text-align: right; font-variant-numeric
      shouldn't leave an empty stripe in the card. */
   table.leads td[data-label=""]:empty, .items-table td[data-label=""]:empty { display: none; }
 
-  /* Stack the two-column form rows. */
-  .row2, .doc-grid { grid-template-columns: 1fr; }
+  /* Stack the multi-column form rows. */
+  .row2, .row3, .doc-grid { grid-template-columns: 1fr; }
 
   /* Scraper stat cards: 2-up instead of 4-up. */
   .stat-grid { grid-template-columns: 1fr 1fr; }
@@ -751,6 +751,25 @@ button:disabled { opacity: 0.55; cursor: default; }
 .pay-summary .grand { font-weight: 700; border-top: 1px solid var(--border); padding-top: 6px; }
 .pay-form { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-top: 10px; }
 .pay-form .field { margin: 0; }
+
+/* --- Ausgaben (expenses) --- */
+.row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+.modal-card-wide { width: min(560px, 94vw); }
+.expense-split {
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.expense-receipt-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+.expense-file-hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.expense-filterbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 14px 0; }
+.expense-filterbar label { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; font-weight: 600; }
+.expense-filterbar input[type='date'] { width: auto; }
+.expense-desc { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.expense-disclaimer { color: var(--muted); font-size: 12px; margin-top: 16px; line-height: 1.5; }
 
 /* Mobile overrides for components defined above. Placed last on purpose: these
    selectors' base rules appear earlier in the file, so the override must come

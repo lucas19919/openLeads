@@ -213,6 +213,16 @@ export function SettingsView({ user, config }: { user: User; config: Config }) {
                 />
               </div>
             </div>
+            <div className="row2">
+              <div className="field">
+                <label>DATEV Bank-/Gegenkonto (Ausgaben)</label>
+                <input
+                  value={s.datev_bank_account ?? ''}
+                  placeholder="1200"
+                  onChange={(e) => set('datev_bank_account', e.target.value)}
+                />
+              </div>
+            </div>
           </fieldset>
 
           <fieldset className="doc-block">
@@ -367,8 +377,8 @@ export function SettingsView({ user, config }: { user: User; config: Config }) {
           <fieldset className="doc-block">
             <legend>Steuerberater-Export</legend>
             <p className="settings-hint">
-              GoBD-konformes Rechnungsjournal bzw. DATEV-Buchungsstapel für den Steuerberater;
-              Zeitraum optional.
+              GoBD-konformes Rechnungsjournal bzw. DATEV-Buchungsstapel für den Steuerberater —
+              für Einnahmen (Rechnungen) und Ausgaben (Belege); Zeitraum optional.
             </p>
             <div className="row2">
               <div className="field">
@@ -402,6 +412,20 @@ export function SettingsView({ user, config }: { user: User; config: Config }) {
                 download
               >
                 DATEV-Buchungen (CSV)
+              </a>
+              <a
+                className="backup-link"
+                href={api.exportExpensesUrl(exportFrom || undefined, exportTo || undefined)}
+                download
+              >
+                Ausgabenjournal (CSV)
+              </a>
+              <a
+                className="backup-link"
+                href={api.exportExpensesDatevUrl(exportFrom || undefined, exportTo || undefined)}
+                download
+              >
+                DATEV-Ausgaben (CSV)
               </a>
             </div>
           </fieldset>

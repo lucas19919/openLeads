@@ -1,5 +1,6 @@
-import { db, type SettingsRow } from './db'
+import { db, EXPENSE_CATEGORIES, type SettingsRow } from './db'
 import { getDocument, getSettings, type FullDocument } from './documents'
+import { listExpenses, categoryAccount, type Expense } from './expenses'
 
 // Exports for the Steuerberater. Two flavours:
 //  1. A clean, GoBD-minded invoice journal CSV (human + spreadsheet friendly).
@@ -102,7 +103,68 @@ export function datevCsv(invoices: FullDocument[], s: SettingsRow): string {
   return lines.join('\r\n') + '\r\n'
 }
 
-export function exportFilename(kind: 'rechnungen' | 'datev', from?: string, to?: string): string {
+// --- expenses (Ausgaben) ----------------------------------------------------
+
+const CATEGORY_LABEL = new Map<string, string>(EXPENSE_CATEGORIES.map((c) => [c.id, c.label]))
+
+/** All expenses in an optional [from,to] Belegdatum window (newest first). */
+export function expensesInRange(from?: string, to?: string): Expense[] {
+  return listExpenses({ from, to })
+}
+
+/** Human + spreadsheet friendly expense journal. One row per expense. */
+export function expensesCsv(expenses: Expense[]): string {
+  const header = [
+    'Belegdatum', 'Lieferant', 'Kategorie', 'Beschreibung', 'Netto', 'USt-Satz',
+    'Vorsteuer', 'Brutto', 'Zahlungsart', 'Bezahlt am', 'Beleg',
+  ]
+  const lines = [csvRow(header)]
+  for (const e of expenses) {
+    lines.push(
+      csvRow([
+        deDate(e.expense_date), e.vendor, CATEGORY_LABEL.get(e.category) ?? e.category,
+        e.description, deAmount(e.net_cents), e.vat_rate ? `${e.vat_rate}%` : '0%',
+        deAmount(e.vat_cents), deAmount(e.gross_cents), e.payment_method,
+        deDate(e.paid_on), e.has_receipt ? 'ja' : 'nein',
+      ]),
+    )
+  }
+  return lines.join('\r\n') + '\r\n'
+}
+
+/**
+ * DATEV-style Buchungsstapel for expenses. One booking per expense:
+ *   Umsatz = gross, S/H = 'S' (Aufwand im Soll), Konto = category's SKR03
+ *   Aufwandskonto, Gegenkonto = Bank, BU-Schlüssel from the Vorsteuer rate
+ *   (SKR03: 19% → '9', 7% → '8', 0 % → leer), Belegdatum, Belegfeld1 = the
+ *   expense id, Buchungstext = Lieferant. Pragmatic template, not the full EXTF.
+ */
+export function expensesDatevCsv(expenses: Expense[], s: SettingsRow): string {
+  const bank = s.datev_bank_account || '1200'
+  const header = [
+    'Umsatz', 'Soll/Haben-Kennzeichen', 'Konto', 'Gegenkonto (ohne BU-Schluessel)',
+    'BU-Schluessel', 'Belegdatum', 'Belegfeld 1', 'Buchungstext', 'Steuersatz',
+  ]
+  const lines = [csvRow(header)]
+  for (const e of expenses) {
+    // SKR03 Vorsteuer BU-Schlüssel: 19% = '9', 7% = '8', sonst leer.
+    const bu = e.vat_cents === 0 ? '' : e.vat_rate === 19 ? '9' : e.vat_rate === 7 ? '8' : ''
+    lines.push(
+      csvRow([
+        deAmount(e.gross_cents), 'S', categoryAccount(e.category), bank, bu,
+        deDate(e.expense_date), `A-${e.id}`, e.vendor ?? CATEGORY_LABEL.get(e.category) ?? '',
+        String(e.vat_rate),
+      ]),
+    )
+  }
+  return lines.join('\r\n') + '\r\n'
+}
+
+export function exportFilename(
+  kind: 'rechnungen' | 'datev' | 'ausgaben' | 'ausgaben-datev',
+  from?: string,
+  to?: string,
+): string {
   const span = [from, to].filter(Boolean).join('_bis_') || new Date().toISOString().slice(0, 10)
   return `${kind}_${span}.csv`
 }

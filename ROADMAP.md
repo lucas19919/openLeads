@@ -25,6 +25,9 @@ touch invoicing. OpenLeads is the one box that does the whole flow on-prem.
 - Mahnwesen: overdue detection, Mahnstufen, §288 BGB Verzugszinsen + €40
   Pauschale, printable Mahnung PDF.
 - GoBD / DATEV export (invoice journal + booking CSV) for the Steuerberater.
+- Ausgaben (expenses): receipts with vendor/category/date, gross-entry with the
+  net + Vorsteuer split out, receipt scan stored with the booking, SKR03 expense
+  categories, journal + DATEV expense export, dashboard result (revenue − costs).
 - DSGVO toolkit: audit log, data export, erasure (with §147 AO retention),
   consent ledger, Art. 30 processing record. Opt-out blocks e-mail at send time.
 - Payments ledger: per-invoice payments (partial supported), auto-marks `bezahlt`

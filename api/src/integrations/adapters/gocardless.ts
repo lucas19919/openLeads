@@ -212,15 +212,41 @@ class GoCardlessAdapter implements PaymentProvider {
     return verifyGcSignature(this.webhookSecret, rawBody, header)
   }
 
-  parseWebhook(rawBody: string): ParsedPaymentEvent {
+  async parseWebhook(rawBody: string): Promise<ParsedPaymentEvent> {
     let body: unknown
     try {
       body = JSON.parse(rawBody)
     } catch {
       return { external_id: null, type: 'unparseable' }
     }
-    return mapGcEvent(body)
+    const parsed = mapGcEvent(body)
+
+    // GoCardless webhooks reference the payment by link id but do NOT inline the
+    // amount, so a confirmed payment can't be reconciled from the body alone. Fetch
+    // the payment to fill amount_cents + currency. `call()` throws on a transient
+    // failure, which propagates so the receiver lets GoCardless retry rather than
+    // recording an un-reconcilable (NaN-amount) event that dedup would then pin.
+    if (parsed.paid && parsed.document_id != null) {
+      const paymentId = gcPaymentId(body)
+      if (paymentId) {
+        const r = (await this.call('GET', `/payments/${encodeURIComponent(paymentId)}`)) as {
+          payments?: { amount?: number; currency?: string }
+        }
+        const amount = Number(r.payments?.amount)
+        // GoCardless `amount` is already in the minor unit (cents for EUR).
+        if (Number.isFinite(amount) && amount > 0) parsed.amount_cents = amount
+        if (typeof r.payments?.currency === 'string') parsed.currency = r.payments.currency
+      }
+    }
+    return parsed
   }
+}
+
+/** The `links.payment` id of a webhook's first event, if any. Pure. */
+function gcPaymentId(body: unknown): string | null {
+  const events = (body as { events?: GcEvent[] })?.events
+  const link = Array.isArray(events) && events.length > 0 ? events[0]?.links?.payment : undefined
+  return typeof link === 'string' && link ? link : null
 }
 
 export const gocardlessDefinition: ProviderDefinition<PaymentProvider> = {

@@ -64,7 +64,7 @@ test('a connection persists secrets encrypted and resolves to the active adapter
   assert.equal(conn.active, 1)
 })
 
-test('Stripe webhook verification is constant-time over the raw body', () => {
+test('Stripe webhook verification is constant-time over the raw body', async () => {
   const adapter = stripeDefinition.build({
     id: 0,
     category: 'payment',
@@ -84,7 +84,7 @@ test('Stripe webhook verification is constant-time over the raw body', () => {
   assert.equal(adapter.verifyWebhook(body + ' ', { 'stripe-signature': good }), false) // tamper
   assert.equal(adapter.verifyWebhook(body, {}), false) // no signature → fail closed
 
-  const parsed = adapter.parseWebhook(body)
+  const parsed = await adapter.parseWebhook(body)
   assert.equal(parsed.external_id, 'evt_1')
   assert.equal(parsed.paid, true)
   assert.equal(parsed.amount_cents, 11900)

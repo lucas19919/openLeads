@@ -64,6 +64,25 @@ export function DashboardView({
             <span className="dash-card-sub">davon {euro(data.invoices.paid_total_cents)} bezahlt</span>
           </div>
 
+          <button className="dash-card dash-clickable" onClick={() => onNavigate('expenses')}>
+            <span className="dash-card-label">Ausgaben</span>
+            <span className="dash-card-value">{euro(data.expenses.gross_total_cents)}</span>
+            <span className="dash-card-sub">
+              {euro(data.expenses.ytd_gross_cents)} im Jahr · {data.expenses.count} Belege
+            </span>
+          </button>
+
+          <div className="dash-card">
+            <span className="dash-card-label">Ergebnis (Netto)</span>
+            <span
+              className="dash-card-value"
+              style={{ color: data.result.net_cents < 0 ? 'var(--danger)' : 'var(--ok)' }}
+            >
+              {euro(data.result.net_cents)}
+            </span>
+            <span className="dash-card-sub">Umsatz netto − Ausgaben netto</span>
+          </div>
+
           <button className="dash-card dash-clickable" onClick={() => onNavigate('leads')}>
             <span className="dash-card-label">Offene Leads</span>
             <span className="dash-card-value">{data.leads.open}</span>

@@ -100,8 +100,14 @@ export interface PaymentProvider extends IntegrationAdapter {
   ): Promise<PaymentLink>
   /** Verify an inbound webhook signature against the RAW body bytes. */
   verifyWebhook(rawBody: string, headers: Record<string, string>): boolean
-  /** Parse a (verified) webhook into a normalised event for the receiver. */
-  parseWebhook(rawBody: string): ParsedPaymentEvent
+  /**
+   * Parse a (verified) webhook into a normalised event for the receiver. May be
+   * async: some providers (e.g. GoCardless) don't inline the paid amount in the
+   * webhook and must fetch it from their API before the event can be reconciled.
+   * Such a fetch should THROW on a transient failure so the receiver lets the
+   * provider retry rather than persisting an un-reconcilable event.
+   */
+  parseWebhook(rawBody: string): ParsedPaymentEvent | Promise<ParsedPaymentEvent>
 }
 
 // --- accounting / tax-id ----------------------------------------------------

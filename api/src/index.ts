@@ -15,6 +15,8 @@ import {
   CLIENT_TYPES,
   ROLES,
   RECURRING_CADENCES,
+  EXPENSE_CATEGORIES,
+  PAYMENT_METHODS,
   type LeadRow,
   type UserRow,
   type DocumentRow,
@@ -48,11 +50,31 @@ import {
   processDueRecurring,
 } from './recurring'
 import { buildDashboard } from './dashboard'
+import {
+  listExpenses,
+  getExpense,
+  createExpense,
+  updateExpense,
+  deleteExpense,
+  setReceipt,
+  deleteReceipt,
+  getReceipt,
+  expenseSummary,
+} from './expenses'
 import { listUsers, createUser, updateUser, deleteUser } from './users'
 import { startScrape, scrapeRunState, scraperReachable, serviceTokenConfigured } from './scrape'
 import { snapshot, snapshotFilename } from './backup'
-import { finalisedInvoices, invoicesCsv, datevCsv, exportFilename } from './export'
+import {
+  finalisedInvoices,
+  invoicesCsv,
+  datevCsv,
+  expensesInRange,
+  expensesCsv,
+  expensesDatevCsv,
+  exportFilename,
+} from './export'
 import { audit } from './audit'
+import { rateLimit } from './ratelimit'
 import { encryptSecret, settingsKeyConfigured } from './secrets'
 import { registerAiRoutes } from './ai/router'
 import { registerDsgvoRoutes } from './dsgvo'
@@ -116,7 +138,10 @@ async function requireAdmin(c: Context<{ Variables: Vars }>, next: Next) {
 
 // --- auth routes ----------------------------------------------------------
 
-app.post('/api/login', async (c) => {
+// Throttle password attempts per client IP to blunt credential stuffing /
+// brute force. scrypt already makes each attempt costly; this caps the rate on
+// top. Keyed by IP (X-Forwarded-For first hop behind the reverse proxy).
+app.post('/api/login', rateLimit({ windowMs: 60_000, max: 10 }), async (c) => {
   const { username, password } = await c.req.json().catch(() => ({}))
   if (!username || !password) return c.json({ error: 'missing credentials' }, 400)
   const user = db
@@ -151,6 +176,8 @@ app.get('/api/config', (c) =>
     clientTypes: CLIENT_TYPES,
     roles: ROLES,
     cadences: RECURRING_CADENCES,
+    expenseCategories: EXPENSE_CATEGORIES,
+    paymentMethods: PAYMENT_METHODS,
   }),
 )
 
@@ -249,7 +276,7 @@ const SETTINGS_FIELDS = new Set([
   'payment_terms', 'rechnung_prefix', 'rechnung_next', 'angebot_prefix',
   'angebot_next', 'scraper_trades', 'scraper_towns', 'scraper_region',
   'scraper_min_score', 'scraper_max_pairs', 'scraper_per_pair', 'verzug_base_rate',
-  'datev_revenue_account', 'datev_debitor_account',
+  'datev_revenue_account', 'datev_debitor_account', 'datev_bank_account',
   // Operator-editable connection config (plain). Override the matching .env var.
   'ai_base_url', 'ai_model', 'ai_label',
   'smtp_host', 'smtp_port', 'smtp_user', 'smtp_secure', 'smtp_from',
@@ -740,6 +767,133 @@ app.delete('/api/documents/:id', requireAuth, (c) => {
   return c.json({ ok: true })
 })
 
+// --- Ausgaben (expenses / Belege) -----------------------------------------
+
+// Allowed receipt uploads: a PDF or a photo/scan, capped so a stray huge file
+// can't bloat the DB. Kept deliberately small — receipts are invoices and photos.
+const RECEIPT_MAX_BYTES = 10 * 1024 * 1024 // 10 MB
+const RECEIPT_MIMES = new Set([
+  'application/pdf',
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+  'image/heic',
+  'image/heif',
+  'image/gif',
+  'image/tiff',
+])
+
+// List expenses, optionally filtered by Belegdatum range, category or free text,
+// plus the matching summary (so the view gets totals for the current filter).
+app.get('/api/expenses', requireAuth, (c) => {
+  const filter = {
+    from: c.req.query('from') || undefined,
+    to: c.req.query('to') || undefined,
+    category: c.req.query('category') || undefined,
+    q: c.req.query('q') || undefined,
+  }
+  return c.json({ expenses: listExpenses(filter), summary: expenseSummary(filter) })
+})
+
+app.get('/api/expenses/:id', requireAuth, (c) => {
+  const exp = getExpense(Number(c.req.param('id')))
+  if (!exp) return c.json({ error: 'not found' }, 404)
+  return c.json({ expense: exp })
+})
+
+app.post('/api/expenses', requireAuth, async (c) => {
+  const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+  const gross = Math.round(Number(b.gross_cents))
+  if (!Number.isFinite(gross) || gross <= 0) {
+    return c.json({ error: 'Bruttobetrag (Cent) muss positiv sein.' }, 400)
+  }
+  const exp = createExpense(
+    {
+      vendor: (b.vendor as string) ?? null,
+      category: (b.category as string) ?? null,
+      description: (b.description as string) ?? null,
+      expense_date: (b.expense_date as string) ?? null,
+      paid_on: (b.paid_on as string) ?? null,
+      gross_cents: gross,
+      vat_rate: Number(b.vat_rate ?? 19),
+      payment_method: (b.payment_method as string) ?? null,
+      note: (b.note as string) ?? null,
+    },
+    c.get('user').username,
+  )
+  audit({ actor: c.get('user').username, action: 'expense.create', entity: 'expense', entityId: exp.id, detail: { gross_cents: exp.gross_cents, category: exp.category, vendor: exp.vendor } })
+  emit('expense.created', { id: exp.id, gross_cents: exp.gross_cents, category: exp.category })
+  return c.json({ expense: exp }, 201)
+})
+
+app.patch('/api/expenses/:id', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+  if ('gross_cents' in b) {
+    const gross = Math.round(Number(b.gross_cents))
+    if (!Number.isFinite(gross) || gross <= 0) {
+      return c.json({ error: 'Bruttobetrag (Cent) muss positiv sein.' }, 400)
+    }
+    b.gross_cents = gross
+  }
+  const exp = updateExpense(id, b)
+  if (!exp) return c.json({ error: 'not found' }, 404)
+  audit({ actor: c.get('user').username, action: 'expense.update', entity: 'expense', entityId: id, detail: { fields: Object.keys(b) } })
+  emit('expense.updated', { id, gross_cents: exp.gross_cents, category: exp.category })
+  return c.json({ expense: exp })
+})
+
+app.delete('/api/expenses/:id', requireAuth, (c) => {
+  const id = Number(c.req.param('id'))
+  if (!deleteExpense(id)) return c.json({ error: 'not found' }, 404)
+  audit({ actor: c.get('user').username, action: 'expense.delete', entity: 'expense', entityId: id })
+  emit('expense.deleted', { id })
+  return c.json({ ok: true })
+})
+
+// Attach / replace the receipt scan. multipart/form-data field name: "file".
+app.post('/api/expenses/:id/receipt', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!getExpense(id)) return c.json({ error: 'not found' }, 404)
+  const form = await c.req.parseBody()
+  const file = form['file']
+  if (!(file instanceof File)) return c.json({ error: 'Keine Datei hochgeladen.' }, 400)
+  if (file.size > RECEIPT_MAX_BYTES) {
+    return c.json({ error: 'Datei zu groß (max. 10 MB).' }, 413)
+  }
+  const mime = file.type || 'application/octet-stream'
+  if (!RECEIPT_MIMES.has(mime)) {
+    return c.json({ error: 'Nicht unterstütztes Format — PDF oder Bild (PNG/JPEG/…) erwartet.' }, 415)
+  }
+  const data = new Uint8Array(await file.arrayBuffer())
+  const exp = setReceipt(id, { data, name: file.name || `beleg-${id}`, mime })
+  audit({ actor: c.get('user').username, action: 'expense.receipt.upload', entity: 'expense', entityId: id, detail: { name: file.name, bytes: data.byteLength } })
+  return c.json({ expense: exp })
+})
+
+// Download / view the receipt scan inline.
+app.get('/api/expenses/:id/receipt', requireAuth, (c) => {
+  const id = Number(c.req.param('id'))
+  const receipt = getReceipt(id)
+  if (!receipt) return c.json({ error: 'not found' }, 404)
+  c.header('Content-Type', receipt.mime)
+  // RFC 5987 filename* for non-ASCII receipt names (umlauts), with an ASCII fallback.
+  const asciiName = receipt.name.replace(/[^\x20-\x7e]/g, '_').replace(/"/g, '')
+  c.header(
+    'Content-Disposition',
+    `inline; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(receipt.name)}`,
+  )
+  return c.body(Buffer.from(receipt.data) as unknown as ArrayBuffer)
+})
+
+app.delete('/api/expenses/:id/receipt', requireAuth, (c) => {
+  const id = Number(c.req.param('id'))
+  const exp = deleteReceipt(id)
+  if (!exp) return c.json({ error: 'not found' }, 404)
+  audit({ actor: c.get('user').username, action: 'expense.receipt.delete', entity: 'expense', entityId: id })
+  return c.json({ expense: exp })
+})
+
 // --- scraper (config + status) --------------------------------------------
 
 // Fallback defaults if the operator hasn't customised the lists yet. Trades are
@@ -843,6 +997,22 @@ app.get('/api/export/datev.csv', requireAuth, (c) => {
   const invoices = finalisedInvoices(from, to)
   audit({ actor: c.get('user').username, action: 'export.datev', detail: { from, to, count: invoices.length } })
   return csvResponse(c, datevCsv(invoices, getSettings()), exportFilename('datev', from, to))
+})
+
+app.get('/api/export/expenses.csv', requireAuth, (c) => {
+  const from = c.req.query('from')
+  const to = c.req.query('to')
+  const expenses = expensesInRange(from, to)
+  audit({ actor: c.get('user').username, action: 'export.expenses', detail: { from, to, count: expenses.length } })
+  return csvResponse(c, expensesCsv(expenses), exportFilename('ausgaben', from, to))
+})
+
+app.get('/api/export/expenses-datev.csv', requireAuth, (c) => {
+  const from = c.req.query('from')
+  const to = c.req.query('to')
+  const expenses = expensesInRange(from, to)
+  audit({ actor: c.get('user').username, action: 'export.expenses_datev', detail: { from, to, count: expenses.length } })
+  return csvResponse(c, expensesDatevCsv(expenses, getSettings()), exportFilename('ausgaben-datev', from, to))
 })
 
 // --- admin: database backup (operator owns their data) ---------------------

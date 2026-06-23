@@ -1,5 +1,6 @@
-import { db, STAGES, type LeadRow } from '../db'
+import { db, STAGES, EXPENSE_CATEGORIES, type LeadRow } from '../db'
 import { getDocument, getSettings, replaceItems, type DocItemInput } from '../documents'
+import { createExpense, listExpenses, expenseSummary } from '../expenses'
 import { audit } from '../audit'
 import { analyzeLead, draftOutreach } from './leadIntel'
 import type { ToolSchema } from './types'
@@ -235,6 +236,63 @@ export const TOOLS: AgentTool[] = [
       if (Array.isArray(a.items)) replaceItems(id, a.items as DocItemInput[])
       audit({ actor: ctx.actor, action: 'ai.create_document', entity: 'document', entityId: id, detail: { kind }, ip: ctx.ip })
       return { ok: true, document: getDocument(id) }
+    },
+  ),
+
+  def(
+    'list_expenses',
+    'Liste Ausgaben (Belege), optional gefiltert nach Belegdatum (from/to, YYYY-MM-DD) oder Kategorie. Liefert auch eine Summe (Brutto/Netto/Vorsteuer).',
+    obj({
+      from: { type: 'string', description: 'Belegdatum ab, YYYY-MM-DD' },
+      to: { type: 'string', description: 'Belegdatum bis, YYYY-MM-DD' },
+      category: { type: 'string', enum: EXPENSE_CATEGORIES.map((c) => c.id), description: 'Kategorie-Filter' },
+      limit: { type: 'number', description: 'max. Treffer, Standard 20' },
+    }),
+    (a) => {
+      const filter = {
+        from: typeof a.from === 'string' ? a.from : undefined,
+        to: typeof a.to === 'string' ? a.to : undefined,
+        category: typeof a.category === 'string' ? a.category : undefined,
+      }
+      const limit = Math.min(Number(a.limit ?? 20) || 20, 100)
+      const expenses = listExpenses(filter).slice(0, limit)
+      return { count: expenses.length, summary: expenseSummary(filter), expenses }
+    },
+  ),
+
+  def(
+    'create_expense',
+    'Erfasse eine Ausgabe/einen Beleg. Betrag ist der BRUTTO-Betrag in Cent; Netto und Vorsteuer werden aus USt-Satz berechnet. Der Beleg-Scan wird hier nicht hochgeladen (nur in der Oberfläche).',
+    obj({
+      vendor: { type: 'string', description: 'Lieferant / Zahlungsempfänger' },
+      category: { type: 'string', enum: EXPENSE_CATEGORIES.map((c) => c.id) },
+      description: { type: 'string' },
+      gross_cents: { type: 'number', description: 'Bruttobetrag in Cent (positiv)' },
+      vat_rate: { type: 'number', enum: [0, 7, 19], description: 'USt-Satz in %, Standard 19' },
+      expense_date: { type: 'string', description: 'Belegdatum YYYY-MM-DD (Standard heute)' },
+      paid_on: { type: 'string', description: 'Bezahlt am YYYY-MM-DD (optional)' },
+      payment_method: { type: 'string', description: 'z. B. Überweisung, Karte, Bar' },
+      note: { type: 'string' },
+    }, ['gross_cents']),
+    (a, ctx) => {
+      const gross = Math.round(Number(a.gross_cents))
+      if (!Number.isFinite(gross) || gross <= 0) return { error: 'Bruttobetrag (Cent) muss positiv sein.' }
+      const exp = createExpense(
+        {
+          vendor: (a.vendor as string) ?? null,
+          category: (a.category as string) ?? null,
+          description: (a.description as string) ?? null,
+          gross_cents: gross,
+          vat_rate: Number(a.vat_rate ?? 19),
+          expense_date: (a.expense_date as string) ?? null,
+          paid_on: (a.paid_on as string) ?? null,
+          payment_method: (a.payment_method as string) ?? null,
+          note: (a.note as string) ?? null,
+        },
+        ctx.actor,
+      )
+      audit({ actor: ctx.actor, action: 'ai.create_expense', entity: 'expense', entityId: exp.id, detail: { gross_cents: exp.gross_cents, category: exp.category }, ip: ctx.ip })
+      return { ok: true, expense: exp }
     },
   ),
 

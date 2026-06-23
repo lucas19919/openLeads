@@ -11,6 +11,7 @@ export type Module =
   | 'documents'
   | 'recurring'
   | 'mahnungen'
+  | 'expenses'
   | 'integrations'
   | 'settings'
 
@@ -23,6 +24,7 @@ const TABS: { id: Module; label: string; adminOnly?: boolean }[] = [
   { id: 'documents', label: 'Rechnungen' },
   { id: 'recurring', label: 'Serien' },
   { id: 'mahnungen', label: 'Mahnungen' },
+  { id: 'expenses', label: 'Ausgaben' },
   { id: 'integrations', label: 'Integrationen', adminOnly: true },
   { id: 'settings', label: 'Einstellungen' },
 ]

@@ -23,12 +23,13 @@ import type { FullDocument } from '../../documents'
 // a canned FullDocument and asserting netAmount === cents/100 and the
 // taxRatePercentage / taxType (19% standard vs 0% + §19 Kleinunternehmer).
 //
-// ASSUMPTION: per developers.lexware.io the API gateway moved to
-// https://api.lexware.io on 2025-05-26, with api.lexoffice.io kept alive until
-// Dec 2025. The spec pins the hardcoded host to api.lexoffice.io, so we use that;
-// switching to api.lexware.io is a one-line const change when the old host sunsets.
+// HOST: the API gateway moved to https://api.lexware.io on 2025-05-26, and the
+// legacy api.lexoffice.io host was sunset at the end of 2025 — so we target the
+// current host. Same Public API: identical /v1/... paths and Bearer-token auth,
+// only the hostname changed. HARDCODED (never operator-supplied): the API key
+// must never be sent to an arbitrary host (credential-exfiltration guard).
 
-const LEXOFFICE_BASE = 'https://api.lexoffice.io'
+const LEXOFFICE_BASE = 'https://api.lexware.io'
 const TIMEOUT_MS = 12_000
 
 const CONFIG_SCHEMA: ConfigFieldSchema[] = [

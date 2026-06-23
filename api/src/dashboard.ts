@@ -1,5 +1,6 @@
 import { db } from './db'
 import { finalisedInvoices } from './export'
+import { expenseSummary } from './expenses'
 
 // Read-only KPIs for the Übersicht (dashboard). Everything is derived from the
 // existing tables — no new state — so it always reflects the live data.
@@ -25,10 +26,22 @@ export interface Dashboard {
     drafts: number
     gross_total_cents: number
     paid_total_cents: number
+    net_total_cents: number // issued, not storniert (basis for the result figure)
     open_total_cents: number // issued, not storniert, still owed
     overdue_count: number
     overdue_total_cents: number
   }
+  expenses: {
+    count: number
+    gross_total_cents: number
+    net_total_cents: number
+    vat_total_cents: number // total Vorsteuer
+    ytd_gross_cents: number // current calendar year
+  }
+  // Rough operating result: net revenue (issued, not storniert) − net expenses.
+  // Net so VAT/Vorsteuer (a pass-through) doesn't distort it; clearly a guideline,
+  // not a P&L (no depreciation, accruals, private shares, …).
+  result: { net_cents: number }
   revenue_by_month: MonthRevenue[] // last 12 calendar months, oldest first
 }
 
@@ -62,6 +75,7 @@ export function buildDashboard(today: string = new Date().toISOString().slice(0,
   )
   let grossTotal = 0
   let paidTotal = 0
+  let netTotal = 0
   let openTotal = 0
   let overdueCount = 0
   let overdueTotal = 0
@@ -73,7 +87,10 @@ export function buildDashboard(today: string = new Date().toISOString().slice(0,
     const outstanding = Math.max(0, gross - inv.paid_cents)
     grossTotal += gross
     paidTotal += inv.paid_cents
-    if (inv.status !== 'storniert') openTotal += outstanding
+    if (inv.status !== 'storniert') {
+      openTotal += outstanding
+      netTotal += inv.totals.net_cents
+    }
     if (inv.status === 'versendet' && outstanding > 0 && inv.due_date && inv.due_date < today) {
       overdueCount++
       overdueTotal += outstanding
@@ -86,6 +103,10 @@ export function buildDashboard(today: string = new Date().toISOString().slice(0,
     }
   }
 
+  // --- expenses (Ausgaben) ---
+  const exAll = expenseSummary()
+  const exYtd = expenseSummary({ from: `${today.slice(0, 4)}-01-01`, to: today })
+
   return {
     leads: { total, open, won, lost, by_stage: byStage, conversion_pct: conversion },
     invoices: {
@@ -93,10 +114,19 @@ export function buildDashboard(today: string = new Date().toISOString().slice(0,
       drafts,
       gross_total_cents: grossTotal,
       paid_total_cents: paidTotal,
+      net_total_cents: netTotal,
       open_total_cents: openTotal,
       overdue_count: overdueCount,
       overdue_total_cents: overdueTotal,
     },
+    expenses: {
+      count: exAll.count,
+      gross_total_cents: exAll.gross_cents,
+      net_total_cents: exAll.net_cents,
+      vat_total_cents: exAll.vat_cents,
+      ytd_gross_cents: exYtd.gross_cents,
+    },
+    result: { net_cents: netTotal - exAll.net_cents },
     revenue_by_month: [...months.values()],
   }
 }

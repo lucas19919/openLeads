@@ -46,6 +46,35 @@ export type ClientType = (typeof CLIENT_TYPES)[number]
 export const RECURRING_CADENCES = ['monatlich', 'quartalsweise', 'jährlich'] as const
 export type RecurringCadence = (typeof RECURRING_CADENCES)[number]
 
+// --- Ausgaben (expenses / Belege) ---
+// Operating expenses with the receipt scan attached. Each category carries a
+// default SKR03 expense account (Aufwandskonto) used as the booking `Konto` in
+// the DATEV export — pragmatic defaults, not tax advice (the Steuerberater
+// verifies the mapping, same posture as the invoice export). `id` is the stable
+// key sent to the client and stored on bookings; reorder/relabel freely, but keep
+// ids stable so existing rows keep their category.
+export const EXPENSE_CATEGORIES = [
+  { id: 'wareneinkauf', label: 'Wareneinkauf', skr03: '3400' },
+  { id: 'fremdleistungen', label: 'Fremdleistungen', skr03: '3100' },
+  { id: 'bueromaterial', label: 'Bürobedarf', skr03: '4930' },
+  { id: 'telefon_internet', label: 'Telefon / Internet', skr03: '4920' },
+  { id: 'porto', label: 'Porto', skr03: '4910' },
+  { id: 'software', label: 'Software / Lizenzen', skr03: '4965' },
+  { id: 'miete', label: 'Miete / Raumkosten', skr03: '4210' },
+  { id: 'reisekosten', label: 'Reisekosten', skr03: '4670' },
+  { id: 'kfz', label: 'Kfz-Kosten', skr03: '4530' },
+  { id: 'marketing', label: 'Werbung / Marketing', skr03: '4600' },
+  { id: 'bewirtung', label: 'Bewirtung', skr03: '4650' },
+  { id: 'fortbildung', label: 'Fortbildung', skr03: '4945' },
+  { id: 'versicherungen', label: 'Versicherungen / Beiträge', skr03: '4360' },
+  { id: 'gebuehren', label: 'Bank- / Nebenkosten Geldverkehr', skr03: '4970' },
+  { id: 'sonstiges', label: 'Sonstige Kosten', skr03: '4980' },
+] as const
+export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number]['id']
+
+// Wie eine Ausgabe bezahlt wurde (UI-Auswahl; frei lassbar).
+export const PAYMENT_METHODS = ['Überweisung', 'Lastschrift', 'Karte', 'Bar', 'PayPal', 'Sonstiges'] as const
+
 // --- Rechnungen / Angebote (invoicing module) ---
 // Two document kinds share one table: a quote (Angebot) and an invoice (Rechnung).
 export const DOC_KINDS = ['angebot', 'rechnung'] as const
@@ -446,6 +475,41 @@ CREATE TABLE IF NOT EXISTS oauth_pending (
 );
 `)
 
+// --- Ausgaben (expenses / Belege) -------------------------------------------
+// The cost side of the books, the counterpart to the documents (revenue) table.
+// gross_cents is what was actually paid (Bruttobetrag, as printed on the
+// receipt); net_cents + vat_cents (Vorsteuer) are derived from gross + vat_rate
+// on write so SUM() reporting stays trivial. The receipt scan is stored INLINE
+// as a BLOB so the single-file `VACUUM INTO` backup carries it too — no separate
+// file store to back up, lose, or get out of sync (GoBD wants the Beleg retained
+// alongside the booking). Receipts are small (a PDF/photo), so this is fine.
+db.exec(`
+CREATE TABLE IF NOT EXISTS expenses (
+  id             INTEGER PRIMARY KEY,
+  vendor         TEXT,                       -- Lieferant / Zahlungsempfänger
+  category       TEXT NOT NULL DEFAULT 'sonstiges',
+  description    TEXT,                       -- Verwendungszweck / Beschreibung
+  expense_date   TEXT NOT NULL,              -- Belegdatum YYYY-MM-DD
+  paid_on        TEXT,                       -- Bezahlt am YYYY-MM-DD (NULL = offen)
+  gross_cents    INTEGER NOT NULL DEFAULT 0, -- Bruttobetrag (gezahlt)
+  vat_rate       INTEGER NOT NULL DEFAULT 19,-- USt-Satz % (0 / 7 / 19)
+  net_cents      INTEGER NOT NULL DEFAULT 0, -- abgeleitet aus gross + vat_rate
+  vat_cents      INTEGER NOT NULL DEFAULT 0, -- Vorsteuer, abgeleitet
+  payment_method TEXT,                       -- Überweisung / Karte / Bar / ...
+  note           TEXT,
+  -- Beleg (receipt scan), stored inline. NULL = kein Beleg hinterlegt.
+  receipt_data   BLOB,
+  receipt_name   TEXT,
+  receipt_mime   TEXT,
+  receipt_size   INTEGER,
+  created_by     TEXT,                       -- username who recorded it
+  created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(expense_date DESC);
+CREATE INDEX IF NOT EXISTS idx_expenses_category ON expenses(category);
+`)
+
 // Basiszinssatz (%) used for §288 BGB Verzugszinsen (configurable; changes
 // each Jan/Jul). B2B default rate = base + 9 pp. Added after the AI release.
 try {
@@ -455,7 +519,13 @@ try {
 }
 
 // DATEV/GoBD export account numbers (Steuerberater handoff). SKR03 defaults.
-for (const col of ['datev_revenue_account TEXT', 'datev_debitor_account TEXT']) {
+// datev_bank_account is the Gegenkonto for expense bookings (Aufwand an Bank);
+// the Konto comes from the expense category's SKR03 account. Default 1200 (Bank).
+for (const col of [
+  'datev_revenue_account TEXT',
+  'datev_debitor_account TEXT',
+  'datev_bank_account TEXT',
+]) {
   try {
     db.exec(`ALTER TABLE settings ADD COLUMN ${col}`)
   } catch {
@@ -635,6 +705,7 @@ export interface SettingsRow {
   verzug_base_rate: number
   datev_revenue_account: string | null
   datev_debitor_account: string | null
+  datev_bank_account: string | null
   // Operator-editable connection config (Settings UI). Optional: added by a late
   // migration, and the *_enc columns hold ciphertext (see secrets.ts), so they
   // are never sent to the client raw — the API redacts them.
@@ -698,6 +769,28 @@ export interface PaymentRow {
   method: string | null
   note: string | null
   created_at: string
+}
+
+export interface ExpenseRow {
+  id: number
+  vendor: string | null
+  category: string
+  description: string | null
+  expense_date: string
+  paid_on: string | null
+  gross_cents: number
+  vat_rate: number
+  net_cents: number
+  vat_cents: number
+  payment_method: string | null
+  note: string | null
+  receipt_data: Uint8Array | null
+  receipt_name: string | null
+  receipt_mime: string | null
+  receipt_size: number | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
 }
 
 export interface RecurringInvoiceRow {

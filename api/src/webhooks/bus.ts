@@ -19,6 +19,9 @@ export const WEBHOOK_EVENTS = [
   'invoice.sent',
   'payment.recorded',
   'payment.deleted',
+  'expense.created',
+  'expense.updated',
+  'expense.deleted',
 ] as const
 export type WebhookEvent = (typeof WEBHOOK_EVENTS)[number]
 

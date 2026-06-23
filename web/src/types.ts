@@ -33,6 +33,12 @@ export interface LeadEvent {
   body: string | null
 }
 
+export interface ExpenseCategoryDef {
+  id: string
+  label: string
+  skr03: string
+}
+
 export interface Config {
   stages: string[]
   priorities: string[]
@@ -41,6 +47,8 @@ export interface Config {
   clientTypes: string[]
   roles: string[]
   cadences: string[]
+  expenseCategories: ExpenseCategoryDef[]
+  paymentMethods: string[]
 }
 
 export interface Settings {
@@ -73,6 +81,7 @@ export interface Settings {
   verzug_base_rate?: number
   datev_revenue_account?: string | null
   datev_debitor_account?: string | null
+  datev_bank_account?: string | null
   // Connection config (overrides .env). Secrets are write-only: the API never
   // returns the key/password, only whether one is stored.
   ai_base_url?: string | null
@@ -223,6 +232,36 @@ export interface RecurringInvoice {
   updated_at: string
 }
 
+export interface Expense {
+  id: number
+  vendor: string | null
+  category: string
+  description: string | null
+  expense_date: string
+  paid_on: string | null
+  gross_cents: number
+  vat_rate: number
+  net_cents: number
+  vat_cents: number
+  payment_method: string | null
+  note: string | null
+  has_receipt: boolean
+  receipt_name: string | null
+  receipt_mime: string | null
+  receipt_size: number | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ExpenseSummary {
+  count: number
+  gross_cents: number
+  net_cents: number
+  vat_cents: number
+  by_category: { category: string; count: number; gross_cents: number; net_cents: number }[]
+}
+
 export interface PublicUser {
   id: number
   username: string
@@ -251,10 +290,19 @@ export interface Dashboard {
     drafts: number
     gross_total_cents: number
     paid_total_cents: number
+    net_total_cents: number
     open_total_cents: number
     overdue_count: number
     overdue_total_cents: number
   }
+  expenses: {
+    count: number
+    gross_total_cents: number
+    net_total_cents: number
+    vat_total_cents: number
+    ytd_gross_cents: number
+  }
+  result: { net_cents: number }
   revenue_by_month: MonthRevenue[]
 }
 

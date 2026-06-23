@@ -34,6 +34,12 @@ type App = Hono<any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
 const MAX_WEBHOOK_BODY = 1_000_000 // 1 MB cap on inbound bodies
 
+// Ledger payment-method label per webhook provider (a SEPA settlement isn't "Stripe").
+const PAYMENT_METHOD_LABEL: Record<string, string> = {
+  stripe: 'Stripe',
+  gocardless: 'SEPA-Lastschrift (GoCardless)',
+}
+
 function actorOf(c: Parameters<MiddlewareHandler>[0]): string | null {
   return (c.get('user') as { username?: string } | undefined)?.username ?? null
 }
@@ -201,7 +207,16 @@ export function registerIntegrationRoutes(app: App, requireAdmin: MiddlewareHand
         return c.json({ error: 'Signaturprüfung fehlgeschlagen.' }, 400)
       }
 
-      const parsed = pay.parseWebhook(rawBody)
+      // parseWebhook may be async + may hit the provider's API (e.g. GoCardless
+      // fetches the paid amount). A transient failure there THROWS — return 502 so
+      // nothing is persisted and the provider redelivers, rather than recording an
+      // un-reconcilable event that dedup would then pin forever.
+      let parsed: Awaited<ReturnType<PaymentProvider['parseWebhook']>>
+      try {
+        parsed = await pay.parseWebhook(rawBody)
+      } catch {
+        return c.json({ error: 'Webhook konnte nicht verarbeitet werden — bitte erneut zustellen.' }, 502)
+      }
       // Idempotency key: the provider's event id, or a deterministic hash of the
       // raw body when it supplies none. SQLite treats NULL as DISTINCT in a UNIQUE
       // index, so a null id would silently bypass dedup and let a redelivered
@@ -239,19 +254,25 @@ export function registerIntegrationRoutes(app: App, requireAdmin: MiddlewareHand
           if (parsed.paid && parsed.document_id) {
             const doc = getDocument(parsed.document_id)
             const amount = Math.round(Number(parsed.amount_cents))
+            // The ledger is EUR-only (amounts are stored as bare EUR cents). Refuse
+            // to record a payment reported in another currency at face value, which
+            // would silently mis-state the books.
+            const currencyOk = !parsed.currency || parsed.currency.toLowerCase() === 'eur'
             if (
               doc &&
               doc.kind === 'rechnung' &&
               doc.number &&
               doc.status !== 'bezahlt' &&
               doc.status !== 'storniert' &&
+              currencyOk &&
               Number.isFinite(amount) &&
               amount > 0
             ) {
               const payment = addPayment(doc.id, {
                 amount_cents: amount,
                 paid_on: null,
-                method: 'Stripe',
+                // Record which provider settled it (not always Stripe).
+                method: PAYMENT_METHOD_LABEL[provider] ?? provider,
                 note: `${provider} ${parsed.external_id ?? ''}`.trim(),
               })
               emit('payment.recorded', {
@@ -262,7 +283,7 @@ export function registerIntegrationRoutes(app: App, requireAdmin: MiddlewareHand
               })
               result = { applied: true, payment_id: payment.id, document_id: doc.id }
             } else {
-              result = { applied: false, reason: 'Rechnung nicht zahlbar oder Betrag ungültig.' }
+              result = { applied: false, reason: 'Rechnung nicht zahlbar, Währung ≠ EUR oder Betrag ungültig.' }
             }
           }
           db.prepare('UPDATE integration_events SET processed = 1, result = ? WHERE id = ?').run(

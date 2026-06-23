@@ -11,6 +11,7 @@ import { SettingsView } from './components/invoices/SettingsView'
 import { DashboardView } from './components/DashboardView'
 import { RecurringView } from './components/invoices/RecurringView'
 import { ScraperView } from './components/scraper/ScraperView'
+import { ExpensesView } from './components/expenses/ExpensesView'
 import { IntegrationsView } from './components/integrations/IntegrationsView'
 
 export default function App() {
@@ -65,6 +66,7 @@ export default function App() {
       {module === 'scraper' && <ScraperView />}
       {module === 'recurring' && <RecurringView config={config!} />}
       {module === 'mahnungen' && <MahnungenView />}
+      {module === 'expenses' && <ExpensesView config={config!} />}
       {module === 'integrations' && <IntegrationsView />}
       {module === 'settings' && <SettingsView user={user} config={config!} />}
     </div>

@@ -92,6 +92,18 @@ export interface TokenResponse {
   id_token?: string
 }
 
+/** Token-endpoint error that preserves the provider's OAuth2 `error` code (e.g.
+ *  'invalid_grant') so callers can react to a revoked/expired refresh token —
+ *  the German-wrapped message often doesn't contain the raw code. */
+export class OAuthTokenError extends Error {
+  readonly code: string | null
+  constructor(message: string, code: string | null) {
+    super(message)
+    this.name = 'OAuthTokenError'
+    this.code = code
+  }
+}
+
 async function postToken(spec: OAuthSpec, tenant: string | undefined, body: Record<string, string>): Promise<TokenResponse> {
   let res: Response
   try {
@@ -102,10 +114,12 @@ async function postToken(spec: OAuthSpec, tenant: string | undefined, body: Reco
       signal: AbortSignal.timeout(12000),
     })
   } catch {
-    throw new Error('OAuth-Server nicht erreichbar.')
+    throw new OAuthTokenError('OAuth-Server nicht erreichbar.', null)
   }
   const json = (await res.json().catch(() => ({}))) as TokenResponse & { error?: string; error_description?: string }
-  if (!res.ok) throw new Error(`OAuth-Fehler: ${json.error_description || json.error || res.status}`)
+  if (!res.ok) {
+    throw new OAuthTokenError(`OAuth-Fehler: ${json.error_description || json.error || res.status}`, json.error ?? null)
+  }
   return json
 }
 
@@ -200,15 +214,42 @@ export async function getAccessToken(connectionId: number): Promise<string> {
   const tenant = conn.config.tenant ? String(conn.config.tenant) : undefined
   const refresh = decryptSecret(row.refresh_token_enc)
   if (!clientId || !clientSecret || !refresh) throw new Error('OAuth-Zugangsdaten unvollständig.')
-  const t = await postToken(spec, tenant, {
-    grant_type: 'refresh_token',
-    refresh_token: refresh,
-    client_id: clientId,
-    client_secret: clientSecret,
-  })
+  let t: TokenResponse
+  try {
+    t = await postToken(spec, tenant, {
+      grant_type: 'refresh_token',
+      refresh_token: refresh,
+      client_id: clientId,
+      client_secret: clientSecret,
+    })
+  } catch (e) {
+    // A revoked/expired refresh token (invalid_grant) is terminal: refreshing will
+    // never succeed again. Clear the dead tokens so isOAuthConnected() flips to
+    // false (the UI stops showing "connected" and offers a reconnect) and flag the
+    // connection so the operator sees why. Other errors (server down, timeout) are
+    // transient — leave the tokens in place and just propagate.
+    if (e instanceof OAuthTokenError && e.code === 'invalid_grant') {
+      disconnectOAuth(connectionId)
+      markConnectionAuthExpired(connectionId)
+      throw new Error('OAuth-Konto getrennt — Token abgelaufen oder zurückgezogen. Bitte neu verbinden.')
+    }
+    throw e
+  }
   storeTokens(connectionId, t)
   if (!t.access_token) throw new Error('Kein Access-Token erhalten.')
   return t.access_token
+}
+
+/** Flag a connection as needing reconnect after its refresh token died. Inline
+ *  DB write (not registry.setStatus) to avoid an import cycle. */
+function markConnectionAuthExpired(connectionId: number): void {
+  try {
+    db.prepare(
+      "UPDATE integration_connections SET status = 'error', status_detail = ?, updated_at = datetime('now') WHERE id = ?",
+    ).run('Konto-Verbindung abgelaufen — bitte neu verbinden.', connectionId)
+  } catch {
+    // status is advisory; never let a logging-style write break the call path.
+  }
 }
 
 /** True if a connection has a stored refresh token (i.e. is connected). */

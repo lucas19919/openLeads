@@ -9,6 +9,8 @@ import type {
   Doc,
   DocItem,
   DunningComputation,
+  Expense,
+  ExpenseSummary,
   IntegrationConnection,
   IntegrationProvider,
   InvoiceDraft,
@@ -178,6 +180,59 @@ export const api = {
     }),
   deletePayment: (paymentId: number) =>
     req<{ document: Doc }>(`/payments/${paymentId}`, { method: 'DELETE' }),
+
+  // --- Ausgaben (expenses / Belege) ---
+  listExpenses: (params: { from?: string; to?: string; category?: string; q?: string } = {}) => {
+    const qs = new URLSearchParams()
+    if (params.from) qs.set('from', params.from)
+    if (params.to) qs.set('to', params.to)
+    if (params.category) qs.set('category', params.category)
+    if (params.q) qs.set('q', params.q)
+    const suffix = qs.toString() ? `?${qs}` : ''
+    return req<{ expenses: Expense[]; summary: ExpenseSummary }>(`/expenses${suffix}`)
+  },
+  getExpense: (id: number) => req<{ expense: Expense }>(`/expenses/${id}`),
+  createExpense: (body: Partial<Expense>) =>
+    req<{ expense: Expense }>('/expenses', { method: 'POST', body: JSON.stringify(body) }),
+  updateExpense: (id: number, patch: Partial<Expense>) =>
+    req<{ expense: Expense }>(`/expenses/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  deleteExpense: (id: number) => req<{ ok: true }>(`/expenses/${id}`, { method: 'DELETE' }),
+  uploadReceipt: async (id: number, file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    // No Content-Type header — the browser sets the multipart boundary.
+    const res = await fetch(`/api/expenses/${id}/receipt`, {
+      method: 'POST',
+      credentials: 'include',
+      body: fd,
+    })
+    if (!res.ok) {
+      let msg = res.statusText
+      try {
+        const b = await res.json()
+        if (b?.error) msg = b.error
+      } catch {
+        /* ignore */
+      }
+      throw new ApiError(res.status, msg)
+    }
+    return res.json() as Promise<{ expense: Expense }>
+  },
+  deleteReceipt: (id: number) =>
+    req<{ expense: Expense }>(`/expenses/${id}/receipt`, { method: 'DELETE' }),
+  receiptUrl: (id: number) => `/api/expenses/${id}/receipt`,
+  exportExpensesUrl: (from?: string, to?: string) => {
+    const qs = new URLSearchParams()
+    if (from) qs.set('from', from)
+    if (to) qs.set('to', to)
+    return `/api/export/expenses.csv${qs.toString() ? `?${qs}` : ''}`
+  },
+  exportExpensesDatevUrl: (from?: string, to?: string) => {
+    const qs = new URLSearchParams()
+    if (from) qs.set('from', from)
+    if (to) qs.set('to', to)
+    return `/api/export/expenses-datev.csv${qs.toString() ? `?${qs}` : ''}`
+  },
 
   // --- Serienrechnungen (recurring invoices) ---
   listRecurring: () => req<{ recurring: RecurringInvoice[] }>('/recurring'),

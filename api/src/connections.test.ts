@@ -10,11 +10,12 @@ process.env.DB_PATH = DB_FILE
 const { db } = await import('./db')
 await import('./integrations') // registers all adapters
 const { available } = await import('./integrations/registry')
-const { verifyGcSignature, mapGcEvent } = await import('./integrations/adapters/gocardless')
+const { verifyGcSignature, mapGcEvent, gocardlessDefinition } = await import('./integrations/adapters/gocardless')
 const { mapDocToLexoffice } = await import('./integrations/adapters/lexoffice')
 const { mapDocToSevdesk } = await import('./integrations/adapters/sevdesk')
 const { normalizeE164, buildSipgateCallBody } = await import('./integrations/adapters/sipgate')
-const { buildAuthorizeUrl, parseIdTokenEmail, scopesFor, GOOGLE_SPEC, MSGRAPH_SPEC } = await import('./integrations/oauth')
+const { buildAuthorizeUrl, parseIdTokenEmail, scopesFor, GOOGLE_SPEC, MSGRAPH_SPEC, getAccessToken, isOAuthConnected, storeTokens } = await import('./integrations/oauth')
+const { encryptSecret } = await import('./secrets')
 const { buildGmailRaw, mapCalendarEvent } = await import('./integrations/adapters/google')
 const { buildGraphSendMailBody, mapGraphEvent } = await import('./integrations/adapters/msgraph')
 const { createHmac } = await import('node:crypto')
@@ -73,6 +74,107 @@ test('GoCardless webhook signature: plain HMAC, fails closed', () => {
   assert.equal(parsed.external_id, 'EV1')
   assert.equal(parsed.paid, true)
   assert.equal(parsed.document_id, 7)
+})
+
+// A helper to swap global.fetch for a test and always restore it.
+async function withFetch<T>(impl: typeof globalThis.fetch, fn: () => Promise<T>): Promise<T> {
+  const real = globalThis.fetch
+  globalThis.fetch = impl
+  try {
+    return await fn()
+  } finally {
+    globalThis.fetch = real
+  }
+}
+
+function gcAdapter() {
+  return gocardlessDefinition.build({
+    id: 0, category: 'payment', provider: 'gocardless', label: null,
+    config: {}, secrets: { access_token: 'tok', webhook_secret: 'whs' },
+  })
+}
+
+test('GoCardless parseWebhook fetches the paid amount + currency (async enrichment)', async () => {
+  const adapter = gcAdapter()
+  const body = JSON.stringify({ events: [{ id: 'EV1', resource_type: 'payments', action: 'confirmed', links: { payment: 'PM123' }, metadata: { document_id: '7' } }] })
+  let calledUrl = ''
+  const parsed = await withFetch(
+    (async (url: string | URL) => {
+      calledUrl = String(url)
+      return { ok: true, status: 200, json: async () => ({ payments: { amount: 11900, currency: 'EUR' } }) } as Response
+    }) as unknown as typeof globalThis.fetch,
+    () => Promise.resolve(adapter.parseWebhook(body)),
+  )
+  assert.match(calledUrl, /\/payments\/PM123$/)
+  assert.equal(parsed.paid, true)
+  assert.equal(parsed.document_id, 7)
+  assert.equal(parsed.amount_cents, 11900) // GoCardless amount is already in cents
+  assert.equal(parsed.currency, 'EUR')
+})
+
+test('GoCardless parseWebhook: a transient amount-fetch failure throws (provider retries)', async () => {
+  const adapter = gcAdapter()
+  const body = JSON.stringify({ events: [{ id: 'EV2', resource_type: 'payments', action: 'confirmed', links: { payment: 'PM9' }, metadata: { document_id: '3' } }] })
+  await withFetch(
+    (async () => { throw new Error('network') }) as unknown as typeof globalThis.fetch,
+    () => assert.rejects(async () => { await adapter.parseWebhook(body) }, /nicht erreichbar/),
+  )
+})
+
+test('GoCardless parseWebhook: a non-paid event never calls the API', async () => {
+  const adapter = gcAdapter()
+  const body = JSON.stringify({ events: [{ id: 'EV3', resource_type: 'payments', action: 'submitted', links: { payment: 'PM9' }, metadata: { document_id: '3' } }] })
+  let called = false
+  const parsed = await withFetch(
+    (async () => { called = true; return { ok: true, json: async () => ({}) } as Response }) as unknown as typeof globalThis.fetch,
+    () => Promise.resolve(adapter.parseWebhook(body)),
+  )
+  assert.equal(called, false)
+  assert.equal(parsed.paid, false)
+  assert.equal(parsed.amount_cents, undefined)
+})
+
+test('getAccessToken clears a revoked refresh token (invalid_grant) and flags reconnect', async () => {
+  const credEnc = encryptSecret(JSON.stringify({ client_secret: 'csec' }))
+  const info = db
+    .prepare(
+      `INSERT INTO integration_connections (category, provider, label, config, credentials_enc, active, status)
+       VALUES ('mail', 'google', 'Gmail', ?, ?, 1, 'ok')`,
+    )
+    .run(JSON.stringify({ client_id: 'cid' }), credEnc)
+  const connId = Number(info.lastInsertRowid)
+  // Expired access token (expires_in negative) forces the refresh path.
+  storeTokens(connId, { access_token: 'old', refresh_token: 'rt', expires_in: -100, account_email: 'me@firma.de' })
+  assert.equal(isOAuthConnected(connId).connected, true)
+
+  await withFetch(
+    (async () => ({ ok: false, status: 400, json: async () => ({ error: 'invalid_grant', error_description: 'Token has been expired or revoked.' }) }) as Response) as unknown as typeof globalThis.fetch,
+    () => assert.rejects(() => getAccessToken(connId), /neu verbinden/),
+  )
+
+  // Dead token cleared → no longer "connected"; connection flagged for reconnect.
+  assert.equal(isOAuthConnected(connId).connected, false)
+  const row = db.prepare('SELECT status FROM integration_connections WHERE id = ?').get(connId) as { status: string }
+  assert.equal(row.status, 'error')
+})
+
+test('getAccessToken keeps the token on a transient refresh failure', async () => {
+  const credEnc = encryptSecret(JSON.stringify({ client_secret: 'csec' }))
+  const info = db
+    .prepare(
+      `INSERT INTO integration_connections (category, provider, label, config, credentials_enc, active, status)
+       VALUES ('mail', 'microsoft', 'Outlook', ?, ?, 0, 'ok')`,
+    )
+    .run(JSON.stringify({ client_id: 'cid' }), credEnc)
+  const connId = Number(info.lastInsertRowid)
+  storeTokens(connId, { access_token: 'old', refresh_token: 'rt', expires_in: -100 })
+
+  await withFetch(
+    (async () => { throw new Error('boom') }) as unknown as typeof globalThis.fetch,
+    () => assert.rejects(() => getAccessToken(connId), /nicht erreichbar/),
+  )
+  // Transient failure must NOT nuke the token — still connected for the next try.
+  assert.equal(isOAuthConnected(connId).connected, true)
 })
 
 test('lexoffice mapper: cents→EUR, §19 → vatfree + 0% + remark', () => {

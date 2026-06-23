@@ -31,6 +31,11 @@ The modules, behind one login:
 - **Offene Posten** — overdue invoices with one-click Mahnungen, §288 BGB
   Verzugszinsen and the €40 Pauschale (B2B only; private-customer invoices are
   handled correctly). Interest accrues on the still-open amount.
+- **Ausgaben** — the cost side: record a receipt (Beleg) with vendor, category,
+  date and gross amount, and the net + Vorsteuer are split out for you. The scan
+  (PDF/photo) is stored with the booking, German expense categories carry SKR03
+  accounts, and there's a journal + DATEV expense export for the Steuerberater.
+  The dashboard nets it against revenue for a quick Ergebnis.
 - **Scraper** — a panel to tune the search raster (trades × towns), the staleness
   threshold and the run limits, with a status readout. It identifies itself with
   an honest bot User-Agent, respects `robots.txt`, throttles its requests, and
