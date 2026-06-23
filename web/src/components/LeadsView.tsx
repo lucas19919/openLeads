@@ -25,8 +25,11 @@ export function LeadsView({
   const [showNew, setShowNew] = useState(false)
   const [importing, setImporting] = useState(false)
 
-  // KI-Suche (semantische Suche). Solange Ergebnisse vorliegen, ersetzen sie die
-  // normale Liste; null bedeutet: keine KI-Suche aktiv -> normale Ansicht.
+  // KI-Suche (semantische Suche). Standardmäßig eingeklappt — die normale Textsuche
+  // in der Toolbar deckt den Alltag ab; die KI-Suche blendet man bei Bedarf ein.
+  // Solange Ergebnisse vorliegen, ersetzen sie die normale Liste; null bedeutet:
+  // keine KI-Suche aktiv -> normale Ansicht.
+  const [showAi, setShowAi] = useState(false)
   const [aiQuery, setAiQuery] = useState('')
   const [aiSearching, setAiSearching] = useState(false)
   const [aiHits, setAiHits] = useState<SemanticHit[] | null>(null)
@@ -98,6 +101,18 @@ export function LeadsView({
     setAiErr(null)
   }
 
+  // Collapsing the KI-Suche also clears any active results + notes, so the normal
+  // list returns and no orphaned state lingers behind the hidden bar.
+  function toggleAi() {
+    setShowAi((open) => {
+      if (open) {
+        clearAiSearch()
+        setReindexNote(null)
+      }
+      return !open
+    })
+  }
+
   async function reindex() {
     setReindexing(true)
     setReindexNote(null)
@@ -131,41 +146,48 @@ export function LeadsView({
         onImportFile={importFile}
         importing={importing}
         exportHref={api.exportLeadsUrl({ q: search.trim() || undefined })}
+        aiOpen={showAi}
+        onToggleAi={toggleAi}
       />
       <div className="content">
-        <div className="ai-search">
-          <span className="ai-badge ai-badge-cloud">KI</span>
-          <input
-            className="search ai-search-input"
-            placeholder="KI-Suche: z. B. „Dachdecker ohne Website in der Nähe von Köln“"
-            value={aiQuery}
-            onChange={(e) => setAiQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') runAiSearch()
-            }}
-          />
-          <button className="primary" disabled={aiSearching || !aiQuery.trim()} onClick={runAiSearch}>
-            {aiSearching ? 'Suche…' : 'KI-Suche'}
-          </button>
-          {aiHits !== null && (
-            <button className="ghost" onClick={clearAiSearch}>
-              Zurücksetzen
-            </button>
-          )}
-          <div className="spacer" />
-          <button className="ghost-link" disabled={reindexing} onClick={reindex}>
-            {reindexing ? 'Indexiere…' : 'Neu indexieren'}
-          </button>
-        </div>
-        {reindexNote && (
-          <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
-            {reindexNote}
-          </div>
-        )}
-        {aiErr && (
-          <div className="section-error" role="alert">
-            {aiErr}
-          </div>
+        {showAi && (
+          <>
+            <div className="ai-search">
+              <span className="ai-badge ai-badge-cloud">KI</span>
+              <input
+                className="search ai-search-input"
+                placeholder="KI-Suche: z. B. „Dachdecker ohne Website in der Nähe von Köln“"
+                value={aiQuery}
+                autoFocus
+                onChange={(e) => setAiQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') runAiSearch()
+                }}
+              />
+              <button className="primary" disabled={aiSearching || !aiQuery.trim()} onClick={runAiSearch}>
+                {aiSearching ? 'Suche…' : 'KI-Suche'}
+              </button>
+              {aiHits !== null && (
+                <button className="ghost" onClick={clearAiSearch}>
+                  Zurücksetzen
+                </button>
+              )}
+              <div className="spacer" />
+              <button className="ghost-link" disabled={reindexing} onClick={reindex}>
+                {reindexing ? 'Indexiere…' : 'Neu indexieren'}
+              </button>
+            </div>
+            {reindexNote && (
+              <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
+                {reindexNote}
+              </div>
+            )}
+            {aiErr && (
+              <div className="section-error" role="alert">
+                {aiErr}
+              </div>
+            )}
+          </>
         )}
 
         {aiHits !== null ? (

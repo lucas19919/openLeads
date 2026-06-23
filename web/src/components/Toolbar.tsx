@@ -10,6 +10,8 @@ export function Toolbar({
   onImportFile,
   importing,
   exportHref,
+  aiOpen,
+  onToggleAi,
 }: {
   view: 'board' | 'table'
   setView: (v: 'board' | 'table') => void
@@ -20,6 +22,8 @@ export function Toolbar({
   onImportFile: (file: File) => void
   importing: boolean
   exportHref: string
+  aiOpen?: boolean
+  onToggleAi?: () => void
 }) {
   const fileRef = useRef<HTMLInputElement>(null)
   return (
@@ -45,6 +49,16 @@ export function Toolbar({
         value={search}
         onChange={(e) => setSearch(e.target.value)}
       />
+      {onToggleAi && (
+        <button
+          className={aiOpen ? 'ai-toggle active' : 'ai-toggle'}
+          onClick={onToggleAi}
+          aria-pressed={aiOpen}
+          title="Semantische KI-Suche ein-/ausblenden"
+        >
+          KI-Suche
+        </button>
+      )}
       <span className="user-chip">{count} Leads</span>
       <div className="spacer" />
       <button onClick={() => fileRef.current?.click()} disabled={importing}>
@@ -61,7 +75,7 @@ export function Toolbar({
           e.target.value = ''
         }}
       />
-      <a className="chip" href={exportHref} download title="Sichtbare Leads als CSV exportieren">
+      <a className="btn" href={exportHref} download title="Sichtbare Leads als CSV exportieren">
         Export CSV
       </a>
       <button onClick={onNew}>+ Lead</button>

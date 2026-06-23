@@ -25,7 +25,9 @@ export async function runAgent(
   ctx: ToolContext,
   opts: { maxSteps?: number } = {},
 ): Promise<AgentRun> {
-  const maxSteps = opts.maxSteps ?? 6
+  // Headroom for multi-item jobs: "Lege Leads für diese 3 URLs an" is fetch+create
+  // per URL — a model that calls tools one at a time needs ~2 steps per lead.
+  const maxSteps = opts.maxSteps ?? 8
   const messages: ChatMessage[] = [{ role: 'system', content: COPILOT_SYSTEM }, ...history]
   const steps: AgentStep[] = []
 

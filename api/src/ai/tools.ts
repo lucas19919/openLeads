@@ -1,8 +1,10 @@
-import { db, STAGES, EXPENSE_CATEGORIES, type LeadRow } from '../db'
+import { db, STAGES, PRIORITIES, EXPENSE_CATEGORIES, type LeadRow } from '../db'
 import { getDocument, getSettings, replaceItems, type DocItemInput } from '../documents'
 import { createExpense, listExpenses, expenseSummary } from '../expenses'
+import { insertLead } from '../leads'
 import { audit } from '../audit'
 import { analyzeLead, draftOutreach } from './leadIntel'
+import { lookupWebsite, companyFromDomain } from './weblookup'
 import type { ToolSchema } from './types'
 
 // The agent's hands. Each tool is a small, auditable capability over the same
@@ -66,6 +68,66 @@ export const TOOLS: AgentTool[] = [
         .prepare(`SELECT id, company, trade, city, score, priority, stage, email, phone FROM leads ${where} ORDER BY score DESC, created_at DESC LIMIT ?`)
         .all(...params, limit) as unknown as Record<string, unknown>[]
       return { count: rows.length, leads: rows }
+    },
+  ),
+
+  def(
+    'fetch_website',
+    'Rufe eine öffentliche Website auf und lies Eckdaten aus (Firmenname, Beschreibung, ' +
+      'E-Mail, Telefon). Nutze dies, BEVOR du aus einer URL einen Lead anlegst, damit du ' +
+      'Firma und Kontakt nicht erraten musst. Schreibt nichts.',
+    obj({ url: { type: 'string', description: 'Website-URL (mit oder ohne https://)' } }, ['url']),
+    async (a) => {
+      const url = typeof a.url === 'string' ? a.url : ''
+      const facts = await lookupWebsite(url)
+      if (!facts) {
+        return { ok: false, url, reachable: false, company_guess: companyFromDomain(url) }
+      }
+      return { ok: true, reachable: true, ...facts }
+    },
+  ),
+
+  def(
+    'create_lead',
+    'Lege einen neuen Lead an. Nur `website` ist nötig — fehlt die Firma, wird sie aus der ' +
+      'Domain abgeleitet. Für gute Daten vorher `fetch_website` nutzen. Dubletten werden über ' +
+      'die Domain erkannt (kein doppelter Lead). Der Lead startet in Stage „neu“.',
+    obj({
+      website: { type: 'string', description: 'Website-URL des Betriebs' },
+      company: { type: 'string', description: 'Firmenname (falls leer: aus Domain abgeleitet)' },
+      trade: { type: 'string', description: 'Gewerk/Branche, z. B. Dachdecker, Metallbau' },
+      city: { type: 'string', description: 'Ort' },
+      phone: { type: 'string' },
+      email: { type: 'string' },
+      priority: { type: 'string', enum: [...PRIORITIES] },
+      why_lead: { type: 'string', description: 'kurze Begründung, warum das ein Lead ist' },
+    }, ['website']),
+    (a, ctx) => {
+      const website = typeof a.website === 'string' ? a.website.trim() : ''
+      if (!website && typeof a.company !== 'string') {
+        return { error: 'Mindestens `website` oder `company` angeben.' }
+      }
+      const company =
+        (typeof a.company === 'string' && a.company.trim()) || companyFromDomain(website) || null
+      const r = insertLead(
+        {
+          website: website || null,
+          company,
+          trade: (a.trade as string) ?? null,
+          city: (a.city as string) ?? null,
+          phone: (a.phone as string) ?? null,
+          email: (a.email as string) ?? null,
+          priority: PRIORITIES.includes(a.priority as never) ? (a.priority as string) : 'mittel',
+          why_lead: (a.why_lead as string) ?? null,
+          source: 'ai',
+        },
+        ctx.actor,
+      )
+      if (r.deduped) {
+        return { ok: true, deduped: true, lead: getLeadRow(r.id), note: 'Lead war bereits vorhanden (gleiche Domain).' }
+      }
+      audit({ actor: ctx.actor, action: 'ai.create_lead', entity: 'lead', entityId: r.id, detail: { company, website }, ip: ctx.ip })
+      return { ok: true, lead: getLeadRow(r.id) }
     },
   ),
 

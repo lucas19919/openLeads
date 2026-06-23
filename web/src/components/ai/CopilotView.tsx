@@ -164,7 +164,14 @@ export function CopilotView() {
               <div className="bubble-text">{t.content || '—'}</div>
             </div>
           ))}
-          {busy && <div className="bubble bubble-assistant"><span className="typing">KI denkt…</span></div>}
+          {busy && (
+            <div className="bubble bubble-assistant">
+              <span className="thinking" aria-label="KI denkt">
+                <span className="thinking-dots"><i /><i /><i /></span>
+                KI denkt…
+              </span>
+            </div>
+          )}
           {error && <div className="bubble bubble-error">Fehler: {error}</div>}
           <div ref={endRef} />
         </div>
