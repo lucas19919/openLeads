@@ -91,7 +91,10 @@ export const TOOLS: AgentTool[] = [
     'create_lead',
     'Lege einen neuen Lead an. Nur `website` ist nötig — fehlt die Firma, wird sie aus der ' +
       'Domain abgeleitet. Für gute Daten vorher `fetch_website` nutzen. Dubletten werden über ' +
-      'die Domain erkannt (kein doppelter Lead). Der Lead startet in Stage „neu“.',
+      'die Domain erkannt (kein doppelter Lead). Setze `analyze: true`, damit der Lead direkt ' +
+      'voll bewertet wird (Qualifizierung + Priorität); `stage` legt ihn gleich in die richtige ' +
+      'Pipeline-Spalte/Tab (z. B. "angebot"). WICHTIG: `stage: "angebot"` heißt Pipeline-Spalte ' +
+      '„Angebot“ — NICHT ein Angebots-Dokument (dafür `create_document`).',
     obj({
       website: { type: 'string', description: 'Website-URL des Betriebs' },
       company: { type: 'string', description: 'Firmenname (falls leer: aus Domain abgeleitet)' },
@@ -99,10 +102,12 @@ export const TOOLS: AgentTool[] = [
       city: { type: 'string', description: 'Ort' },
       phone: { type: 'string' },
       email: { type: 'string' },
-      priority: { type: 'string', enum: [...PRIORITIES] },
+      priority: { type: 'string', enum: [...PRIORITIES], description: 'wird bei analyze:true überschrieben' },
       why_lead: { type: 'string', description: 'kurze Begründung, warum das ein Lead ist' },
+      stage: { type: 'string', enum: [...STAGES], description: 'Pipeline-Spalte/Tab, in die der Lead soll (Standard: neu)' },
+      analyze: { type: 'boolean', description: 'true = Lead sofort voll bewerten (Qualifizierung + Priorität setzen)' },
     }, ['website']),
-    (a, ctx) => {
+    async (a, ctx) => {
       const website = typeof a.website === 'string' ? a.website.trim() : ''
       if (!website && typeof a.company !== 'string') {
         return { error: 'Mindestens `website` oder `company` angeben.' }
@@ -123,11 +128,33 @@ export const TOOLS: AgentTool[] = [
         },
         ctx.actor,
       )
+      // Don't touch an existing lead's stage/priority on a dedupe hit — it may be
+      // further along the pipeline already. Just report it back.
       if (r.deduped) {
-        return { ok: true, deduped: true, lead: getLeadRow(r.id), note: 'Lead war bereits vorhanden (gleiche Domain).' }
+        return { ok: true, deduped: true, lead: getLeadRow(r.id), note: 'Lead war bereits vorhanden (gleiche Domain) — Stage/Bewertung unverändert.' }
       }
       audit({ actor: ctx.actor, action: 'ai.create_lead', entity: 'lead', entityId: r.id, detail: { company, website }, ip: ctx.ip })
-      return { ok: true, lead: getLeadRow(r.id) }
+
+      // Place it straight into the requested pipeline column (e.g. "angebot"),
+      // recording the move like move_lead_stage does.
+      const stage = typeof a.stage === 'string' && STAGES.includes(a.stage as never) ? a.stage : null
+      if (stage && stage !== 'neu') {
+        db.prepare("UPDATE leads SET stage = ?, updated_at = datetime('now') WHERE id = ?").run(stage, r.id)
+        db.prepare(`INSERT INTO lead_events (lead_id, actor, type, from_stage, to_stage) VALUES (?, ?, 'stage_change', 'neu', ?)`).run(r.id, ctx.actor, stage)
+        audit({ actor: ctx.actor, action: 'ai.move_stage', entity: 'lead', entityId: r.id, detail: { from: 'neu', to: stage }, ip: ctx.ip })
+      }
+
+      // Full eval on request: qualifies the lead and sets its priority from the
+      // verdict (so it no longer defaults to "mittel").
+      let analysis: unknown = null
+      if (a.analyze) {
+        try {
+          analysis = await analyzeLead(getLeadRow(r.id)!, ctx.actor)
+        } catch (e) {
+          analysis = { error: (e as Error).message }
+        }
+      }
+      return { ok: true, lead: getLeadRow(r.id), analysis }
     },
   ),
 

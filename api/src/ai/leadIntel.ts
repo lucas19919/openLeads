@@ -32,6 +32,15 @@ export interface LeadAnalysis {
   risk_flags: string[]
 }
 
+// The eval is the lead's verdict on urgency, so let it drive the board priority
+// instead of leaving every AI-created lead at the default "mittel".
+const QUALIFICATION_PRIORITY: Record<string, string> = {
+  hot: 'hoch',
+  warm: 'mittel',
+  cold: 'niedrig',
+  disqualified: 'niedrig',
+}
+
 /** Run (or re-run) the AI assessment for a lead and cache it. */
 export async function analyzeLead(lead: LeadRow, actor: string): Promise<LeadAiRow> {
   const a = await chatJSON<LeadAnalysis>(
@@ -60,7 +69,11 @@ export async function analyzeLead(lead: LeadRow, actor: string): Promise<LeadAiR
     risk_flags: JSON.stringify(rf),
     model: AI.model,
   })
-  audit({ actor, action: 'ai.analyze_lead', entity: 'lead', entityId: lead.id, detail: { model: AI.model, qualification: a.qualification } })
+  const mapped = a.qualification ? QUALIFICATION_PRIORITY[a.qualification] : undefined
+  if (mapped && mapped !== lead.priority) {
+    db.prepare("UPDATE leads SET priority = ?, updated_at = datetime('now') WHERE id = ?").run(mapped, lead.id)
+  }
+  audit({ actor, action: 'ai.analyze_lead', entity: 'lead', entityId: lead.id, detail: { model: AI.model, qualification: a.qualification, priority: mapped } })
   return db.prepare('SELECT * FROM lead_ai WHERE lead_id = ?').get(lead.id) as unknown as LeadAiRow
 }
 

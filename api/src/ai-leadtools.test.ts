@@ -47,6 +47,19 @@ test('create_lead inserts a lead and derives the company from the domain', async
   assert.equal(row.company, 'Restaurierung') // actually persisted, not just returned
 })
 
+test('create_lead places the lead straight into the requested pipeline stage', async () => {
+  const res = (await runTool(
+    'create_lead',
+    { website: 'https://dachdecker-mueller.de', stage: 'angebot' },
+    ctx,
+  )) as { ok: boolean; lead: { id: number; stage: string } }
+  assert.equal(res.lead.stage, 'angebot')
+  const ev = db
+    .prepare("SELECT to_stage FROM lead_events WHERE lead_id = ? AND type = 'stage_change'")
+    .get(res.lead.id) as { to_stage: string } | undefined
+  assert.equal(ev?.to_stage, 'angebot') // move was recorded, not just the row flipped
+})
+
 test('create_lead respects explicit fields and dedupes by domain', async () => {
   const a = (await runTool(
     'create_lead',
