@@ -1,4 +1,4 @@
-# OpenLeads
+# [OpenLeads](openleads.xyz)
 
 A self-hosted sales tool for small web agencies and freelancers in Germany. It
 covers the whole path from finding a prospect to sending a proper invoice, and
