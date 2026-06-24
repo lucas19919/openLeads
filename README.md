@@ -49,7 +49,8 @@ The modules, behind one login:
   (the terms in force at signature govern), so editing them later never changes an
   issued contract. Gapless numbering, a print-ready multi-page PDF with signature
   block, e-mail to the client for signature, and an acceptance record (aktiv once
-  countersigned). Nothing is auto-sent.
+  countersigned). The signed copy the client returns can be uploaded and is stored
+  with the contract (in the backup). Nothing is auto-sent.
 - **Bank** — import a CAMT.053 bank statement and the incoming payments are matched
   to your open invoices automatically (by the invoice number in the Verwendungszweck,
   or a unique amount); you confirm each match and the payments are booked. Re-importing

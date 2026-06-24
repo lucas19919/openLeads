@@ -354,6 +354,25 @@ export const api = {
     req<{ ok: true; messageId: string; to: string }>(`/contracts/${id}/send`, { method: 'POST' }),
   deleteContract: (id: number) => req<{ ok: true }>(`/contracts/${id}`, { method: 'DELETE' }),
   contractPdfUrl: (id: number) => `/api/contracts/${id}/pdf`,
+  signedContractUrl: (id: number) => `/api/contracts/${id}/signed-document`,
+  uploadSignedContract: async (id: number, file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    const res = await fetch(`/api/contracts/${id}/signed-document`, { method: 'POST', credentials: 'include', body: fd })
+    if (!res.ok) {
+      let msg = res.statusText
+      try {
+        const b = await res.json()
+        if (b?.error) msg = b.error
+      } catch {
+        /* ignore */
+      }
+      throw new ApiError(res.status, msg)
+    }
+    return (await res.json()) as { contract: Contract }
+  },
+  deleteSignedContract: (id: number) =>
+    req<{ contract: Contract }>(`/contracts/${id}/signed-document`, { method: 'DELETE' }),
 
   // --- dashboard ---
   dashboard: () => req<{ dashboard: Dashboard }>('/dashboard'),

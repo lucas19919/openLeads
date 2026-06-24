@@ -154,6 +154,37 @@ export function ContractsView({ config }: { config: Config }) {
     }
   }
 
+  async function uploadSigned(file: File) {
+    if (!draft?.id) return
+    setBusy(true)
+    setError(null)
+    try {
+      const { contract } = await api.uploadSignedContract(draft.id, file)
+      setDraft(contract)
+      await refresh()
+      flash('Unterschriebenes Dokument gespeichert.')
+    } catch (e) {
+      fail(e)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function removeSigned() {
+    if (!draft?.id) return
+    if (!confirm('Unterschriebenes Dokument entfernen?')) return
+    setBusy(true)
+    try {
+      const { contract } = await api.deleteSignedContract(draft.id)
+      setDraft(contract)
+      await refresh()
+    } catch (e) {
+      fail(e)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function changeStatus(status: string) {
     if (!draft?.id) return
     try {
@@ -331,6 +362,38 @@ export function ContractsView({ config }: { config: Config }) {
             <p className="settings-hint">
               Unterzeichnet am {fmtDate(d.signed_at)}{d.signed_by ? ` von ${d.signed_by}` : ''}.
             </p>
+          )}
+
+          {d.id && (
+            <fieldset className="doc-block">
+              <legend>Unterschriebenes Dokument</legend>
+              {d.has_signed_doc ? (
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <a href={api.signedContractUrl(d.id)} target="_blank" rel="noreferrer">
+                    {d.signed_doc_name ?? 'Dokument anzeigen'}
+                  </a>
+                  {d.signed_doc_size ? <span className="muted" style={{ fontSize: 12 }}>{Math.round(d.signed_doc_size / 1024)} KB</span> : null}
+                  <button className="ghost danger-text" onClick={removeSigned} disabled={busy}>Entfernen</button>
+                </div>
+              ) : (
+                <div className="field">
+                  <label>Vom Auftraggeber gegengezeichnetes PDF/Scan hochladen</label>
+                  <input
+                    type="file"
+                    accept=".pdf,application/pdf,image/png,image/jpeg,image/webp,image/heic,image/heif,image/tiff"
+                    disabled={busy}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0]
+                      if (f) uploadSigned(f)
+                      e.currentTarget.value = ''
+                    }}
+                  />
+                  <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                    Das zurückgesendete, unterschriebene Exemplar wird beim Vertrag gespeichert (im Backup enthalten).
+                  </div>
+                </div>
+              )}
+            </fieldset>
           )}
 
           <div className="field">

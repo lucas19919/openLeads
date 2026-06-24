@@ -49,6 +49,9 @@ import {
   signContract,
   deleteContract,
   contractFromDocument,
+  setSignedDoc,
+  getSignedDoc,
+  deleteSignedDoc,
 } from './contracts'
 import { renderContractPdf, contractPdfFilename } from './contractPdf'
 import {
@@ -1024,6 +1027,47 @@ app.delete('/api/contracts/:id', requireAuth, (c) => {
   }
   audit({ actor: c.get('user').username, action: 'contract.delete', entity: 'contract', entityId: id })
   return c.json({ ok: true })
+})
+
+// Attach / replace the countersigned document the client returns (PDF or scan).
+// Same allowed formats + size cap as expense receipts. multipart field name: "file".
+app.post('/api/contracts/:id/signed-document', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!getContract(id)) return c.json({ error: 'not found' }, 404)
+  const form = await c.req.parseBody()
+  const file = form['file']
+  if (!(file instanceof File)) return c.json({ error: 'Keine Datei hochgeladen.' }, 400)
+  if (file.size > RECEIPT_MAX_BYTES) return c.json({ error: 'Datei zu groß (max. 10 MB).' }, 413)
+  const mime = file.type || 'application/octet-stream'
+  if (!RECEIPT_MIMES.has(mime)) {
+    return c.json({ error: 'Nicht unterstütztes Format — PDF oder Bild (PNG/JPEG/…) erwartet.' }, 415)
+  }
+  const data = new Uint8Array(await file.arrayBuffer())
+  const contract = setSignedDoc(id, { data, name: file.name || `Vertrag-${id}-unterschrieben`, mime })
+  audit({ actor: c.get('user').username, action: 'contract.signed_doc.upload', entity: 'contract', entityId: id, detail: { name: file.name, bytes: data.byteLength } })
+  return c.json({ contract })
+})
+
+// Download / view the signed document inline.
+app.get('/api/contracts/:id/signed-document', requireAuth, (c) => {
+  const id = Number(c.req.param('id'))
+  const doc = getSignedDoc(id)
+  if (!doc) return c.json({ error: 'not found' }, 404)
+  c.header('Content-Type', doc.mime)
+  const asciiName = doc.name.replace(/[^\x20-\x7e]/g, '_').replace(/"/g, '')
+  c.header(
+    'Content-Disposition',
+    `inline; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(doc.name)}`,
+  )
+  return c.body(Buffer.from(doc.data) as unknown as ArrayBuffer)
+})
+
+app.delete('/api/contracts/:id/signed-document', requireAuth, (c) => {
+  const id = Number(c.req.param('id'))
+  const contract = deleteSignedDoc(id)
+  if (!contract) return c.json({ error: 'not found' }, 404)
+  audit({ actor: c.get('user').username, action: 'contract.signed_doc.delete', entity: 'contract', entityId: id })
+  return c.json({ contract })
 })
 
 // --- Leistungskatalog (reusable services/products) ------------------------

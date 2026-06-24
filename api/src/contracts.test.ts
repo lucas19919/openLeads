@@ -10,6 +10,7 @@ process.env.DB_PATH = DB_FILE
 const { db } = await import('./db')
 const {
   createContract,
+  listContracts,
   getContract,
   updateContract,
   finalizeContract,
@@ -18,6 +19,9 @@ const {
   deleteContract,
   contractTotals,
   contractFromDocument,
+  setSignedDoc,
+  getSignedDoc,
+  deleteSignedDoc,
 } = await import('./contracts')
 const { renderContractPdf, contractPdfFilename } = await import('./contractPdf')
 const { getSettings, getDocument, replaceItems, finalizeDraft } = await import('./documents')
@@ -158,6 +162,39 @@ test('contractFromDocument seeds a draft from an Angebot (client, value, body, l
 
 test('contractFromDocument returns null for a missing document', () => {
   assert.equal(contractFromDocument(999999), null)
+})
+
+test('signed document: store, expose has_signed_doc without leaking bytes, fetch, delete', () => {
+  const c = createContract({ client_name: 'Signdoc GmbH' })
+  finalizeContract(c.id)
+  assert.equal(getContract(c.id)!.has_signed_doc, false)
+
+  const bytes = new Uint8Array([0x25, 0x50, 0x44, 0x46, 1, 2, 3]) // "%PDF" + noise
+  const updated = setSignedDoc(c.id, { data: bytes, name: 'unterschrieben.pdf', mime: 'application/pdf' })!
+  assert.equal(updated.has_signed_doc, true)
+  // The public shape must NOT carry the raw bytes.
+  assert.equal((updated as Record<string, unknown>).signed_doc_data, undefined)
+  assert.equal(updated.signed_doc_name, 'unterschrieben.pdf')
+  assert.equal(updated.signed_doc_size, bytes.byteLength)
+  // list also reports the flag without shipping bytes.
+  const inList = listContracts().find((k) => k.id === c.id)!
+  assert.equal(inList.has_signed_doc, true)
+  assert.equal((inList as Record<string, unknown>).signed_doc_data, undefined)
+
+  // The bytes are retrievable via the dedicated fetch.
+  const fetched = getSignedDoc(c.id)!
+  assert.equal(fetched.mime, 'application/pdf')
+  assert.deepEqual([...fetched.data], [...bytes])
+
+  // Delete clears it.
+  assert.equal(deleteSignedDoc(c.id)!.has_signed_doc, false)
+  assert.equal(getSignedDoc(c.id), null)
+})
+
+test('signed-doc helpers return null for a missing contract', () => {
+  assert.equal(setSignedDoc(999999, { data: new Uint8Array([1]), name: 'x', mime: 'application/pdf' }), null)
+  assert.equal(getSignedDoc(999999), null)
+  assert.equal(deleteSignedDoc(999999), null)
 })
 
 test('renderContractPdf produces a valid multi-page PDF (long AGB paginates)', async () => {

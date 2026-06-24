@@ -4,6 +4,19 @@ A running log of what's landed, so picking the work back up is easy. Newest firs
 
 ## Latest
 
+- **Signed-document upload on contracts.** Answers "where do I put the contract the
+  client signed and sent back?" — previously only the *fact* of signing was recorded
+  (signed_by/at via "Unterzeichnet"); the returned PDF/scan had no home. Now a
+  contract stores the countersigned file inline as a BLOB (mirrors the expense-receipt
+  store, so the single-file backup carries it; GoBD keeps the signed paper with the
+  record). Routes `POST/GET/DELETE /api/contracts/:id/signed-document` (PDF/image,
+  10 MB cap, same allow-list as receipts); the bytes never leave the server raw —
+  `getContract`/`listContracts` expose `has_signed_doc` + name/mime/size only.
+  Contract editor gains an **"Unterschriebenes Dokument"** section (upload / view /
+  remove). **2 tests** (store→flag-without-leak→fetch→delete; null on missing) →
+  **174 API tests green**; api + web typecheck clean; web builds; upload→reject→
+  download→delete smoke-tested live (37-byte PDF round-trips, .exe → 415).
+
 - **EÜR / period financial report.** An in-app income-surplus overview for a date
   range, derived from existing data (no new state): revenue (finalised, non-storniert
   invoices by issue date) − expenses (by SKR03 category, by Belegdatum) = result,

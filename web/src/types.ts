@@ -419,6 +419,10 @@ export interface Contract {
   created_at: string
   updated_at: string
   totals: ContractTotals
+  has_signed_doc?: boolean
+  signed_doc_name?: string | null
+  signed_doc_mime?: string | null
+  signed_doc_size?: number | null
 }
 
 export interface Expense {

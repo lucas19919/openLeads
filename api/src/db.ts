@@ -576,6 +576,23 @@ CREATE INDEX IF NOT EXISTS idx_contracts_status ON contracts(status);
 CREATE INDEX IF NOT EXISTS idx_contracts_lead ON contracts(lead_id);
 `)
 
+// Signed-document store: the countersigned contract the client returns, kept inline
+// as a BLOB (like expense receipts) so the single-file VACUUM INTO backup carries it
+// — no separate file store to lose or get out of sync (GoBD wants the signed paper
+// retained with the record). Added by a late migration; idempotent.
+for (const col of [
+  'signed_doc_data BLOB',
+  'signed_doc_name TEXT',
+  'signed_doc_mime TEXT',
+  'signed_doc_size INTEGER',
+]) {
+  try {
+    db.exec(`ALTER TABLE contracts ADD COLUMN ${col}`)
+  } catch {
+    // column already exists
+  }
+}
+
 // AGB text + contract numbering live on the single-row settings table (added by a
 // late migration so existing databases pick them up). Constant defaults keep the
 // ADD COLUMN NOT NULL valid on SQLite.
@@ -1054,6 +1071,12 @@ export interface ContractRow {
   created_by: string | null
   created_at: string
   updated_at: string
+  // Signed-document store (added by a late migration). The BLOB never leaves the
+  // server raw — getContract strips it and exposes has_signed_doc instead.
+  signed_doc_data?: Uint8Array | null
+  signed_doc_name?: string | null
+  signed_doc_mime?: string | null
+  signed_doc_size?: number | null
 }
 
 export interface ExpenseRow {

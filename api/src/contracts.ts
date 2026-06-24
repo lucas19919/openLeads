@@ -15,8 +15,11 @@ export interface ContractTotals {
   gross_cents: number
 }
 
-export interface FullContract extends ContractRow {
+// The client-facing shape: the contract minus the raw signed-document bytes, plus
+// a has_signed_doc flag (mirrors the expense/receipt serialiser).
+export interface FullContract extends Omit<ContractRow, 'signed_doc_data'> {
   totals: ContractTotals
+  has_signed_doc: boolean
 }
 
 export interface ContractInput {
@@ -56,18 +59,33 @@ export function contractTotals(value_cents: number, smallBusiness: boolean, vatR
 }
 
 function withTotals(row: ContractRow): FullContract {
-  return { ...row, totals: contractTotals(row.value_cents, !!row.small_business, row.vat_rate) }
+  const { signed_doc_data, ...rest } = row
+  return {
+    ...rest,
+    totals: contractTotals(row.value_cents, !!row.small_business, row.vat_rate),
+    has_signed_doc: signed_doc_data != null,
+  }
 }
+
+// SELECT list that omits the BLOB — listing signed-document bytes would be wasteful.
+// (signed_doc_data IS NOT NULL) is aliased so withTotals can still set the flag.
+const COLS_NO_BLOB =
+  'id, number, type, lead_id, customer_id, document_id, client_name, client_address, ' +
+  'client_zip, client_city, client_email, client_type, title, intro, body, agb_text, ' +
+  'value_cents, small_business, vat_rate, payment_terms, start_date, end_date, notice_period, ' +
+  'status, issue_date, signed_at, signed_by, signed_note, notes, created_by, created_at, ' +
+  'updated_at, signed_doc_name, signed_doc_mime, signed_doc_size, ' +
+  'CASE WHEN signed_doc_data IS NOT NULL THEN X\'01\' ELSE NULL END AS signed_doc_data'
 
 export function listContracts(): FullContract[] {
   const rows = db
-    .prepare('SELECT * FROM contracts ORDER BY created_at DESC, id DESC')
+    .prepare(`SELECT ${COLS_NO_BLOB} FROM contracts ORDER BY created_at DESC, id DESC`)
     .all() as unknown as ContractRow[]
   return rows.map(withTotals)
 }
 
 export function getContract(id: number): FullContract | null {
-  const row = db.prepare('SELECT * FROM contracts WHERE id = ?').get(id) as unknown as
+  const row = db.prepare(`SELECT ${COLS_NO_BLOB} FROM contracts WHERE id = ?`).get(id) as unknown as
     | ContractRow
     | undefined
   return row ? withTotals(row) : null
@@ -273,4 +291,51 @@ export function deleteContract(id: number): { ok: boolean; reason?: string } {
   if (row.number) return { ok: false, reason: 'finalised' }
   db.prepare('DELETE FROM contracts WHERE id = ?').run(id)
   return { ok: true }
+}
+
+// --- signed-document store (the countersigned contract the client returns) ------
+
+export interface SignedDocInput {
+  data: Uint8Array
+  name: string
+  mime: string
+}
+
+/** Attach (or replace) the signed-document scan/PDF on a contract. */
+export function setSignedDoc(id: number, doc: SignedDocInput): FullContract | null {
+  if (!db.prepare('SELECT id FROM contracts WHERE id = ?').get(id)) return null
+  db.prepare(
+    `UPDATE contracts
+       SET signed_doc_data = ?, signed_doc_name = ?, signed_doc_mime = ?, signed_doc_size = ?,
+           updated_at = datetime('now')
+     WHERE id = ?`,
+  ).run(doc.data, doc.name, doc.mime, doc.data.byteLength, id)
+  return getContract(id)
+}
+
+/** Remove the signed document, keeping the contract itself. */
+export function deleteSignedDoc(id: number): FullContract | null {
+  if (!db.prepare('SELECT id FROM contracts WHERE id = ?').get(id)) return null
+  db.prepare(
+    `UPDATE contracts
+       SET signed_doc_data = NULL, signed_doc_name = NULL, signed_doc_mime = NULL, signed_doc_size = NULL,
+           updated_at = datetime('now')
+     WHERE id = ?`,
+  ).run(id)
+  return getContract(id)
+}
+
+/** Fetch the signed-document bytes + metadata for download, or null if none. */
+export function getSignedDoc(id: number): { data: Uint8Array; name: string; mime: string } | null {
+  const row = db
+    .prepare('SELECT signed_doc_data, signed_doc_name, signed_doc_mime FROM contracts WHERE id = ?')
+    .get(id) as unknown as
+    | { signed_doc_data: Uint8Array | null; signed_doc_name: string | null; signed_doc_mime: string | null }
+    | undefined
+  if (!row || !row.signed_doc_data) return null
+  return {
+    data: row.signed_doc_data,
+    name: row.signed_doc_name || `Vertrag-${id}-unterschrieben`,
+    mime: row.signed_doc_mime || 'application/octet-stream',
+  }
 }
