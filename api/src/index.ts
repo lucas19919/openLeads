@@ -41,7 +41,6 @@ import {
   type DocItemInput,
 } from './documents'
 import { renderDocumentPdf, pdfFilename } from './pdf'
-import { renderMahnungPdf, mahnungPdfFilename } from './mahnungPdf'
 import {
   listContracts,
   getContract,
@@ -64,7 +63,6 @@ import {
   updateCatalogItem,
   deleteCatalogItem,
 } from './catalog'
-import { previewStatement, applyMatches, listBankTransactions, type ApplyItem } from './bank'
 import {
   listCustomers,
   getCustomer,
@@ -73,7 +71,6 @@ import {
   deleteCustomer,
 } from './customers'
 import { validateInvoice } from './validate'
-import { listOverdue, computeDunning, levelLabel } from './dunning'
 import { listPayments, addPayment, deletePayment, paidCents } from './payments'
 import {
   listRecurring,
@@ -96,6 +93,14 @@ import {
   getReceipt,
   expenseSummary,
 } from './expenses'
+import {
+  listSubscriptions,
+  getSubscription,
+  createSubscription,
+  updateSubscription,
+  deleteSubscription,
+  subscriptionSummary,
+} from './subscriptions'
 import { listUsers, createUser, updateUser, deleteUser } from './users'
 import { startScrape, scrapeRunState, scraperReachable, serviceTokenConfigured } from './scrape'
 import { snapshot, snapshotFilename, restoreFromBuffer } from './backup'
@@ -115,16 +120,8 @@ import { rateLimit } from './ratelimit'
 import { encryptSecret, settingsKeyConfigured } from './secrets'
 import { registerAiRoutes } from './ai/router'
 import { registerDsgvoRoutes } from './dsgvo'
-import './integrations' // side-effect: registers the shipped adapters
-import { emit } from './webhooks/bus'
+import { emit } from './events'
 import { insertLead, applyLeadUpdate } from './leads'
-import { registerIntegrationRoutes } from './integrations/router'
-import { registerPublicApiRoutes } from './publicapi/router'
-import { registerWebhookRoutes } from './webhooks/router'
-import { startWebhookDispatcher } from './webhooks/dispatcher'
-import { resolve as resolveAdapter } from './integrations/registry'
-import type { PaymentProvider, AccountingProvider, CalendarProvider, TelephonyProvider } from './integrations/types'
-import { splitVatId } from './integrations/adapters/vies'
 import { SMTP } from './mailer'
 import { deliverMail } from './maildispatch'
 
@@ -308,56 +305,6 @@ app.patch('/api/leads/:id', requireAuth, async (c) => {
   }
 })
 
-// Book a calendar event (e.g. a follow-up) for a lead via the active calendar
-// integration. Deliberately an INTERNAL reminder: the lead is NOT added as an
-// attendee, so booking never sends the prospect an unsolicited invite (UWG §7 /
-// consent). start/end are ISO 8601 (the client converts local time to UTC).
-app.post('/api/leads/:id/calendar-event', requireAuth, async (c) => {
-  const id = Number(c.req.param('id'))
-  const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(id) as unknown as LeadRow | undefined
-  if (!lead) return c.json({ error: 'not found' }, 404)
-  const cal = resolveAdapter('calendar') as CalendarProvider | null
-  if (!cal) return c.json({ error: 'Kein aktiver Kalender-Anbieter konfiguriert (Integrationen → Kalender).' }, 400)
-  const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
-  const title = String(b.title ?? '').trim()
-  const start = String(b.start ?? '')
-  const end = String(b.end ?? '')
-  if (!title || !start || !end) return c.json({ error: 'Titel, Start und Ende sind erforderlich.' }, 400)
-  try {
-    const event = await cal.createEvent(
-      { title, start, end, description: (b.description as string) ?? undefined },
-      { actor: c.get('user').username },
-    )
-    db.prepare(`INSERT INTO lead_events (lead_id, actor, type, body) VALUES (?, ?, 'calendar', ?)`)
-      .run(id, c.get('user').username, `Termin angelegt: ${title}`)
-    audit({ actor: c.get('user').username, action: 'lead.calendar_event', entity: 'lead', entityId: id, detail: { title, external_id: event.id } })
-    return c.json({ event })
-  } catch (e) {
-    return c.json({ error: (e as Error).message }, 502)
-  }
-})
-
-// Click-to-call a lead via the active telephony integration (sipgate). The
-// provider rings the operator's own device first, then connects to the lead —
-// so this is an operator-initiated call, not an automated dialer.
-app.post('/api/leads/:id/call', requireAuth, async (c) => {
-  const id = Number(c.req.param('id'))
-  const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(id) as unknown as LeadRow | undefined
-  if (!lead) return c.json({ error: 'not found' }, 404)
-  if (!lead.phone) return c.json({ error: 'Lead hat keine Telefonnummer.' }, 400)
-  const tel = resolveAdapter('telephony') as TelephonyProvider | null
-  if (!tel) return c.json({ error: 'Kein aktiver Telefonie-Anbieter konfiguriert (Integrationen → Telefonie).' }, 400)
-  try {
-    const { call_id } = await tel.startCall({ to: lead.phone }, { actor: c.get('user').username })
-    db.prepare(`INSERT INTO lead_events (lead_id, actor, type, body) VALUES (?, ?, 'call', ?)`)
-      .run(id, c.get('user').username, `Anruf gestartet an ${lead.phone}`)
-    audit({ actor: c.get('user').username, action: 'lead.call', entity: 'lead', entityId: id, detail: { to: lead.phone, call_id } })
-    return c.json({ call_id })
-  } catch (e) {
-    return c.json({ error: (e as Error).message }, 502)
-  }
-})
-
 // --- settings (business profile for documents) ----------------------------
 
 const SETTINGS_FIELDS = new Set([
@@ -365,12 +312,11 @@ const SETTINGS_FIELDS = new Set([
   'website', 'tax_id', 'iban', 'bic', 'bank', 'small_business', 'vat_rate',
   'payment_terms', 'rechnung_prefix', 'rechnung_next', 'angebot_prefix',
   'angebot_next', 'scraper_trades', 'scraper_towns', 'scraper_region',
-  'scraper_min_score', 'scraper_max_pairs', 'scraper_per_pair', 'verzug_base_rate',
+  'scraper_min_score', 'scraper_max_pairs', 'scraper_per_pair',
   'datev_revenue_account', 'datev_debitor_account', 'datev_bank_account',
   // Operator-editable connection config (plain). Override the matching .env var.
   'ai_base_url', 'ai_model', 'ai_label',
   'smtp_host', 'smtp_port', 'smtp_user', 'smtp_secure', 'smtp_from',
-  'scraper_model',
   // Verträge / AGB
   'agb_text', 'contract_prefix', 'contract_next', 'agb_attach_documents',
 ])
@@ -601,58 +547,13 @@ app.get('/api/documents/:id/validate', requireAuth, (c) => {
   return c.json({ validation: validateInvoice(doc, getSettings()) })
 })
 
-// Create a hosted payment link (Stripe/GoCardless/…) for the invoice's OPEN amount.
-app.post('/api/documents/:id/payment-link', requireAuth, async (c) => {
-  const doc = getDocument(Number(c.req.param('id')))
-  if (!doc) return c.json({ error: 'not found' }, 404)
-  if (doc.kind !== 'rechnung' || !doc.number) {
-    return c.json({ error: 'Zahlungslink nur für ausgestellte Rechnungen.' }, 400)
-  }
-  const open = doc.totals.gross_cents - doc.paid_cents
-  if (open <= 0) return c.json({ error: 'Rechnung ist bereits vollständig bezahlt.' }, 409)
-  const pay = resolveAdapter('payment') as PaymentProvider | null
-  if (!pay) return c.json({ error: 'Kein aktiver Zahlungsanbieter konfiguriert.' }, 400)
-  try {
-    const link = await pay.createPaymentLink(
-      { amount_cents: open, currency: 'eur', description: `${doc.title ?? 'Rechnung'} ${doc.number}`, document_id: doc.id, customer_email: doc.client_email },
-      { actor: c.get('user').username },
-    )
-    audit({ actor: c.get('user').username, action: 'invoice.payment_link', entity: 'document', entityId: doc.id, detail: { amount_cents: open, provider: pay.provider } })
-    return c.json({ payment_link: link })
-  } catch (e) {
-    return c.json({ error: (e as Error).message }, 502)
-  }
-})
-
-// E-mail a finalised document as a PDF to the client, optionally with a pay link.
+// E-mail a finalised document as a PDF to the client.
 app.post('/api/documents/:id/send', requireAuth, async (c) => {
   const doc = getDocument(Number(c.req.param('id')))
   if (!doc) return c.json({ error: 'not found' }, 404)
   if (!doc.number) return c.json({ error: 'Nur ausgestellte Dokumente können versendet werden.' }, 400)
   if (!doc.client_email) return c.json({ error: 'Kein Empfänger (E-Mail) am Dokument hinterlegt.' }, 400)
-  const b = (await c.req.json().catch(() => ({}))) as { include_payment_link?: boolean }
   const s = getSettings()
-
-  // Explicit request value wins; otherwise honour the invoice's stored preference
-  // (a Serienrechnung carries its template's setting onto each generated draft).
-  const wantLink = b.include_payment_link ?? !!doc.include_payment_link
-
-  let payLine = ''
-  if (wantLink && doc.kind === 'rechnung') {
-    const open = doc.totals.gross_cents - doc.paid_cents
-    const pay = resolveAdapter('payment') as PaymentProvider | null
-    if (pay && open > 0) {
-      try {
-        const link = await pay.createPaymentLink(
-          { amount_cents: open, currency: 'eur', description: `${doc.title ?? 'Rechnung'} ${doc.number}`, document_id: doc.id, customer_email: doc.client_email },
-          { actor: c.get('user').username },
-        )
-        payLine = `\n\nBequem online bezahlen: ${link.url}\n`
-      } catch {
-        // a missing/failed payment provider must not block sending the invoice
-      }
-    }
-  }
 
   let pdf: Buffer
   try {
@@ -663,7 +564,7 @@ app.post('/api/documents/:id/send', requireAuth, async (c) => {
   const label = doc.kind === 'rechnung' ? 'Rechnung' : 'Angebot'
   const greeting = doc.client_name ? `Sehr geehrte Damen und Herren bei ${doc.client_name},` : 'Sehr geehrte Damen und Herren,'
   const body =
-    `${greeting}\n\nanbei erhalten Sie ${label === 'Rechnung' ? 'unsere Rechnung' : 'unser Angebot'} ${doc.number} als PDF.${payLine}\n\n` +
+    `${greeting}\n\nanbei erhalten Sie ${label === 'Rechnung' ? 'unsere Rechnung' : 'unser Angebot'} ${doc.number} als PDF.\n\n` +
     `Mit freundlichen Grüßen\n${s.business_name ?? ''}`
   const email = { to: doc.client_email, from: SMTP.from || s.email || '', subject: `${label} ${doc.number}`, text: body }
   try {
@@ -671,123 +572,12 @@ app.post('/api/documents/:id/send', requireAuth, async (c) => {
       attachments: [{ filename: pdfFilename(doc), content: pdf, contentType: 'application/pdf' }],
       actor: c.get('user').username,
     })
-    audit({ actor: c.get('user').username, action: 'invoice.send', entity: 'document', entityId: doc.id, detail: { to: email.to, messageId, via, payment_link: !!payLine } })
+    audit({ actor: c.get('user').username, action: 'invoice.send', entity: 'document', entityId: doc.id, detail: { to: email.to, messageId, via } })
     emit('invoice.sent', { id: doc.id, number: doc.number, kind: doc.kind, to: email.to })
     return c.json({ ok: true, messageId, to: email.to })
   } catch (e) {
     return c.json({ error: (e as Error).message }, 502)
   }
-})
-
-// Validate the document's client USt-IdNr via the active accounting adapter (VIES).
-app.post('/api/documents/:id/validate-vat', requireAuth, async (c) => {
-  const doc = getDocument(Number(c.req.param('id')))
-  if (!doc) return c.json({ error: 'not found' }, 404)
-  const raw = (doc.client_vat_id ?? '').trim()
-  if (!raw) return c.json({ error: 'Keine USt-IdNr. am Dokument hinterlegt.' }, 400)
-  const acc = resolveAdapter('accounting') as AccountingProvider | null
-  if (!acc) return c.json({ error: 'Kein aktiver Prüfdienst (z.B. VIES) konfiguriert.' }, 400)
-  const { country, number } = splitVatId(raw)
-  if (!country || !number) return c.json({ error: 'USt-IdNr. unvollständig (Ländercode + Nummer erwartet).' }, 400)
-  try {
-    const validation = await acc.validateVatId(country, number, { actor: c.get('user').username })
-    audit({ actor: c.get('user').username, action: 'invoice.vat_check', entity: 'document', entityId: doc.id, detail: { vat_id: raw, valid: validation.valid, provider: acc.provider } })
-    return c.json({ validation })
-  } catch (e) {
-    return c.json({ error: (e as Error).message }, 502)
-  }
-})
-
-// Push a finalised invoice to the active accounting system (lexoffice/sevDesk).
-app.post('/api/documents/:id/push-accounting', requireAuth, async (c) => {
-  const doc = getDocument(Number(c.req.param('id')))
-  if (!doc) return c.json({ error: 'not found' }, 404)
-  if (doc.kind !== 'rechnung' || !doc.number) {
-    return c.json({ error: 'Nur ausgestellte Rechnungen können übergeben werden.' }, 400)
-  }
-  const acc = resolveAdapter('accounting') as AccountingProvider | null
-  if (!acc || !acc.pushInvoice) {
-    return c.json({ error: 'Kein Buchhaltungs-Anbieter mit Export aktiv (lexoffice/sevDesk).' }, 400)
-  }
-  // Idempotency: once an invoice has been pushed, refuse to push it again so it is
-  // never double-booked. Return the stored record instead. (The lexoffice adapter
-  // additionally sends a stable Idempotency-Key, covering the case where the first
-  // push reached the provider but timed out before we could persist its id.)
-  if (doc.accounting_external_id) {
-    return c.json({
-      result: {
-        external_id: doc.accounting_external_id,
-        provider: doc.accounting_provider,
-        pushed_at: doc.accounting_pushed_at,
-        already_pushed: true,
-      },
-    })
-  }
-  try {
-    const result = await acc.pushInvoice(doc, { actor: c.get('user').username })
-    db.prepare(
-      `UPDATE documents
-         SET accounting_provider = ?, accounting_external_id = ?,
-             accounting_pushed_at = datetime('now'), updated_at = datetime('now')
-       WHERE id = ?`,
-    ).run(acc.provider, result.external_id, doc.id)
-    audit({ actor: c.get('user').username, action: 'invoice.push_accounting', entity: 'document', entityId: doc.id, detail: { provider: acc.provider, external_id: result.external_id } })
-    return c.json({ result })
-  } catch (e) {
-    return c.json({ error: (e as Error).message }, 502)
-  }
-})
-
-// --- Mahnwesen (dunning) ---------------------------------------------------
-
-// All sent, unpaid, past-due invoices with computed Verzugszinsen + Mahnstufe.
-app.get('/api/invoices/overdue', requireAuth, (c) => {
-  return c.json({ overdue: listOverdue() })
-})
-
-// Preview/raise a Mahnung for an invoice. POST persists a record; GET previews.
-app.get('/api/documents/:id/dunning', requireAuth, (c) => {
-  const doc = getDocument(Number(c.req.param('id')))
-  if (!doc) return c.json({ error: 'not found' }, 404)
-  const level = c.req.query('level') != null ? Number(c.req.query('level')) : undefined
-  const history = db
-    .prepare('SELECT * FROM mahnungen WHERE document_id = ? ORDER BY created_at DESC')
-    .all(doc.id)
-  return c.json({ preview: computeDunning(doc, getSettings(), level), history })
-})
-
-app.post('/api/documents/:id/dunning', requireAuth, async (c) => {
-  const doc = getDocument(Number(c.req.param('id')))
-  if (!doc) return c.json({ error: 'not found' }, 404)
-  if (doc.kind !== 'rechnung' || !doc.number) {
-    return c.json({ error: 'Nur für ausgestellte Rechnungen.' }, 400)
-  }
-  if (doc.status === 'bezahlt' || doc.status === 'storniert') {
-    return c.json({ error: 'Rechnung ist bereits bezahlt bzw. storniert — keine Mahnung.' }, 409)
-  }
-  const b = (await c.req.json().catch(() => ({}))) as { level?: number; note?: string }
-  const d = computeDunning(doc, getSettings(), b.level)
-  const info = db.prepare(
-    `INSERT INTO mahnungen (document_id, level, days_overdue, interest_cents, pauschale_cents, total_claim_cents, note)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  ).run(doc.id, d.suggested_level, d.days_overdue, d.interest_cents, d.pauschale_cents, d.total_claim_cents, b.note ?? levelLabel(d.suggested_level))
-  audit({ actor: c.get('user').username, action: 'invoice.dunning', entity: 'document', entityId: doc.id, detail: { level: d.suggested_level, total_claim_cents: d.total_claim_cents } })
-  const row = db.prepare('SELECT * FROM mahnungen WHERE id = ?').get(Number(info.lastInsertRowid))
-  return c.json({ mahnung: row, computation: d, label: levelLabel(d.suggested_level) }, 201)
-})
-
-// Download a Mahnung (dunning notice) for an invoice as a PDF.
-app.get('/api/documents/:id/dunning/pdf', requireAuth, async (c) => {
-  const doc = getDocument(Number(c.req.param('id')))
-  if (!doc || doc.kind !== 'rechnung' || !doc.number) return c.json({ error: 'not found' }, 404)
-  const level = c.req.query('level') != null ? Number(c.req.query('level')) : undefined
-  const s = getSettings()
-  const comp = computeDunning(doc, s, level)
-  const lvl = level ?? comp.suggested_level
-  const buf = await renderMahnungPdf(doc, s, comp, lvl)
-  c.header('Content-Type', 'application/pdf')
-  c.header('Content-Disposition', `inline; filename="${mahnungPdfFilename(doc, lvl)}"`)
-  return c.body(buf as unknown as ArrayBuffer)
 })
 
 // --- Zahlungen (payments against an invoice) ------------------------------
@@ -1137,52 +927,6 @@ app.delete('/api/catalog/:id', requireAuth, (c) => {
   return c.json({ ok: true })
 })
 
-// --- Bankabgleich (CAMT.053 reconciliation) -------------------------------
-
-const CAMT_MAX_BYTES = 20 * 1024 * 1024 // 20 MB
-
-// Parse a CAMT.053 statement (multipart file field "file", or JSON { xml }) and
-// return entries with dedupe flags + match suggestions. Writes nothing.
-app.post('/api/bank/preview', requireAuth, async (c) => {
-  let xml = ''
-  const ct = c.req.header('content-type') ?? ''
-  try {
-    if (ct.includes('multipart/form-data')) {
-      const form = await c.req.parseBody()
-      const file = form['file']
-      if (!(file instanceof File)) return c.json({ error: 'Keine Datei hochgeladen.' }, 400)
-      if (file.size > CAMT_MAX_BYTES) return c.json({ error: 'Datei zu groß (max. 20 MB).' }, 413)
-      xml = await file.text()
-    } else {
-      const b = (await c.req.json().catch(() => ({}))) as { xml?: string }
-      xml = String(b.xml ?? '')
-    }
-  } catch {
-    return c.json({ error: 'Datei konnte nicht gelesen werden.' }, 400)
-  }
-  if (!/<(?:\w+:)?Ntry[\s>]/i.test(xml) && !/(^|\n)\s*:61:/.test(xml)) {
-    return c.json({ error: 'Kein Kontoauszug erkannt (CAMT.053-XML mit <Ntry> oder MT940 mit :61:).' }, 422)
-  }
-  return c.json({ preview: previewStatement(xml) })
-})
-
-// Persist confirmed matches: record a payment per matched credit, file the rest.
-app.post('/api/bank/apply', requireAuth, async (c) => {
-  const b = (await c.req.json().catch(() => ({}))) as { items?: ApplyItem[] }
-  const items = Array.isArray(b.items) ? b.items : []
-  if (items.length === 0) return c.json({ error: 'Keine Buchungen übergeben.' }, 400)
-  const result = applyMatches(items)
-  audit({ actor: c.get('user').username, action: 'bank.apply', detail: { applied: result.applied, matched: result.matched, ignored: result.ignored, skipped: result.skipped } })
-  for (const p of result.payments) {
-    emit('payment.recorded', { document_id: p.document_id, source: 'bank' })
-  }
-  return c.json({ result })
-})
-
-app.get('/api/bank/transactions', requireAuth, (c) =>
-  c.json({ transactions: listBankTransactions(Number(c.req.query('limit') ?? 100)) }),
-)
-
 // --- Kunden (customer registry) -------------------------------------------
 
 app.get('/api/customers', requireAuth, (c) => {
@@ -1353,6 +1097,67 @@ app.delete('/api/expenses/:id/receipt', requireAuth, (c) => {
   if (!exp) return c.json({ error: 'not found' }, 404)
   audit({ actor: c.get('user').username, action: 'expense.receipt.delete', entity: 'expense', entityId: id })
   return c.json({ expense: exp })
+})
+
+// --- Abonnements (recurring outgoing subscriptions) ------------------------
+
+app.get('/api/subscriptions', requireAuth, (c) => {
+  const activeOnly = c.req.query('active') === '1'
+  return c.json({ subscriptions: listSubscriptions(activeOnly), summary: subscriptionSummary() })
+})
+
+app.get('/api/subscriptions/:id', requireAuth, (c) => {
+  const sub = getSubscription(Number(c.req.param('id')))
+  if (!sub) return c.json({ error: 'not found' }, 404)
+  return c.json({ subscription: sub })
+})
+
+app.post('/api/subscriptions', requireAuth, async (c) => {
+  const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+  const amount = Math.round(Number(b.amount_cents))
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return c.json({ error: 'Betrag (Cent) muss positiv sein.' }, 400)
+  }
+  const sub = createSubscription(
+    {
+      vendor: (b.vendor as string) ?? null,
+      description: (b.description as string) ?? null,
+      category: (b.category as string) ?? null,
+      amount_cents: amount,
+      vat_rate: Number(b.vat_rate ?? 19),
+      cadence: (b.cadence as string) ?? null,
+      next_renewal: (b.next_renewal as string) ?? null,
+      payment_method: (b.payment_method as string) ?? null,
+      active: b.active as number | boolean | undefined,
+      note: (b.note as string) ?? null,
+    },
+    c.get('user').username,
+  )
+  audit({ actor: c.get('user').username, action: 'subscription.create', entity: 'subscription', entityId: sub.id, detail: { vendor: sub.vendor, amount_cents: sub.amount_cents, cadence: sub.cadence } })
+  return c.json({ subscription: sub }, 201)
+})
+
+app.patch('/api/subscriptions/:id', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+  if ('amount_cents' in b) {
+    const amount = Math.round(Number(b.amount_cents))
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return c.json({ error: 'Betrag (Cent) muss positiv sein.' }, 400)
+    }
+    b.amount_cents = amount
+  }
+  const sub = updateSubscription(id, b)
+  if (!sub) return c.json({ error: 'not found' }, 404)
+  audit({ actor: c.get('user').username, action: 'subscription.update', entity: 'subscription', entityId: id, detail: { fields: Object.keys(b) } })
+  return c.json({ subscription: sub })
+})
+
+app.delete('/api/subscriptions/:id', requireAuth, (c) => {
+  const id = Number(c.req.param('id'))
+  if (!deleteSubscription(id)) return c.json({ error: 'not found' }, 404)
+  audit({ actor: c.get('user').username, action: 'subscription.delete', entity: 'subscription', entityId: id })
+  return c.json({ ok: true })
 })
 
 // --- scraper (config + status) --------------------------------------------
@@ -1637,13 +1442,6 @@ app.post('/api/recurring/run-due', requireAuth, (c) => {
 registerAiRoutes(app, requireAuth)
 registerDsgvoRoutes(app, requireAuth)
 
-// Integrations + public API + outbound webhooks. Management routes are admin-only;
-// the public API (/api/v1/*) is Bearer-key-only (its own middleware), disjoint
-// from the session cookie; the inbound webhook receiver is signature-gated.
-registerIntegrationRoutes(app, requireAdmin)
-registerPublicApiRoutes(app, requireAdmin)
-registerWebhookRoutes(app, requireAdmin)
-
 // --- health ---------------------------------------------------------------
 
 app.get('/api/health', (c) => c.json({ ok: true }))
@@ -1679,13 +1477,6 @@ if (process.env.RECURRING_DISABLE !== '1') {
   }
   setTimeout(runDue, 15_000).unref() // shortly after boot
   setInterval(runDue, 6 * 60 * 60 * 1000).unref() // every 6h
-}
-
-// --- outbound webhook dispatcher ------------------------------------------
-// Drains the webhook_deliveries queue (HMAC-signed, SSRF-guarded, retried with
-// backoff). Same scheduler idiom as above. Set WEBHOOKS_DISABLE=1 to turn off.
-if (process.env.WEBHOOKS_DISABLE !== '1') {
-  startWebhookDispatcher()
 }
 
 // --- boot -----------------------------------------------------------------

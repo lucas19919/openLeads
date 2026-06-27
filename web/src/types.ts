@@ -85,7 +85,6 @@ export interface Settings {
   scraper_min_score: number | null
   scraper_max_pairs: number | null
   scraper_per_pair: number | null
-  verzug_base_rate?: number
   datev_revenue_account?: string | null
   datev_debitor_account?: string | null
   datev_bank_account?: string | null
@@ -99,7 +98,6 @@ export interface Settings {
   smtp_user?: string | null
   smtp_secure?: number | null
   smtp_from?: string | null
-  scraper_model?: string | null
   ai_api_key_set?: boolean
   smtp_pass_set?: boolean
   scraper_ai_api_key_set?: boolean
@@ -252,25 +250,6 @@ export interface RecurringInvoice {
   updated_at: string
 }
 
-export interface Customer {
-  id: number
-  name: string
-  contact_name: string | null
-  address: string | null
-  zip: string | null
-  city: string | null
-  email: string | null
-  phone: string | null
-  vat_id: string | null
-  client_type: string
-  payment_terms: number | null
-  lead_id: number | null
-  notes: string | null
-  active: number
-  created_at: string
-  updated_at: string
-}
-
 export interface EuerCategoryLine {
   category: string
   label: string
@@ -389,13 +368,35 @@ export interface ExpenseSummary {
   by_category: { category: string; count: number; gross_cents: number; net_cents: number }[]
 }
 
-export interface CalendarEvent {
-  id: string
-  title: string
-  start: string
-  end: string
-  url?: string | null
+// Abonnements: recurring outgoing subscriptions the business pays.
+export interface Subscription {
+  id: number
+  vendor: string
+  description: string | null
+  category: string
+  amount_cents: number
+  vat_rate: number
+  cadence: string
+  next_renewal: string | null
+  payment_method: string | null
+  active: number
+  note: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+  monthly_cents: number
+  yearly_cents: number
 }
+
+export interface SubscriptionSummary {
+  count: number
+  active_count: number
+  monthly_cents: number
+  yearly_cents: number
+  by_category: { category: string; count: number; monthly_cents: number }[]
+  upcoming: { id: number; vendor: string; next_renewal: string; amount_cents: number }[]
+}
+
 
 export interface PublicUser {
   id: number
@@ -456,61 +457,6 @@ export interface ExpiringContract {
   notice_period: string | null
 }
 
-// --- Bankabgleich (CAMT.053) ---
-export interface BankMatchSuggestion {
-  document_id: number
-  number: string | null
-  client_name: string | null
-  outstanding_cents: number
-  reason: 'number' | 'amount'
-  amount_ok: boolean
-}
-
-export interface BankPreviewEntry {
-  ext_ref: string
-  booked_on: string | null
-  amount_cents: number
-  direction: 'credit' | 'debit'
-  remittance: string
-  counterparty: string | null
-  already_seen: boolean
-  suggestion: BankMatchSuggestion | null
-}
-
-export interface BankOpenInvoice {
-  id: number
-  number: string | null
-  client_name: string | null
-  outstanding_cents: number
-}
-
-export interface BankPreview {
-  entries: BankPreviewEntry[]
-  open_invoices: BankOpenInvoice[]
-  total: number
-  credits: number
-  new_count: number
-}
-
-export interface BankApplyItem {
-  ext_ref: string
-  booked_on?: string | null
-  amount_cents: number
-  direction?: string
-  remittance?: string | null
-  counterparty?: string | null
-  document_id?: number | null
-  ignore?: boolean
-}
-
-export interface BankApplyResult {
-  applied: number
-  matched: number
-  ignored: number
-  skipped: number
-  payments: { ext_ref: string; document_id: number; payment_id: number }[]
-}
-
 export interface User {
   id: number
   username: string
@@ -531,35 +477,6 @@ export interface ValidationResult {
   errors: ValidationFinding[]
   warnings: ValidationFinding[]
   notes?: ValidationFinding[]
-}
-
-// --- Mahnwesen (dunning) ----------------------------------------------------
-
-export interface DunningComputation {
-  document_id: number
-  number: string | null
-  client_name: string | null
-  gross_cents: number
-  issue_date: string | null
-  due_date: string | null
-  days_overdue: number
-  suggested_level: number
-  interest_rate_percent: number
-  interest_cents: number
-  pauschale_cents: number
-  total_claim_cents: number
-}
-
-export interface Mahnung {
-  id: number
-  document_id: number
-  level: number
-  days_overdue: number
-  interest_cents: number
-  pauschale_cents: number
-  total_claim_cents: number
-  note: string | null
-  created_at: string
 }
 
 // --- AI core ---------------------------------------------------------------
@@ -598,11 +515,6 @@ export interface Outreach {
   model: string | null
   created_at: string
   updated_at: string
-}
-
-export interface SemanticHit {
-  lead: Lead
-  score: number
 }
 
 export interface AgentStep {
@@ -656,95 +568,6 @@ export interface InvoiceDraft {
   client_name: string | null
   items: { description: string; quantity: number; unit: string; unit_price_cents: number }[]
   notes: string
-}
-
-// --- integrations / public API / webhooks -----------------------------------
-
-export interface IntegrationConfigField {
-  key: string
-  label: string
-  type: 'string' | 'number' | 'boolean' | 'select'
-  secret?: boolean
-  required?: boolean
-  options?: { value: string; label: string }[]
-  placeholder?: string
-}
-
-export interface IntegrationProvider {
-  category: string
-  provider: string
-  label: string
-  configSchema: IntegrationConfigField[]
-  // True when the app actually consumes this category's active adapter today.
-  // False = registered/configurable but not yet wired to any action.
-  wired: boolean
-}
-
-export interface IntegrationConnection {
-  id: number
-  category: string
-  provider: string
-  label: string | null
-  active: boolean
-  status: string // unconfigured | ok | error
-  status_detail: string | null
-  config: Record<string, unknown>
-  credentials_set: boolean
-  oauth_connected?: boolean
-  account_email?: string | null
-  created_at: string
-  updated_at: string
-}
-
-export interface ApiKey {
-  id: number
-  name: string | null
-  prefix: string
-  scopes: string // CSV
-  created_by: string | null
-  last_used_at: string | null
-  revoked_at: string | null
-  created_at: string
-}
-
-export interface WebhookEndpoint {
-  id: number
-  url: string
-  events: string // CSV or '*'
-  active: boolean
-  description: string | null
-  secret_set: boolean
-  created_at: string
-  updated_at: string
-}
-
-export interface WebhookDelivery {
-  id: number
-  endpoint_id: number
-  event: string
-  attempts: number
-  status: string // pending | delivered | failed
-  next_attempt_at: string
-  response_code: number | null
-  last_error: string | null
-  created_at: string
-  updated_at: string
-}
-
-export interface VatValidation {
-  valid: boolean
-  country_code: string
-  vat_number: string
-  name?: string | null
-  address?: string | null
-}
-
-export interface PaymentLink {
-  id: string
-  url: string
-  amount_cents: number
-  currency: string
-  status: string
 }
 
 export type NewLead = Partial<

@@ -8,7 +8,7 @@ services:
     build: .
     restart: unless-stopped
     # api.env holds: SESSION_SECRET, SERVICE_TOKEN, WEB_ORIGIN, and (optional)
-    # the AI core + mail vars: AI_BASE_URL, AI_MODEL, AI_API_KEY, AI_EMBED_MODEL,
+    # the AI core + mail vars: AI_BASE_URL, AI_MODEL, AI_API_KEY,
     # SMTP_HOST/PORT/USER/PASS/FROM. See api/.env.example for the full list.
     env_file:
       - ./api.env

@@ -199,15 +199,6 @@ export function SettingsView({ user, config }: { user: User; config: Config }) {
                 />
               </div>
             </div>
-            <div className="field">
-              <label>Verzugszins-Basiszinssatz (%)</label>
-              <input
-                type="number"
-                step="0.01"
-                value={s.verzug_base_rate ?? ''}
-                onChange={(e) => set('verzug_base_rate', Number(e.target.value))}
-              />
-            </div>
             <div className="row3">
               <div className="field">
                 <label>DATEV Erlöskonto</label>
@@ -390,8 +381,30 @@ export function SettingsView({ user, config }: { user: User; config: Config }) {
             <legend>Steuerberater-Export</legend>
             <p className="settings-hint">
               GoBD-konformes Rechnungsjournal bzw. DATEV-Buchungsstapel für den Steuerberater —
-              für Einnahmen (Rechnungen) und Ausgaben (Belege); Zeitraum optional.
+              für Einnahmen (Rechnungen) und Ausgaben (Belege). Wähle ein Steuerjahr für den
+              kompletten Jahreszeitraum oder setze den Zeitraum manuell.
             </p>
+            <div className="field">
+              <label>Steuerjahr</label>
+              <div className="seg">
+                {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map((y) => {
+                  const active = exportFrom === `${y}-01-01` && exportTo === `${y}-12-31`
+                  return (
+                    <button
+                      key={y}
+                      type="button"
+                      className={active ? 'active' : ''}
+                      onClick={() => {
+                        setExportFrom(`${y}-01-01`)
+                        setExportTo(`${y}-12-31`)
+                      }}
+                    >
+                      {y}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
             <div className="row2">
               <div className="field">
                 <label>Von</label>

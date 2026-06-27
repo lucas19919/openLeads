@@ -49,11 +49,6 @@ export const AI = {
   get timeoutMs(): number {
     return Number(process.env.AI_TIMEOUT_MS ?? 120_000)
   },
-  // Embeddings (semantic search). Defaults to a local Ollama embed model.
-  // `ollama pull nomic-embed-text` covers German well enough for lead search.
-  get embedModel(): string {
-    return process.env.AI_EMBED_MODEL ?? 'nomic-embed-text'
-  },
 }
 
 /** True when inference stays on infrastructure the operator controls (no egress
@@ -189,62 +184,6 @@ export function parseJsonLoose<T = unknown>(raw: string): T {
     }
     throw new AIError('KI-Antwort war kein gültiges JSON')
   }
-}
-
-interface EmbedResponse {
-  data?: { embedding: number[] }[]
-  error?: { message?: string } | string
-}
-
-/** Embed one or more texts via the OpenAI-compatible /embeddings endpoint. */
-export async function embed(input: string[]): Promise<number[][]> {
-  if (input.length === 0) return []
-  const ac = new AbortController()
-  const timer = setTimeout(() => ac.abort(), AI.timeoutMs)
-  let res: Response
-  try {
-    res = await fetch(`${AI.baseUrl}/embeddings`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        ...(AI.apiKey ? { authorization: `Bearer ${AI.apiKey}` } : {}),
-      },
-      body: JSON.stringify({ model: AI.embedModel, input }),
-      signal: ac.signal,
-    })
-  } catch (e) {
-    clearTimeout(timer)
-    throw new AIError(`Embedding-Dienst nicht erreichbar (${(e as Error).message})`)
-  }
-  clearTimeout(timer)
-  const text = await res.text()
-  let data: EmbedResponse
-  try {
-    data = JSON.parse(text) as EmbedResponse
-  } catch {
-    throw new AIError(`Ungültige Embedding-Antwort (${res.status})`, res.status)
-  }
-  if (!res.ok) {
-    const detail = typeof data.error === 'string' ? data.error : data.error?.message
-    throw new AIError(`Embedding-Fehler ${res.status}: ${detail ?? ''}`, res.status)
-  }
-  if (!Array.isArray(data.data)) throw new AIError('Embedding-Antwort ohne Vektoren')
-  return data.data.map((d) => d.embedding)
-}
-
-/** Cosine similarity of two equal-length vectors (0 when degenerate). */
-export function cosine(a: number[], b: number[]): number {
-  if (a.length !== b.length || a.length === 0) return 0
-  let dot = 0
-  let na = 0
-  let nb = 0
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i]
-    na += a[i] * a[i]
-    nb += b[i] * b[i]
-  }
-  if (na === 0 || nb === 0) return 0
-  return dot / (Math.sqrt(na) * Math.sqrt(nb))
 }
 
 /** Liveness probe for the status badge. Never throws. */

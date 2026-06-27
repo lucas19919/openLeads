@@ -65,7 +65,7 @@ export function RecurringView({ config }: { config: Config }) {
       setMsg(
         generated
           ? `${generated} Rechnungsentwurf/-entwürfe erzeugt — unter „Rechnungen" prüfen und festschreiben.`
-          : 'Keine fälligen Serien.',
+          : 'Keine fälligen Abos.',
       )
       await refresh()
     } finally {
@@ -91,7 +91,7 @@ export function RecurringView({ config }: { config: Config }) {
   }
 
   async function remove(id: number) {
-    if (!confirm('Serie löschen? Bereits erzeugte Rechnungen bleiben erhalten.')) return
+    if (!confirm('Abo löschen? Bereits erzeugte Rechnungen bleiben erhalten.')) return
     await api.deleteRecurring(id)
     await refresh()
   }
@@ -141,7 +141,7 @@ export function RecurringView({ config }: { config: Config }) {
         <div className="doc-editor">
           <div className="doc-editor-head">
             <button className="ghost" onClick={() => setDraft(null)}>Zurück</button>
-            <strong>{d.id ? 'Serie bearbeiten' : 'Neue Serienrechnung'}</strong>
+            <strong>{d.id ? 'Abo bearbeiten' : 'Neues Abo'}</strong>
             <div className="spacer" />
             <button className="primary" onClick={saveDraft} disabled={busy}>
               {busy ? '…' : 'Speichern'}
@@ -260,14 +260,6 @@ export function RecurringView({ config }: { config: Config }) {
               <label>Summe je Lauf</label>
               <input value={euro(gross)} disabled />
             </div>
-            <label className="check-row" title="Beim Versand der festgeschriebenen Rechnung einen Online-Zahlungslink (Stripe/GoCardless) in die E-Mail aufnehmen.">
-              <input
-                type="checkbox"
-                checked={!!d.include_payment_link}
-                onChange={(e) => setD({ include_payment_link: e.target.checked ? 1 : 0 })}
-              />
-              Zahlungslink anbieten
-            </label>
           </div>
 
           <div className="field">
@@ -287,22 +279,22 @@ export function RecurringView({ config }: { config: Config }) {
   return (
     <>
       <div className="toolbar">
-        <span className="page-title">Serienrechnungen</span>
-        <span className="user-chip">{rows.length} Serien</span>
+        <span className="page-title">Abo-Rechnungen</span>
+        <span className="user-chip">{rows.length} Abos</span>
         <div className="spacer" />
         <button onClick={runDue} disabled={busy}>Fällige jetzt erzeugen</button>
-        <button className="primary" onClick={() => setDraft(blankDraft(config))}>+ Neue Serie</button>
+        <button className="primary" onClick={() => setDraft(blankDraft(config))}>+ Neues Abo</button>
       </div>
 
       <div className="content">
         <p className="settings-hint">
-          Eine Serie erzeugt je Turnus einen <strong>Rechnungsentwurf</strong> — du prüfst und schreibst ihn
+          Ein Abo erzeugt je Turnus einen <strong>Rechnungsentwurf</strong> — du prüfst und schreibst ihn
           selbst fest. Nichts wird automatisch versendet.
         </p>
         {msg && <div className="section-info">{msg}</div>}
 
         {rows.length === 0 ? (
-          <div className="center-muted">Noch keine Serienrechnungen. Lege eine an, z. B. für eine monatliche Wartungspauschale.</div>
+          <div className="center-muted">Noch keine Abos. Lege eins an, z. B. für eine monatliche Wartungspauschale.</div>
         ) : (
           <div className="table-wrap">
             <table className="leads">

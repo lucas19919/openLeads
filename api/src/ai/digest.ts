@@ -1,5 +1,5 @@
 import { db } from '../db'
-import { listOverdue } from '../dunning'
+import { getDocument, type FullDocument } from '../documents'
 import { chatJSON, AI } from './provider'
 import { COMPLIANCE_GUARDRAILS } from './prompts'
 
@@ -16,6 +16,35 @@ export interface DigestFacts {
 }
 
 const today = () => new Date().toISOString().slice(0, 10)
+const DAY_MS = 86_400_000
+
+/** Sent, unpaid invoices past their due date — the outstanding remainder only. */
+function overdueFacts(t: string): DigestFacts['overdue'] {
+  const rows = db
+    .prepare(
+      `SELECT id FROM documents
+        WHERE kind = 'rechnung' AND status = 'versendet'
+          AND due_date IS NOT NULL AND due_date < ?
+        ORDER BY due_date ASC`,
+    )
+    .all(t) as unknown as { id: number }[]
+  let count = 0
+  let total_claim_cents = 0
+  let worst_days = 0
+  for (const r of rows) {
+    const d = getDocument(r.id) as FullDocument | null
+    if (!d) continue
+    const outstanding = Math.max(0, d.totals.gross_cents - d.paid_cents)
+    if (outstanding <= 0) continue
+    count++
+    total_claim_cents += outstanding
+    if (d.due_date) {
+      const days = Math.floor((Date.parse(t) - Date.parse(d.due_date)) / DAY_MS)
+      if (days > worst_days) worst_days = days
+    }
+  }
+  return { count, total_claim_cents, worst_days }
+}
 
 export function gatherFacts(): DigestFacts {
   const t = today()
@@ -40,14 +69,7 @@ export function gatherFacts(): DigestFacts {
     )
     .all(t) as unknown as DigestFacts['stale_leads']
 
-  const overdueList = listOverdue(t)
-  const overdue = {
-    count: overdueList.length,
-    total_claim_cents: overdueList.reduce((s, o) => s + o.total_claim_cents, 0),
-    worst_days: overdueList.reduce((m, o) => Math.max(m, o.days_overdue), 0),
-  }
-
-  return { new_leads, hot_leads, stale_leads, overdue }
+  return { new_leads, hot_leads, stale_leads, overdue: overdueFacts(t) }
 }
 
 export interface DigestPriority {
@@ -79,7 +101,7 @@ function fallbackPriorities(f: DigestFacts): DigestPriority[] {
     p.push({
       title: `${f.overdue.count} überfällige Rechnung(en)`,
       why: `Bis zu ${f.overdue.worst_days} Tage überfällig.`,
-      action: 'Mahnungen prüfen und erstellen.',
+      action: 'Überfällige Rechnungen nachfassen.',
     })
   if (f.hot_leads.length > 0)
     p.push({

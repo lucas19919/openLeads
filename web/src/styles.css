@@ -103,6 +103,19 @@ input:focus, select:focus, textarea:focus {
 .suite-tabs button.active { background: #fff; color: var(--accent-dark); font-weight: 600; }
 .suite-nav button.ghost { color: #fff; }
 .suite-nav button.ghost:hover { background: rgba(255,255,255,0.12); }
+/* Burger toggle — desktop never shows it; the tab row is always visible there. */
+.nav-burger {
+  display: none;
+  border: none;
+  background: transparent;
+  color: #fff;
+  font-size: 22px;
+  line-height: 1;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.nav-burger:hover { background: rgba(255,255,255,0.12); }
 
 .toolbar {
   display: flex;
@@ -129,10 +142,6 @@ input:focus, select:focus, textarea:focus {
 .seg button { border: none; border-radius: 0; padding: 7px 14px; }
 .seg button.active { background: var(--accent); color: #fff; }
 .user-chip { color: var(--muted); white-space: nowrap; }
-/* Toolbar toggle for the (collapsible) semantic KI-Suche. */
-.ai-toggle { white-space: nowrap; }
-.ai-toggle.active { background: var(--accent); border-color: var(--accent); color: #fff; }
-.ai-toggle.active:hover { background: var(--accent-dark); }
 
 .content { flex: 1; overflow: auto; padding: 16px; }
 
@@ -188,7 +197,6 @@ input:focus, select:focus, textarea:focus {
 .score.hot { background: #fbe3e0; color: var(--danger); }
 .score.warm { background: #fdf0e0; color: var(--warn); }
 
-.prio-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .badge {
   font-size: 11px; padding: 1px 7px; border-radius: 20px; font-weight: 600;
   text-transform: capitalize;
@@ -336,14 +344,6 @@ table.leads td.num, table.leads th.num { text-align: right; font-variant-numeric
 }
 .stat-num { font-size: 22px; font-weight: 700; color: var(--accent-dark); }
 .stat-label { color: var(--muted); font-size: 12px; margin-top: 4px; }
-.schedule-note {
-  background: var(--accent-soft); border: 1px solid #cfe6ea; color: var(--accent-dark);
-  border-radius: var(--radius); padding: 12px 14px; font-size: 13px; line-height: 1.5;
-}
-.schedule-note code {
-  background: #fff; border: 1px solid var(--border); border-radius: 6px;
-  padding: 1px 6px; font-size: 12px; color: var(--text); white-space: nowrap;
-}
 .field label em { color: var(--warn); font-style: normal; font-weight: 600; }
 
 .doc-block[disabled] { opacity: 0.5; }
@@ -362,7 +362,8 @@ table.leads td.num, table.leads th.num { text-align: right; font-variant-numeric
   /* 16px form controls stop iOS Safari from auto-zooming on focus. */
   input, select, textarea { font-size: 16px; }
 
-  /* Suite nav → two rows: [brand … username  Abmelden] then full-width tabs. */
+  /* Suite nav → single bar: [brand … badge username Abmelden ☰].
+     The tab list collapses behind the burger and drops down when opened. */
   .suite-nav {
     flex-wrap: wrap;
     gap: 8px 10px;
@@ -370,13 +371,23 @@ table.leads td.num, table.leads th.num { text-align: right; font-variant-numeric
   }
   .suite-nav .spacer { display: none; }
   .suite-nav .brand { order: 1; }
-  .suite-nav .ai-badge { order: 2; margin-right: 0; }
-  .suite-nav .user-chip { order: 3; margin-left: auto; }
+  .suite-nav .ai-badge { order: 2; margin-right: 0; margin-left: auto; }
+  .suite-nav .user-chip { order: 3; }
   .suite-nav button.ghost { order: 4; }
-  /* Tabs wrap to as many rows as needed so every German label stays readable
-     and tappable — no clipping, no squeezing 7 tabs into one row. */
-  .suite-tabs { order: 5; flex-basis: 100%; flex-wrap: wrap; gap: 6px; }
-  .suite-tabs button { flex: 0 0 auto; white-space: nowrap; padding: 9px 14px; }
+  .nav-burger { display: inline-flex; order: 5; }
+  /* Hidden until the burger is tapped; then a full-width stacked drawer of tabs
+     so every German label stays readable and tappable. */
+  .suite-tabs {
+    order: 6;
+    flex-basis: 100%;
+    flex-direction: column;
+    gap: 4px;
+    display: none;
+    padding-top: 4px;
+    border-top: 1px solid rgba(255,255,255,0.15);
+  }
+  .suite-nav.open .suite-tabs { display: flex; }
+  .suite-tabs button { width: 100%; text-align: left; white-space: nowrap; padding: 11px 14px; }
 
   /* Per-module toolbars wrap; search/segments take the full width. */
   .toolbar {
@@ -394,7 +405,6 @@ table.leads td.num, table.leads th.num { text-align: right; font-variant-numeric
   button,
   .backup-link,
   .ghost-link,
-  .ai-result-row,
   input, select, textarea { min-height: 44px; }
   /* Inline controls that shouldn't be forced tall. */
   .tag-x, .seg button { min-height: 0; }
@@ -436,7 +446,6 @@ table.leads td.num, table.leads th.num { text-align: right; font-variant-numeric
   /* Action cells: buttons/links share the row and wrap when cramped. */
   table.leads td[data-label=""], table.leads td.dunning-actions { flex-wrap: wrap; justify-content: flex-start; gap: 8px; }
   table.leads td[data-label=""] > *, table.leads td.dunning-actions > * { flex: 1 1 auto; text-align: center; }
-  table.leads td.dunning-actions .dunning-done, table.leads td.dunning-actions .dunning-error { flex-basis: 100%; text-align: left; }
 
   /* Input tables (line items, payments, team) → stacked labelled fields. */
   .items-table, .items-table tbody, .items-table tr, .items-table td { display: block; }
@@ -466,8 +475,6 @@ table.leads td.num, table.leads th.num { text-align: right; font-variant-numeric
 
   /* Scraper stat cards: 2-up instead of 4-up. */
   .stat-grid { grid-template-columns: 1fr 1fr; }
-  .wf-grid { grid-template-columns: 1fr; }
-  .schedule-note code { white-space: normal; word-break: break-all; }
 
   /* Document editor: let the action bar wrap, totals go full width. */
   .doc-editor-head { flex-wrap: wrap; gap: 6px; }
@@ -510,7 +517,6 @@ table.leads td.num, table.leads th.num { text-align: right; font-variant-numeric
   /* Count/status chips and the drawer title wrap rather than overflow the row. */
   .user-chip { white-space: normal; overflow-wrap: anywhere; }
   .drawer-head strong { overflow-wrap: anywhere; }
-  .schedule-note code { overflow-wrap: anywhere; white-space: normal; }
 }
 
 /* --- Chat (KI copilot) ---------------------------------------------------- */
@@ -559,7 +565,6 @@ table.leads td.num, table.leads th.num { text-align: right; font-variant-numeric
 .copilot { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; max-width: 920px; margin: 0 auto; width: 100%; padding: 0 20px; }
 .copilot-stream { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding: 12px 0 8px; }
 .copilot-empty { margin: auto 0; text-align: center; color: var(--muted); }
-.copilot-suggestions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 10px; }
 .chip { border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 7px 14px; font-size: 13px; color: var(--text); }
 .chip:hover { background: var(--accent-soft); border-color: var(--accent); }
 
@@ -702,62 +707,9 @@ button:disabled { opacity: 0.55; cursor: default; }
 .backup-link:hover { background: var(--accent-soft); border-color: var(--accent); }
 .export-links { display: flex; flex-wrap: wrap; gap: 10px; }
 
-/* --- Integrations / API keys / webhooks ---------------------------------- */
-.int-card {
-  border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 12px 14px; margin-bottom: 12px; background: var(--surface);
-}
-.int-card-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
-.req-star { color: var(--danger); font-weight: 700; }
-.cal-book {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 12px;
-  margin-top: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  width: 100%;
-}
-.int-group-head {
-  margin: 18px 0 2px;
-  font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
-  border-top: 1px solid var(--border);
-  padding-top: 12px;
-}
-.int-card-head strong { font-size: 14px; }
-.int-card-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-.muted-mono { font-size: 12px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .danger-text { color: var(--danger); }
-.break-all { word-break: break-all; }
-.scope-grid { display: flex; flex-wrap: wrap; gap: 8px 18px; }
-.status-pill {
-  font-size: 11px; padding: 2px 8px; border-radius: 999px; white-space: nowrap;
-  background: #eef0f2; color: var(--muted); border: 1px solid transparent;
-}
-.status-pill.ok { background: #e6f4ea; color: #1e7e34; }
-.status-pill.error { background: #fdecea; color: var(--danger); }
-.status-pill.unconfigured { background: #eef0f2; color: var(--muted); }
-.secret-reveal {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
-  background: #e6f4ea; border: 1px solid #2e8b57; border-radius: var(--radius);
-  padding: 8px 12px; margin: 6px 0 12px; font-size: 13px;
-}
-.secret-reveal code {
-  flex: 1 1 240px; word-break: break-all; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  background: var(--surface); padding: 4px 6px; border-radius: 4px;
-}
 
-/* --- Mahnungen / Mahnwesen ------------------------------------------------ */
-.dunning-legend {
-  margin-bottom: 16px; padding: 10px 14px; border: 1px solid var(--border);
-  border-radius: var(--radius); background: var(--accent-soft);
-  font-size: 13px; line-height: 1.5; color: var(--text);
-}
+/* --- Inline rate label + action-cell helpers (Ausgaben, Scraper) ---------- */
 .dunning-rate { color: var(--muted); font-size: 12px; }
 .dunning-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .ghost-link {
@@ -766,8 +718,6 @@ button:disabled { opacity: 0.55; cursor: default; }
   font-size: 12px; text-decoration: none;
 }
 .ghost-link:hover { background: var(--accent-soft); border-color: var(--accent); }
-.dunning-done { font-size: 12px; font-weight: 600; color: var(--ok); }
-.dunning-error { font-size: 12px; color: var(--danger); }
 
 /* --- KI Tages-Briefing (digest) ------------------------------------------- */
 .digest { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; box-shadow: var(--shadow); margin-bottom: 14px; }
@@ -781,28 +731,6 @@ button:disabled { opacity: 0.55; cursor: default; }
 .outreach-sent {
   margin-top: 8px; font-size: 13px; font-weight: 600; color: var(--ok);
 }
-
-/* --- KI-Suche (semantische Lead-Suche) ------------------------------------ */
-.ai-search {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  margin-bottom: 12px;
-}
-.ai-search .spacer { flex: 1; }
-.ai-search-input { flex: 1 1 280px; min-width: 200px; }
-
-.ai-results { display: flex; flex-direction: column; gap: 8px; }
-.ai-results-head {
-  display: flex; align-items: center; gap: 12px; margin-bottom: 4px;
-}
-.ai-result-row {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  width: 100%; text-align: left; padding: 12px 14px;
-  border: 1px solid var(--border); border-radius: var(--radius);
-  background: var(--surface); cursor: pointer;
-}
-.ai-result-row:hover { border-color: var(--accent); background: var(--accent-soft); }
-.ai-result-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.ai-result-company { font-weight: 600; color: var(--text); }
 
 /* --- info banner (lighter than section-error) --- */
 .section-info {
@@ -889,10 +817,6 @@ button:disabled { opacity: 0.55; cursor: default; }
     overflow-wrap: anywhere; word-break: break-word;
   }
 
-  /* Lead AI-search row: drop the desktop spacer so controls wrap tidily.
-     (Placed here, after the .ai-search base rule, to stay source-order-correct.) */
-  .ai-search .spacer { display: none; }
-
   /* Invoice payment + AI-draft action rows */
   .pay-form { gap: 8px; }
   .pay-form .field { flex: 1 1 100%; }
@@ -902,7 +826,6 @@ button:disabled { opacity: 0.55; cursor: default; }
   /* Lead-detail outreach + analysis, dunning, settings, search */
   .outreach-card, .ai-analysis { overflow-wrap: anywhere; }
   .outreach-card select { font-size: 16px; min-height: 44px; }
-  .ai-result-company { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .dunning-rate { font-size: 12px; }
   .settings-hint code { overflow-wrap: anywhere; white-space: normal; }
 }

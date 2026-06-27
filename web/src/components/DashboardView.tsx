@@ -46,13 +46,13 @@ export function DashboardView({
 
       <div className="content">
         <div className="dash-cards">
-          <button className="dash-card dash-clickable" onClick={() => onNavigate('mahnungen')}>
+          <button className="dash-card dash-clickable" onClick={() => onNavigate('documents')}>
             <span className="dash-card-label">Offene Forderungen</span>
             <span className="dash-card-value">{euro(data.invoices.open_total_cents)}</span>
             <span className="dash-card-sub">{data.invoices.issued} ausgestellte Rechnungen</span>
           </button>
 
-          <button className="dash-card dash-clickable" onClick={() => onNavigate('mahnungen')}>
+          <button className="dash-card dash-clickable" onClick={() => onNavigate('documents')}>
             <span className="dash-card-label">Überfällig</span>
             <span className="dash-card-value" style={{ color: data.invoices.overdue_count ? 'var(--danger)' : 'var(--text)' }}>
               {euro(data.invoices.overdue_total_cents)}

@@ -304,20 +304,6 @@ CREATE TABLE IF NOT EXISTS ai_messages (
 );
 CREATE INDEX IF NOT EXISTS idx_ai_messages_thread ON ai_messages(thread_id);
 
--- Mahnungen (dunning notices) raised against an overdue invoice.
-CREATE TABLE IF NOT EXISTS mahnungen (
-  id               INTEGER PRIMARY KEY,
-  document_id      INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
-  level            INTEGER NOT NULL,        -- 0 = Zahlungserinnerung, 1..n = Mahnstufe
-  days_overdue     INTEGER NOT NULL,
-  interest_cents   INTEGER NOT NULL DEFAULT 0,
-  pauschale_cents  INTEGER NOT NULL DEFAULT 0, -- §288(5) BGB B2B-Pauschale
-  total_claim_cents INTEGER NOT NULL DEFAULT 0, -- gross + interest + pauschale
-  note             TEXT,
-  created_at       TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_mahnungen_doc ON mahnungen(document_id);
-
 -- Payments recorded against an invoice. An invoice can be settled in parts, so
 -- "paid" is the sum of these rows, not a single flag. Money in integer cents.
 CREATE TABLE IF NOT EXISTS payments (
@@ -357,145 +343,6 @@ CREATE TABLE IF NOT EXISTS recurring_invoices (
   updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_recurring_active ON recurring_invoices(active, next_run);
-
--- Lead embeddings for semantic search (vector stored as JSON; small datasets,
--- so a linear cosine scan in JS is plenty — no vector-DB dependency).
-CREATE TABLE IF NOT EXISTS lead_embeddings (
-  lead_id    INTEGER PRIMARY KEY REFERENCES leads(id) ON DELETE CASCADE,
-  vector     TEXT NOT NULL,           -- JSON number[]
-  dim        INTEGER NOT NULL,
-  model      TEXT,
-  source     TEXT,                    -- the text that was embedded (for re-use)
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-`)
-
-// --- Integrations + public API + outbound webhooks --------------------------
-// The foundation the integration roadmap rides on. All additive (no ALTERs on
-// existing tables). Two secret postures, matching the rest of the codebase:
-//   • third-party credentials + webhook signing secrets are AES-256-GCM
-//     ciphertext (secrets.ts) — reversible because we need them to call out;
-//   • public API keys are one-way SHA-256 digests (publicapi/keys.ts) — the
-//     token is 192-bit random, so a slow KDF buys nothing and would only DoS
-//     the per-request verify. A leaked .db therefore yields neither usable keys
-//     nor usable credentials without the env-only SETTINGS_KEY.
-db.exec(`
--- One row per configured provider. (category, active) resolves the live adapter
--- per category; only one row per category is active at a time (enforced in code
--- on activate). config is plaintext non-secret JSON; credentials_enc is the
--- AES-256-GCM ciphertext of a JSON blob of the secret fields (or NULL).
-CREATE TABLE IF NOT EXISTS integration_connections (
-  id              INTEGER PRIMARY KEY,
-  category        TEXT NOT NULL,            -- payment | accounting | mail | enrichment | calendar | telephony
-  provider        TEXT NOT NULL,           -- registry id, e.g. 'stripe' | 'vies' | 'smtp'
-  label           TEXT,                    -- operator-facing name
-  config          TEXT NOT NULL DEFAULT '{}', -- plaintext JSON: non-secret config
-  credentials_enc TEXT,                    -- AES-256-GCM ciphertext of a JSON secret blob, NULL = none
-  active          INTEGER NOT NULL DEFAULT 0, -- 1 = the live adapter for its category
-  status          TEXT NOT NULL DEFAULT 'unconfigured', -- unconfigured | ok | error
-  status_detail   TEXT,                    -- last probe/connect error (German), NULL when ok
-  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(category, provider)
-);
-CREATE INDEX IF NOT EXISTS idx_intconn_active ON integration_connections(category, active);
-
--- Inbound provider-webhook receipts (Stripe events, etc.), append-only for
--- idempotency + audit. external_id is the provider's own event id so a
--- redelivered webhook is applied once (UNIQUE). signature_ok records whether the
--- HMAC check passed BEFORE any side effect ran.
-CREATE TABLE IF NOT EXISTS integration_events (
-  id           INTEGER PRIMARY KEY,
-  category     TEXT NOT NULL,
-  provider     TEXT NOT NULL,
-  external_id  TEXT,                       -- provider's event id (idempotency); NULL if none
-  type         TEXT,                       -- provider event type, e.g. 'checkout.session.completed'
-  payload      TEXT NOT NULL,              -- raw JSON body as received
-  signature_ok INTEGER NOT NULL DEFAULT 0,
-  processed    INTEGER NOT NULL DEFAULT 0,
-  result       TEXT,                       -- JSON: what the receiver did (e.g. {payment_id})
-  received_at  TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(provider, external_id)
-);
-CREATE INDEX IF NOT EXISTS idx_intevt_provider ON integration_events(provider, received_at DESC);
-
--- Scoped public API keys. The full key 'ol_<prefix>_<secret>' is shown ONCE on
--- create and never stored; key_hash is the SHA-256 hex digest of the full token,
--- prefix is the public lookup segment (indexed). Revoke = set revoked_at.
-CREATE TABLE IF NOT EXISTS api_keys (
-  id           INTEGER PRIMARY KEY,
-  name         TEXT,                       -- operator label, e.g. 'Zapier'
-  prefix       TEXT NOT NULL UNIQUE,       -- public lookup segment (8 hex chars)
-  key_hash     TEXT NOT NULL,              -- SHA-256 hex of the full token
-  scopes       TEXT NOT NULL DEFAULT '',   -- CSV: leads:read,leads:write,documents:read,documents:write
-  created_by   TEXT,                       -- username who minted it
-  last_used_at TEXT,                       -- updated on use (throttled in code)
-  revoked_at   TEXT,                       -- non-NULL = revoked, fail closed
-  created_at   TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_apikeys_prefix ON api_keys(prefix);
-
--- Outbound webhook subscriptions. secret_enc is the per-endpoint signing secret
--- encrypted at rest; the plaintext is shown once on create and used to HMAC-sign
--- deliveries. events is a CSV of subscribed event names (or '*' for all).
-CREATE TABLE IF NOT EXISTS webhook_endpoints (
-  id          INTEGER PRIMARY KEY,
-  url         TEXT NOT NULL,               -- target https URL (SSRF-guarded at dispatch)
-  secret_enc  TEXT NOT NULL,               -- AES-256-GCM ciphertext of the signing secret
-  events      TEXT NOT NULL DEFAULT '*',   -- CSV of event names, or '*'
-  active      INTEGER NOT NULL DEFAULT 1,
-  description TEXT,
-  created_by  TEXT,
-  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
--- One row per (endpoint, event) attempt-stream. The dispatcher worker claims
--- rows where status='pending' AND next_attempt_at<=now, SSRF-guards + HMAC-signs
--- + POSTs with a timeout, and on failure schedules exponential backoff via
--- next_attempt_at, capping attempts then status='failed' (dead-letter). payload
--- is the exact signed body so redelivery re-sends byte-identical content.
-CREATE TABLE IF NOT EXISTS webhook_deliveries (
-  id              INTEGER PRIMARY KEY,
-  endpoint_id     INTEGER NOT NULL REFERENCES webhook_endpoints(id) ON DELETE CASCADE,
-  event           TEXT NOT NULL,
-  payload         TEXT NOT NULL,           -- exact JSON body that is/was signed
-  attempts        INTEGER NOT NULL DEFAULT 0,
-  status          TEXT NOT NULL DEFAULT 'pending', -- pending | delivered | failed
-  next_attempt_at TEXT NOT NULL DEFAULT (datetime('now')),
-  response_code   INTEGER,                 -- last HTTP status (NULL = network error/timeout)
-  last_error      TEXT,                    -- last failure detail (truncated, no secrets)
-  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_whdeliv_due ON webhook_deliveries(status, next_attempt_at);
-CREATE INDEX IF NOT EXISTS idx_whdeliv_endpoint ON webhook_deliveries(endpoint_id, created_at DESC);
-
--- OAuth2 token store for connections that authenticate via OAuth (Google,
--- Microsoft). Access + refresh tokens are AES-256-GCM ciphertext (secrets.ts) —
--- never plaintext. One row per connection.
-CREATE TABLE IF NOT EXISTS oauth_tokens (
-  id                INTEGER PRIMARY KEY,
-  connection_id     INTEGER NOT NULL UNIQUE REFERENCES integration_connections(id) ON DELETE CASCADE,
-  account_email     TEXT,                  -- the connected account (for the UI)
-  access_token_enc  TEXT,                  -- AES-256-GCM ciphertext
-  refresh_token_enc TEXT,                  -- AES-256-GCM ciphertext
-  expires_at        INTEGER,               -- epoch seconds when the access token expires
-  scope             TEXT,
-  created_at        TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
--- Single-use CSRF state for the OAuth authorize→callback round-trip. The
--- redirect_uri is stored so the token exchange binds it byte-for-byte. Rows are
--- deleted on callback and pruned after a short TTL.
-CREATE TABLE IF NOT EXISTS oauth_pending (
-  state         TEXT PRIMARY KEY,
-  connection_id INTEGER NOT NULL REFERENCES integration_connections(id) ON DELETE CASCADE,
-  redirect_uri  TEXT NOT NULL,
-  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
-);
 `)
 
 // --- Ausgaben (expenses / Belege) -------------------------------------------
@@ -531,6 +378,33 @@ CREATE TABLE IF NOT EXISTS expenses (
 );
 CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(expense_date DESC);
 CREATE INDEX IF NOT EXISTS idx_expenses_category ON expenses(category);
+`)
+
+// --- Abonnements (recurring outgoing subscriptions the business PAYS) --------
+// The cost-side counterpart to recurring_invoices: things you pay on a cadence
+// (SaaS, hosting, insurance, memberships). Unlike expenses these are forward-
+// looking — `next_renewal` is the upcoming charge, and `amount_cents` is the
+// gross per period. They are NOT bookkeeping records; when one actually charges
+// you book the real Beleg under Ausgaben. The category reuses EXPENSE_CATEGORIES
+// ids so the cost lands in the same SKR03 bucket once booked.
+db.exec(`
+CREATE TABLE IF NOT EXISTS subscriptions (
+  id             INTEGER PRIMARY KEY,
+  vendor         TEXT NOT NULL,              -- Anbieter, z. B. "Anthropic (Claude)"
+  description    TEXT,                       -- Tarif / Verwendungszweck
+  category       TEXT NOT NULL DEFAULT 'software', -- EXPENSE_CATEGORIES id
+  amount_cents   INTEGER NOT NULL DEFAULT 0, -- Bruttobetrag je Turnus
+  vat_rate       INTEGER NOT NULL DEFAULT 19,
+  cadence        TEXT NOT NULL DEFAULT 'monatlich', -- monatlich | quartalsweise | jährlich
+  next_renewal   TEXT,                       -- YYYY-MM-DD nächste Abbuchung / Verlängerung
+  payment_method TEXT,                       -- Karte / Lastschrift / PayPal / ...
+  active         INTEGER NOT NULL DEFAULT 1, -- 0 = gekündigt / pausiert
+  note           TEXT,
+  created_by     TEXT,
+  created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_active ON subscriptions(active, next_renewal);
 `)
 
 // --- Verträge (contracts) ---------------------------------------------------
@@ -692,36 +566,6 @@ for (const stmt of [
   }
 }
 
-// --- Bankabgleich (CAMT.053 reconciliation) ---------------------------------
-// One row per imported booked bank entry. ext_ref is the bank's own reference
-// (AcctSvcrRef/NtryRef) or a content hash when none — UNIQUE so re-importing the
-// same statement is idempotent (a transaction is recorded once). A matched credit
-// links to the invoice (document_id) and the payment row it produced (payment_id).
-db.exec(`
-CREATE TABLE IF NOT EXISTS bank_transactions (
-  id            INTEGER PRIMARY KEY,
-  ext_ref       TEXT NOT NULL UNIQUE,
-  booked_on     TEXT,                       -- YYYY-MM-DD
-  amount_cents  INTEGER NOT NULL DEFAULT 0,
-  direction     TEXT NOT NULL DEFAULT 'credit', -- credit | debit
-  remittance    TEXT,                       -- Verwendungszweck
-  counterparty  TEXT,                       -- payer/payee name
-  document_id   INTEGER REFERENCES documents(id) ON DELETE SET NULL,
-  payment_id    INTEGER REFERENCES payments(id) ON DELETE SET NULL,
-  status        TEXT NOT NULL DEFAULT 'unmatched', -- matched | unmatched | ignored
-  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_bank_status ON bank_transactions(status, booked_on DESC);
-`)
-
-// Basiszinssatz (%) used for §288 BGB Verzugszinsen (configurable; changes
-// each Jan/Jul). B2B default rate = base + 9 pp. Added after the AI release.
-try {
-  db.exec('ALTER TABLE settings ADD COLUMN verzug_base_rate REAL NOT NULL DEFAULT 1.27')
-} catch {
-  // column already exists
-}
-
 // DATEV/GoBD export account numbers (Steuerberater handoff). SKR03 defaults.
 // datev_bank_account is the Gegenkonto for expense bookings (Aufwand an Bank);
 // the Konto comes from the expense category's SKR03 account. Default 1200 (Bank).
@@ -760,26 +604,8 @@ for (const col of [
   }
 }
 
-// Enforce "at most one active connection per category" at the DB level. Before the
-// activate() swap was transactional, a crash or race could leave two active rows
-// in a category, so dedupe any existing violation first (keep the lowest id active,
-// deactivate the rest) and only then add the partial unique index. Idempotent.
-try {
-  db.exec(`
-    UPDATE integration_connections SET active = 0
-    WHERE active = 1 AND id NOT IN (
-      SELECT MIN(id) FROM integration_connections WHERE active = 1 GROUP BY category
-    );
-  `)
-  db.exec(
-    'CREATE UNIQUE INDEX IF NOT EXISTS idx_intconn_one_active ON integration_connections(category) WHERE active = 1',
-  )
-} catch {
-  // table not present yet / index already exists
-}
-
-// Debtor type (Geschäft/Privat). Drives the §288 BGB B2B-only Pauschale in
-// dunning. Defaults to 'geschaeft' so existing invoices keep today's behaviour.
+// Debtor type (Geschäft/Privat). Snapshotted on the invoice so the B2B/B2C tax
+// posture is fixed. Defaults to 'geschaeft' so existing invoices keep today's behaviour.
 try {
   db.exec("ALTER TABLE documents ADD COLUMN client_type TEXT NOT NULL DEFAULT 'geschaeft'")
 } catch {
@@ -858,9 +684,8 @@ for (const col of [
   'smtp_pass_enc TEXT', // AES-256-GCM ciphertext, never plaintext
   'smtp_secure INTEGER',
   'smtp_from TEXT',
-  // Lead-discovery model + API key (the scraper inherits these when run from the
-  // UI). Model is plain; the key is encrypted like the other secrets.
-  'scraper_model TEXT',
+  // Lead-discovery API key (the scraper inherits it when run from the UI; the
+  // model is the operator's default AI model). Encrypted like the other secrets.
   'scraper_ai_api_key_enc TEXT', // AES-256-GCM ciphertext, never plaintext
 ]) {
   try {
@@ -940,7 +765,6 @@ export interface SettingsRow {
   scraper_min_score: number | null
   scraper_max_pairs: number | null
   scraper_per_pair: number | null
-  verzug_base_rate: number
   datev_revenue_account: string | null
   datev_debitor_account: string | null
   datev_bank_account: string | null
@@ -957,25 +781,12 @@ export interface SettingsRow {
   smtp_pass_enc?: string | null
   smtp_secure?: number | null
   smtp_from?: string | null
-  scraper_model?: string | null
   scraper_ai_api_key_enc?: string | null
   // AGB text + contract numbering (added by a late migration).
   agb_text?: string | null
   contract_prefix?: string
   contract_next?: number
   agb_attach_documents?: number
-}
-
-export interface MahnungRow {
-  id: number
-  document_id: number
-  level: number
-  days_overdue: number
-  interest_cents: number
-  pauschale_cents: number
-  total_claim_cents: number
-  note: string | null
-  created_at: string
 }
 
 export interface DocumentRow {
@@ -1087,6 +898,23 @@ export interface ExpenseRow {
   updated_at: string
 }
 
+export interface SubscriptionRow {
+  id: number
+  vendor: string
+  description: string | null
+  category: string
+  amount_cents: number
+  vat_rate: number
+  cadence: string
+  next_renewal: string | null
+  payment_method: string | null
+  active: number
+  note: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface RecurringInvoiceRow {
   id: number
   client_name: string | null
@@ -1139,20 +967,6 @@ export interface CustomerRow {
   active: number
   created_at: string
   updated_at: string
-}
-
-export interface BankTransactionRow {
-  id: number
-  ext_ref: string
-  booked_on: string | null
-  amount_cents: number
-  direction: string
-  remittance: string | null
-  counterparty: string | null
-  document_id: number | null
-  payment_id: number | null
-  status: string
-  created_at: string
 }
 
 export interface CatalogItemRow {
@@ -1232,90 +1046,6 @@ export interface AiMessageRow {
   role: string
   content: string | null
   tool_calls: string | null
-  created_at: string
-}
-
-export interface IntegrationConnectionRow {
-  id: number
-  category: string
-  provider: string
-  label: string | null
-  config: string
-  credentials_enc: string | null
-  active: number
-  status: string
-  status_detail: string | null
-  created_at: string
-  updated_at: string
-}
-
-export interface IntegrationEventRow {
-  id: number
-  category: string
-  provider: string
-  external_id: string | null
-  type: string | null
-  payload: string
-  signature_ok: number
-  processed: number
-  result: string | null
-  received_at: string
-}
-
-export interface ApiKeyRow {
-  id: number
-  name: string | null
-  prefix: string
-  key_hash: string
-  scopes: string
-  created_by: string | null
-  last_used_at: string | null
-  revoked_at: string | null
-  created_at: string
-}
-
-export interface WebhookEndpointRow {
-  id: number
-  url: string
-  secret_enc: string
-  events: string
-  active: number
-  description: string | null
-  created_by: string | null
-  created_at: string
-  updated_at: string
-}
-
-export interface WebhookDeliveryRow {
-  id: number
-  endpoint_id: number
-  event: string
-  payload: string
-  attempts: number
-  status: string
-  next_attempt_at: string
-  response_code: number | null
-  last_error: string | null
-  created_at: string
-  updated_at: string
-}
-
-export interface OAuthTokenRow {
-  id: number
-  connection_id: number
-  account_email: string | null
-  access_token_enc: string | null
-  refresh_token_enc: string | null
-  expires_at: number | null
-  scope: string | null
-  created_at: string
-  updated_at: string
-}
-
-export interface OAuthPendingRow {
-  state: string
-  connection_id: number
-  redirect_uri: string
   created_at: string
 }
 

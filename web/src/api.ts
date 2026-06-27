@@ -2,30 +2,18 @@ import type {
   AiStatus,
   AiThread,
   ChatResponse,
-  BankApplyItem,
-  BankApplyResult,
-  BankPreview,
   CatalogItem,
   Config,
   Contract,
-  Customer,
   Dashboard,
   EuerReport,
   Digest,
-  ApiKey,
   Doc,
   DocItem,
-  CalendarEvent,
-  DunningComputation,
   Expense,
   ExpenseSummary,
-  IntegrationConnection,
-  IntegrationProvider,
   InvoiceDraft,
-  Mahnung,
   Lead,
-  PaymentLink,
-  VatValidation,
   LeadAnalysis,
   LeadEvent,
   NewLead,
@@ -35,14 +23,13 @@ import type {
   PublicUser,
   RecurringInvoice,
   ScraperConfig,
-  SemanticHit,
   ScraperStatus,
   Settings,
+  Subscription,
+  SubscriptionSummary,
   ThreadMessage,
   User,
   ValidationResult,
-  WebhookEndpoint,
-  WebhookDelivery,
 } from './types'
 
 class ApiError extends Error {
@@ -95,16 +82,6 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(lead),
     }),
-  createCalendarEvent: (
-    leadId: number,
-    body: { title: string; start: string; end: string; description?: string },
-  ) =>
-    req<{ event: CalendarEvent }>(`/leads/${leadId}/calendar-event`, {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-  startCall: (leadId: number) =>
-    req<{ call_id: string }>(`/leads/${leadId}/call`, { method: 'POST' }),
   updateLead: (id: number, patch: Partial<Lead>) =>
     req<{ lead: Lead }>(`/leads/${id}`, {
       method: 'PATCH',
@@ -194,20 +171,10 @@ export const api = {
     req<{ document: Doc }>(`/documents/${id}/signed-document`, { method: 'DELETE' }),
   validateDocument: (id: number) =>
     req<{ validation: ValidationResult }>(`/documents/${id}/validate`),
-  documentPaymentLink: (id: number) =>
-    req<{ payment_link: PaymentLink }>(`/documents/${id}/payment-link`, { method: 'POST' }),
-  sendDocument: (id: number, include_payment_link = false) =>
+  sendDocument: (id: number) =>
     req<{ ok: true; messageId: string; to: string }>(`/documents/${id}/send`, {
       method: 'POST',
-      body: JSON.stringify({ include_payment_link }),
     }),
-  validateVat: (id: number) =>
-    req<{ validation: VatValidation }>(`/documents/${id}/validate-vat`, { method: 'POST' }),
-  pushAccounting: (id: number) =>
-    req<{ result: { external_id: string; url?: string; provider?: string | null; pushed_at?: string | null; already_pushed?: boolean } }>(
-      `/documents/${id}/push-accounting`,
-      { method: 'POST' },
-    ),
 
   // --- Zahlungen (payments) ---
   listPayments: (id: number) => req<PaymentSummary>(`/documents/${id}/payments`),
@@ -262,6 +229,18 @@ export const api = {
   deleteReceipt: (id: number) =>
     req<{ expense: Expense }>(`/expenses/${id}/receipt`, { method: 'DELETE' }),
   receiptUrl: (id: number) => `/api/expenses/${id}/receipt`,
+
+  // --- Abonnements (recurring outgoing subscriptions) ---
+  listSubscriptions: (activeOnly = false) =>
+    req<{ subscriptions: Subscription[]; summary: SubscriptionSummary }>(
+      `/subscriptions${activeOnly ? '?active=1' : ''}`,
+    ),
+  createSubscription: (body: Partial<Subscription>) =>
+    req<{ subscription: Subscription }>('/subscriptions', { method: 'POST', body: JSON.stringify(body) }),
+  updateSubscription: (id: number, patch: Partial<Subscription>) =>
+    req<{ subscription: Subscription }>(`/subscriptions/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  deleteSubscription: (id: number) =>
+    req<{ ok: true }>(`/subscriptions/${id}`, { method: 'DELETE' }),
   exportExpensesUrl: (from?: string, to?: string) => {
     const qs = new URLSearchParams()
     if (from) qs.set('from', from)
@@ -304,36 +283,6 @@ export const api = {
   updateCatalogItem: (id: number, patch: Partial<CatalogItem>) =>
     req<{ item: CatalogItem }>(`/catalog/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteCatalogItem: (id: number) => req<{ ok: true }>(`/catalog/${id}`, { method: 'DELETE' }),
-
-  // --- Kunden (customers) ---
-  listCustomers: (activeOnly = false) =>
-    req<{ customers: Customer[] }>(`/customers${activeOnly ? '?active=1' : ''}`),
-  getCustomer: (id: number) => req<{ customer: Customer }>(`/customers/${id}`),
-  createCustomer: (body: Partial<Customer>) =>
-    req<{ customer: Customer }>('/customers', { method: 'POST', body: JSON.stringify(body) }),
-  updateCustomer: (id: number, patch: Partial<Customer>) =>
-    req<{ customer: Customer }>(`/customers/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
-  deleteCustomer: (id: number) => req<{ ok: true }>(`/customers/${id}`, { method: 'DELETE' }),
-
-  // --- Bankabgleich (CAMT.053) ---
-  bankPreview: async (file: File) => {
-    const fd = new FormData()
-    fd.append('file', file)
-    const res = await fetch('/api/bank/preview', { method: 'POST', credentials: 'include', body: fd })
-    if (!res.ok) {
-      let msg = res.statusText
-      try {
-        const b = await res.json()
-        if (b?.error) msg = b.error
-      } catch {
-        /* ignore */
-      }
-      throw new ApiError(res.status, msg)
-    }
-    return (await res.json()) as { preview: BankPreview }
-  },
-  bankApply: (items: BankApplyItem[]) =>
-    req<{ result: BankApplyResult }>('/bank/apply', { method: 'POST', body: JSON.stringify({ items }) }),
 
   // --- Verträge (contracts / AGB) ---
   listContracts: () => req<{ contracts: Contract[] }>('/contracts'),
@@ -389,18 +338,6 @@ export const api = {
     req<{ user: PublicUser }>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteUser: (id: number) => req<{ ok: true }>(`/users/${id}`, { method: 'DELETE' }),
 
-  // --- Mahnwesen (dunning) ---
-  overdueInvoices: () => req<{ overdue: DunningComputation[] }>('/invoices/overdue'),
-  previewDunning: (id: number, level?: number) =>
-    req<{ preview: DunningComputation; history: Mahnung[] }>(
-      `/documents/${id}/dunning${level != null ? `?level=${level}` : ''}`,
-    ),
-  raiseDunning: (id: number, body: { level?: number; note?: string } = {}) =>
-    req<{ mahnung: Mahnung; computation: DunningComputation; label: string }>(
-      `/documents/${id}/dunning`,
-      { method: 'POST', body: JSON.stringify(body) },
-    ),
-
   // --- exports ---
   exportLeadsUrl: (params: { stage?: string; q?: string } = {}) => {
     const qs = new URLSearchParams()
@@ -449,11 +386,6 @@ export const api = {
   // --- AI core ---
   aiStatus: () => req<AiStatus>('/ai/status'),
   aiDigest: () => req<{ digest: Digest }>('/ai/digest'),
-  semanticSearch: (q: string) =>
-    req<{ mode: 'semantic' | 'fallback'; hits: SemanticHit[] }>(
-      `/ai/leads/search?q=${encodeURIComponent(q)}`,
-    ),
-  reindexLeads: () => req<{ indexed: number; model: string }>('/ai/leads/reindex', { method: 'POST' }),
   aiChat: (message: string, thread_id?: number) =>
     req<ChatResponse>('/ai/chat', {
       method: 'POST',
@@ -483,69 +415,6 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ text, ...opts }),
     }),
-
-  // --- integrations (adapters / connections) ---
-  integrationProviders: () =>
-    req<{ providers: IntegrationProvider[] }>('/integrations/providers'),
-  integrationConnections: () =>
-    req<{ connections: IntegrationConnection[] }>('/integrations/connections'),
-  saveIntegration: (body: {
-    category: string
-    provider: string
-    label?: string | null
-    fields: Record<string, unknown>
-  }) =>
-    req<{ connection: IntegrationConnection }>('/integrations/connections', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-  activateIntegration: (id: number) =>
-    req<{ connection: IntegrationConnection }>(`/integrations/connections/${id}/activate`, {
-      method: 'POST',
-    }),
-  probeIntegration: (id: number) =>
-    req<{ probe: { ok: boolean; detail?: string }; connection: IntegrationConnection }>(
-      `/integrations/connections/${id}/probe`,
-      { method: 'POST' },
-    ),
-  deleteIntegration: (id: number) =>
-    req<{ ok: true }>(`/integrations/connections/${id}`, { method: 'DELETE' }),
-  startOAuth: (id: number) => req<{ url: string }>(`/integrations/oauth/${id}/authorize`),
-  disconnectOAuth: (id: number) =>
-    req<{ ok: true }>(`/integrations/oauth/${id}/disconnect`, { method: 'POST' }),
-
-  // --- public API keys (admin) ---
-  listApiKeys: () => req<{ keys: ApiKey[] }>('/admin/api-keys'),
-  createApiKey: (body: { name?: string; scopes: string[] }) =>
-    req<{ key: { id: number; name: string | null; prefix: string; scopes: string[] }; token: string }>(
-      '/admin/api-keys',
-      { method: 'POST', body: JSON.stringify(body) },
-    ),
-  revokeApiKey: (id: number) => req<{ ok: true }>(`/admin/api-keys/${id}`, { method: 'DELETE' }),
-
-  // --- outbound webhooks (admin) ---
-  listWebhooks: () => req<{ endpoints: WebhookEndpoint[] }>('/admin/webhooks'),
-  webhookEvents: () => req<{ events: string[] }>('/admin/webhooks/events'),
-  createWebhook: (body: { url: string; events?: string; description?: string }) =>
-    req<{ endpoint: WebhookEndpoint; secret: string }>('/admin/webhooks', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-  updateWebhook: (
-    id: number,
-    patch: { url?: string; events?: string; active?: boolean; description?: string },
-  ) =>
-    req<{ endpoint: WebhookEndpoint }>(`/admin/webhooks/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(patch),
-    }),
-  deleteWebhook: (id: number) => req<{ ok: true }>(`/admin/webhooks/${id}`, { method: 'DELETE' }),
-  webhookDeliveries: (id: number) =>
-    req<{ deliveries: WebhookDelivery[] }>(`/admin/webhooks/${id}/deliveries`),
-  redeliverWebhook: (deliveryId: number) =>
-    req<{ ok: true }>(`/admin/webhooks/deliveries/${deliveryId}/redeliver`, { method: 'POST' }),
-  rotateWebhookSecret: (id: number) =>
-    req<{ secret: string }>(`/admin/webhooks/${id}/rotate-secret`, { method: 'POST' }),
 
   // --- DSGVO ---
   dsgvoExportUrl: (leadId: number) => `/api/dsgvo/lead/${leadId}/export`,

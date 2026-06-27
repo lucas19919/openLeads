@@ -35,8 +35,6 @@ export function DocumentEditor({
   // Integration actions (pay link, e-mail send, VIES check).
   const [busy, setBusy] = useState(false)
   const [actionMsg, setActionMsg] = useState<string | null>(null)
-  const [payLink, setPayLink] = useState<string | null>(null)
-  const [vatResult, setVatResult] = useState<string | null>(null)
 
   const isFinalInvoice = !!doc && doc.kind === 'rechnung' && !!doc.number
 
@@ -168,7 +166,7 @@ export function DocumentEditor({
     onChanged()
   }
 
-  // Payment due date drives the Mahnungen list. Editable even after finalisation
+  // Payment due date drives the overdue marker. Editable even after finalisation
   // (extending a deadline is a real action); persisted immediately when locked
   // since there is no Save button then.
   async function changeDueDate(due: string) {
@@ -203,15 +201,6 @@ export function DocumentEditor({
       setDoc(document)
       onChanged()
     }
-  }
-
-  // Whether a Stripe/GoCardless pay link is attached when this invoice is e-mailed.
-  // Editable on finalised invoices (no Save button then) → persist immediately.
-  async function changeIncludePayLink(on: boolean) {
-    field('include_payment_link', on ? 1 : 0)
-    const { document } = await api.updateDocument(id, { include_payment_link: on ? 1 : 0 })
-    setDoc(document)
-    onChanged()
   }
 
   async function recordPayment() {
@@ -249,65 +238,13 @@ export function DocumentEditor({
     }
   }
 
-  // Create a hosted payment link (Stripe/GoCardless) for the open amount.
-  async function createPayLink() {
-    setBusy(true)
-    setActionMsg(null)
-    setPayLink(null)
-    try {
-      const { payment_link } = await api.documentPaymentLink(id)
-      setPayLink(payment_link.url)
-    } catch (e) {
-      setActionMsg((e as Error).message)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  // E-mail the invoice PDF to the client (with a pay link if it's an invoice).
+  // E-mail the invoice/quote PDF to the client.
   async function sendByEmail() {
     setBusy(true)
     setActionMsg(null)
     try {
-      const r = await api.sendDocument(id, doc!.kind === 'rechnung' && !!doc!.include_payment_link)
+      const r = await api.sendDocument(id)
       setActionMsg(`Per E-Mail gesendet an ${r.to}.`)
-    } catch (e) {
-      setActionMsg((e as Error).message)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  // Validate the client's USt-IdNr via the active accounting adapter (VIES).
-  async function checkVat() {
-    setBusy(true)
-    setVatResult(null)
-    try {
-      if (dirty && !locked) await save()
-      const { validation } = await api.validateVat(id)
-      setVatResult(
-        validation.valid
-          ? `USt-IdNr. gültig${validation.name ? ' — ' + validation.name : ''}`
-          : 'USt-IdNr. ungültig (VIES).',
-      )
-    } catch (e) {
-      setVatResult((e as Error).message)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  // Push the finalised invoice to the active accounting system (lexoffice/sevDesk).
-  async function pushAccounting() {
-    setBusy(true)
-    setActionMsg(null)
-    try {
-      const { result } = await api.pushAccounting(id)
-      setActionMsg(
-        result.already_pushed
-          ? `Bereits an die Buchhaltung übergeben (Beleg ${result.external_id}) — kein erneuter Export.`
-          : `An Buchhaltung übergeben (Beleg ${result.external_id}).`,
-      )
     } catch (e) {
       setActionMsg((e as Error).message)
     } finally {
@@ -385,34 +322,15 @@ export function DocumentEditor({
           </button>
         )}
         {isFinalInvoice && (
-          <>
-            <button
-              onClick={sendByEmail}
-              disabled={busy || !doc.client_email}
-              title={doc.client_email ? 'Als PDF per E-Mail senden' : 'Keine Empfänger-E-Mail hinterlegt'}
-            >
-              Per E-Mail senden
-            </button>
-            <button onClick={createPayLink} disabled={busy} title="Karten-Zahlungslink erzeugen (Stripe/GoCardless)">
-              Zahlungslink
-            </button>
-            <button onClick={pushAccounting} disabled={busy} title="An lexoffice/sevDesk übergeben">
-              An Buchhaltung
-            </button>
-          </>
+          <button
+            onClick={sendByEmail}
+            disabled={busy || !doc.client_email}
+            title={doc.client_email ? 'Als PDF per E-Mail senden' : 'Keine Empfänger-E-Mail hinterlegt'}
+          >
+            Per E-Mail senden
+          </button>
         )}
       </div>
-
-      {isFinalInvoice && (
-        <label className="check-row" style={{ marginTop: 8 }} title="Bei „Per E-Mail senden“ einen Online-Zahlungslink (Stripe/GoCardless) in die E-Mail aufnehmen.">
-          <input
-            type="checkbox"
-            checked={!!doc.include_payment_link}
-            onChange={(e) => changeIncludePayLink(e.target.checked)}
-          />
-          Zahlungslink in E-Mail aufnehmen
-        </label>
-      )}
 
       {locked && (
         <div className="doc-locked">
@@ -425,17 +343,6 @@ export function DocumentEditor({
       {validationError && <div className="section-error">{validationError}</div>}
 
       {actionMsg && <div className="doc-locked">{actionMsg}</div>}
-      {payLink && (
-        <div className="doc-locked" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <span>Zahlungslink:</span>
-          <a href={payLink} target="_blank" rel="noreferrer" className="break-all" style={{ flex: 1 }}>
-            {payLink}
-          </a>
-          <button className="ghost" onClick={() => navigator.clipboard?.writeText(payLink)}>
-            Kopieren
-          </button>
-        </div>
-      )}
 
       {validation && (
         <div className="erechnung-panel">
@@ -497,7 +404,7 @@ export function DocumentEditor({
               onChange={(e) => changeDueDate(e.target.value)}
             />
             <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-              Zahlungsziel. Nach Ablauf erscheint die Rechnung unter „Mahnungen".
+              Zahlungsziel. Nach Ablauf gilt die Rechnung als überfällig (Übersicht).
             </div>
           </div>
         )}
@@ -562,19 +469,12 @@ export function DocumentEditor({
         </div>
         <div className="field">
           <label>USt-IdNr. (Kunde)</label>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input
-              value={doc.client_vat_id ?? ''}
-              disabled={locked}
-              placeholder="z. B. DE123456789"
-              style={{ flex: 1 }}
-              onChange={(e) => field('client_vat_id', e.target.value)}
-            />
-            <button className="ghost" onClick={checkVat} disabled={busy || !(doc.client_vat_id ?? '').trim()}>
-              Prüfen (VIES)
-            </button>
-          </div>
-          {vatResult && <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{vatResult}</div>}
+          <input
+            value={doc.client_vat_id ?? ''}
+            disabled={locked}
+            placeholder="z. B. DE123456789"
+            onChange={(e) => field('client_vat_id', e.target.value)}
+          />
         </div>
       </fieldset>
 

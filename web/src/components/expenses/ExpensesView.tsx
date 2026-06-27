@@ -4,10 +4,19 @@ import { euro } from '../../money'
 import { fmtDate } from '../../util'
 import type { Config, Expense, ExpenseSummary } from '../../types'
 import { ExpenseModal } from './ExpenseModal'
+import { ExpensesTabs, type ExpTab } from './ExpensesModule'
 
 type Editing = 'new' | Expense | null
 
-export function ExpensesView({ config }: { config: Config }) {
+export function ExpensesView({
+  config,
+  tab,
+  onTab,
+}: {
+  config: Config
+  tab: ExpTab
+  onTab: (t: ExpTab) => void
+}) {
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [summary, setSummary] = useState<ExpenseSummary | null>(null)
   const [category, setCategory] = useState('')
@@ -61,6 +70,7 @@ export function ExpensesView({ config }: { config: Config }) {
     <>
       <div className="toolbar">
         <span className="page-title">Ausgaben</span>
+        <ExpensesTabs tab={tab} onTab={onTab} />
         <input
           className="search"
           placeholder="Suche Lieferant / Beschreibung…"

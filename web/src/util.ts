@@ -9,17 +9,6 @@ export function todayISO(): string {
   return iso(new Date())
 }
 
-export function addDaysISO(days: number): string {
-  const d = new Date()
-  d.setDate(d.getDate() + days)
-  return iso(d)
-}
-
-/** A callback is "due" when its date is today or in the past. */
-export function isDue(date?: string | null): boolean {
-  return !!date && date <= todayISO()
-}
-
 /** YYYY-MM-DD → DD.MM.YYYY for display. */
 export function fmtDate(date: string): string {
   const [y, m, d] = date.split('-')

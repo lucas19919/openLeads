@@ -71,7 +71,6 @@ export function ScraperView() {
         scraper_min_score: s.scraper_min_score,
         scraper_max_pairs: s.scraper_max_pairs,
         scraper_per_pair: s.scraper_per_pair,
-        scraper_model: s.scraper_model?.trim() ? s.scraper_model : null,
       }
       if (clearKey) patch.scraper_ai_api_key = ''
       else if (aiKey) patch.scraper_ai_api_key = aiKey
@@ -261,20 +260,14 @@ export function ScraperView() {
           <fieldset className="doc-block">
             <legend>KI-Discovery</legend>
             <p className="settings-hint">
-              Modell und API-Schlüssel für die Discovery — überschreiben <code>scraper/.env</code>,
-              sodass ein Lauf aus der Oberfläche ohne separate Scraper-Konfiguration funktioniert.
-              Die Discovery nutzt die Websuche von Anthropic; jedes Claude-Modell ist wählbar
+              Die Discovery nutzt das in den <strong>Einstellungen</strong> konfigurierte
+              Standard-KI-Modell — es gibt kein separates Scraper-Modell mehr. Hier wird nur der
+              API-Schlüssel hinterlegt (er überschreibt <code>scraper/.env</code>), sodass ein Lauf
+              aus der Oberfläche ohne separate Scraper-Konfiguration funktioniert. Die Discovery
+              nutzt die Websuche von Anthropic, daher muss das Standardmodell ein Claude-Modell sein
               (z. B. Opus, Sonnet, Haiku).
             </p>
             <div className="row2">
-              <div className="field">
-                <label>Modell</label>
-                <input
-                  value={s.scraper_model ?? ''}
-                  placeholder="claude-sonnet-4-6 (Standard)"
-                  onChange={(e) => set('scraper_model', e.target.value)}
-                />
-              </div>
               <div className="field">
                 <label>
                   API-Schlüssel{' '}

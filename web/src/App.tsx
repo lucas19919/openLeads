@@ -6,16 +6,12 @@ import { SuiteNav, type Module } from './components/SuiteNav'
 import { CopilotView } from './components/ai/CopilotView'
 import { LeadsView } from './components/LeadsView'
 import { InvoicesView } from './components/invoices/InvoicesView'
-import { MahnungenView } from './components/invoices/MahnungenView'
 import { SettingsView } from './components/invoices/SettingsView'
 import { DashboardView } from './components/DashboardView'
 import { RecurringView } from './components/invoices/RecurringView'
 import { ContractsView } from './components/contracts/ContractsView'
-import { CustomersView } from './components/customers/CustomersView'
-import { BankView } from './components/bank/BankView'
 import { ScraperView } from './components/scraper/ScraperView'
-import { ExpensesView } from './components/expenses/ExpensesView'
-import { IntegrationsView } from './components/integrations/IntegrationsView'
+import { ExpensesModule } from './components/expenses/ExpensesModule'
 
 export default function App() {
   const [user, setUser] = useState<User | null | undefined>(undefined)
@@ -66,14 +62,10 @@ export default function App() {
           onPrefillHandled={() => setInvoiceLead(null)}
         />
       )}
-      {module === 'customers' && <CustomersView onNavigate={setModule} />}
       {module === 'scraper' && <ScraperView />}
       {module === 'recurring' && <RecurringView config={config!} />}
       {module === 'contracts' && <ContractsView config={config!} />}
-      {module === 'mahnungen' && <MahnungenView />}
-      {module === 'bank' && <BankView />}
-      {module === 'expenses' && <ExpensesView config={config!} />}
-      {module === 'integrations' && <IntegrationsView />}
+      {module === 'expenses' && <ExpensesModule config={config!} />}
       {module === 'settings' && <SettingsView user={user} config={config!} />}
     </div>
   )

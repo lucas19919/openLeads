@@ -1,10 +1,9 @@
 import { db, STAGES, PRIORITIES, normalizeDomain, type LeadRow } from './db'
-import { emit } from './webhooks/bus'
+import { emit } from './events'
 
-// Shared lead create/update logic, extracted from index.ts so both the
-// session-authed UI routes and the public API (publicapi/router.ts) reuse one
-// implementation — and so webhook events are emitted from a single place. emit()
-// is non-throwing (like audit()), so a webhook subscriber can never break a write.
+// Shared lead create/update logic, extracted from index.ts so the routes reuse
+// one implementation and domain events are emitted from a single place. emit()
+// is a non-throwing no-op now (the webhook subsystem was removed).
 
 // Fields a client may set on a lead (besides stage, handled separately).
 export const EDITABLE = new Set([

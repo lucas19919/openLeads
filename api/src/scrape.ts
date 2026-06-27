@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { getSettings } from './documents'
-import { decryptSecret } from './secrets'
+import { decryptSecret, resolveAIConfig } from './secrets'
 
 // Triggering a lead-discovery run from the UI. The scraper is a standalone
 // service (its own env + Anthropic key; posts leads back via the service token),
@@ -69,9 +69,10 @@ function childEnv(): NodeJS.ProcessEnv {
   // CRM connection: the scraper posts back to THIS API with its own token.
   if (process.env.SERVICE_TOKEN) env.CRM_SERVICE_TOKEN = process.env.SERVICE_TOKEN
   env.CRM_API_URL = `http://127.0.0.1:${process.env.PORT ?? 8787}`
-  // Discovery model + key from settings (override the scraper's own .env).
+  // Discovery model: always the operator's default configured AI model — there
+  // is no separate scraper model knob. The scraper's own API key still applies.
   const s = getSettings()
-  if (s.scraper_model?.trim()) env.SCRAPER_MODEL = s.scraper_model.trim()
+  env.SCRAPER_MODEL = resolveAIConfig().model
   const key = decryptSecret(s.scraper_ai_api_key_enc)
   if (key) env.ANTHROPIC_API_KEY = key
   return env

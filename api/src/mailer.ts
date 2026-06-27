@@ -115,11 +115,3 @@ export async function sendMail(
   })
   return { messageId: info.messageId }
 }
-
-/** Send an email with a PDF attachment (used to deliver a Rechnung/Angebot). */
-export async function sendInvoiceMail(
-  email: ComposedEmail,
-  attachment: { filename: string; content: Buffer },
-): Promise<{ messageId: string }> {
-  return sendMail(email, [{ filename: attachment.filename, content: attachment.content, contentType: 'application/pdf' }])
-}

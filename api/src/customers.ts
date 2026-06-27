@@ -104,26 +104,4 @@ export function deleteCustomer(id: number): boolean {
   return r.changes > 0
 }
 
-export interface ClientFields {
-  client_name: string | null
-  client_address: string | null
-  client_zip: string | null
-  client_city: string | null
-  client_email: string | null
-  client_type: string
-  client_vat_id: string | null
-}
-
-/** Map a customer to the client_* snapshot used on documents/contracts/templates. */
-export function customerClientFields(c: CustomerRow): ClientFields {
-  return {
-    client_name: c.name,
-    client_address: c.address,
-    client_zip: c.zip,
-    client_city: c.city,
-    client_email: c.email,
-    client_type: c.client_type === 'privat' ? 'privat' : 'geschaeft',
-    client_vat_id: c.vat_id,
-  }
-}
 

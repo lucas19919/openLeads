@@ -7,15 +7,11 @@ export type Module =
   | 'dashboard'
   | 'copilot'
   | 'leads'
-  | 'customers'
   | 'scraper'
   | 'documents'
   | 'recurring'
   | 'contracts'
-  | 'mahnungen'
-  | 'bank'
   | 'expenses'
-  | 'integrations'
   | 'settings'
 
 // `adminOnly` tabs are hidden for members (the backend also gates the routes).
@@ -23,15 +19,11 @@ const TABS: { id: Module; label: string; adminOnly?: boolean }[] = [
   { id: 'dashboard', label: 'Übersicht' },
   { id: 'copilot', label: 'Chat' },
   { id: 'leads', label: 'Leads' },
-  { id: 'customers', label: 'Kunden' },
   { id: 'scraper', label: 'Scraper' },
   { id: 'documents', label: 'Rechnungen' },
-  { id: 'recurring', label: 'Serien' },
+  { id: 'recurring', label: 'Abo-Rechnungen' },
   { id: 'contracts', label: 'Verträge' },
-  { id: 'mahnungen', label: 'Mahnungen' },
-  { id: 'bank', label: 'Bank' },
   { id: 'expenses', label: 'Ausgaben' },
-  { id: 'integrations', label: 'Integrationen', adminOnly: true },
   { id: 'settings', label: 'Einstellungen' },
 ]
 
@@ -47,6 +39,8 @@ export function SuiteNav({
   onLogout: () => void
 }) {
   const [aiStatus, setAiStatus] = useState<AiStatus | null>(null)
+  // Mobile only: the tab list collapses behind a burger. Selecting a tab closes it.
+  const [menuOpen, setMenuOpen] = useState(false)
   useEffect(() => {
     let alive = true
     const load = () => api.aiStatus().then((s) => alive && setAiStatus(s)).catch(() => {})
@@ -57,17 +51,33 @@ export function SuiteNav({
       clearInterval(t)
     }
   }, [])
+
+  const tabs = TABS.filter((t) => !t.adminOnly || user.role === 'admin')
+
+  function pick(m: Module) {
+    setModule(m)
+    setMenuOpen(false)
+  }
+
   return (
-    <div className="suite-nav">
+    <div className={`suite-nav${menuOpen ? ' open' : ''}`}>
       <div className="brand">
         Open<span>Leads</span>
       </div>
+      <button
+        className="nav-burger"
+        aria-label="Menü"
+        aria-expanded={menuOpen}
+        onClick={() => setMenuOpen((o) => !o)}
+      >
+        {menuOpen ? '✕' : '☰'}
+      </button>
       <nav className="suite-tabs">
-        {TABS.filter((t) => !t.adminOnly || user.role === 'admin').map((t) => (
+        {tabs.map((t) => (
           <button
             key={t.id}
             className={module === t.id ? 'active' : ''}
-            onClick={() => setModule(t.id)}
+            onClick={() => pick(t.id)}
           >
             {t.label}
           </button>
