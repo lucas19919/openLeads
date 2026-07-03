@@ -64,15 +64,20 @@ export function serviceTokenConfigured(): boolean {
  * this way), and let the operator-set discovery model + key override the
  * scraper's .env — so a GUI run needs no scraper/.env at all.
  */
-function childEnv(): NodeJS.ProcessEnv {
+export function childEnv(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env }
   // CRM connection: the scraper posts back to THIS API with its own token.
   if (process.env.SERVICE_TOKEN) env.CRM_SERVICE_TOKEN = process.env.SERVICE_TOKEN
   env.CRM_API_URL = `http://127.0.0.1:${process.env.PORT ?? 8787}`
-  // Discovery model: always the operator's default configured AI model — there
-  // is no separate scraper model knob. The scraper's own API key still applies.
+  // Discovery runs on Anthropic's SDK + Anthropic-hosted web search, so the model
+  // MUST be a Claude model. Only forward the operator's configured model when it
+  // actually is one; otherwise leave SCRAPER_MODEL unset so the scraper falls back
+  // to its own Claude default. Without this guard a local/Ollama default (e.g.
+  // "llama3.1:8b") gets sent to the Anthropic API, which 404s — so the run fails
+  // even with a valid ANTHROPIC_API_KEY.
   const s = getSettings()
-  env.SCRAPER_MODEL = resolveAIConfig().model
+  const model = resolveAIConfig().model
+  if (/claude/i.test(model)) env.SCRAPER_MODEL = model
   const key = decryptSecret(s.scraper_ai_api_key_enc)
   if (key) env.ANTHROPIC_API_KEY = key
   return env

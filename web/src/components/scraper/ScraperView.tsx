@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../api'
 import { fmtDate } from '../../util'
-import type { ScraperConfig, ScraperStatus, Settings } from '../../types'
+import type { AiStatus, ScraperConfig, ScraperStatus, Settings } from '../../types'
 
 // "2026-06-18 23:13:15" → "18.06.2026"
 function dateOnly(ts: string | null): string {
@@ -13,6 +13,9 @@ export function ScraperView() {
   const [s, setS] = useState<Settings | null>(null)
   const [config, setConfig] = useState<ScraperConfig | null>(null)
   const [status, setStatus] = useState<ScraperStatus | null>(null)
+  // The discovery model actually in effect (Settings default AI). Shown so the
+  // operator can see whether it's a Claude model — the scraper needs one.
+  const [ai, setAi] = useState<AiStatus | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [starting, setStarting] = useState(false)
@@ -38,6 +41,8 @@ export function ScraperView() {
 
   useEffect(() => {
     reloadAll()
+    // Non-blocking: the AI probe never throws, but keep it off the critical path.
+    api.aiStatus().then(setAi).catch(() => {})
   }, [])
 
   // While a run is in progress, poll the status so the panel stays live.
@@ -267,6 +272,18 @@ export function ScraperView() {
               nutzt die Websuche von Anthropic, daher muss das Standardmodell ein Claude-Modell sein
               (z. B. Opus, Sonnet, Haiku).
             </p>
+            {ai &&
+              (/claude/i.test(ai.model) ? (
+                <div className="section-info" style={{ marginBottom: 10 }}>
+                  Discovery-Modell: <strong>{ai.label || ai.model}</strong>
+                </div>
+              ) : (
+                <div className="section-error" style={{ marginBottom: 10 }}>
+                  Das konfigurierte Standard-KI-Modell (<code>{ai.model}</code>) ist kein
+                  Claude-Modell. Die Discovery läuft daher auf einem Claude-Standardmodell. Für
+                  volle Kontrolle in den <strong>Einstellungen</strong> ein Claude-Modell wählen.
+                </div>
+              ))}
             <div className="row2">
               <div className="field">
                 <label>

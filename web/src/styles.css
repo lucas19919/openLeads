@@ -146,7 +146,10 @@ input:focus, select:focus, textarea:focus {
 .content { flex: 1; overflow: auto; padding: 16px; }
 
 /* ---- kanban ---- */
-.board { display: flex; gap: 12px; align-items: flex-start; min-height: 100%; }
+/* Fill the visible content area with a fixed height (not min-height) so each
+   column's `max-height: 100%` caps at the viewport and scrolls its own cards,
+   instead of the whole board growing and pushing the page long. */
+.board { display: flex; gap: 12px; align-items: flex-start; height: 100%; min-height: 0; }
 .column {
   /* Share the board width so all stages fit on screen by default (no need to
      scroll to reach the last column). Falls back to a min width on very narrow
@@ -169,12 +172,15 @@ input:focus, select:focus, textarea:focus {
   padding: 4px 6px;
   font-weight: 600;
   text-transform: capitalize;
+  flex-shrink: 0; /* stay pinned while the cards below scroll */
 }
 .column-head .count {
   background: #dde3e8; color: var(--muted);
   border-radius: 20px; padding: 1px 9px; font-size: 12px; font-weight: 600;
 }
-.column-cards { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+/* min-height: 0 lets this flex child shrink below its content height so the
+   column's max-height can clamp it and overflow-y actually scrolls. */
+.column-cards { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; min-height: 0; }
 
 .card {
   background: var(--surface);

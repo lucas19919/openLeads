@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
-import { parseTags } from '../util'
+import { fmtDate, parseTags } from '../util'
 import type { Lead, LeadAnalysis, LeadEvent, Outreach, PublicUser } from '../types'
 
 // talking_points / risk_flags arrive as JSON strings from the model.
@@ -28,6 +28,11 @@ const OUTREACH_STATUSES: { value: string; label: string }[] = [
   { value: 'gesendet', label: 'Gesendet' },
   { value: 'verworfen', label: 'Verworfen' },
 ]
+
+// Contact/business fields the user can edit inline. Each maps to a column in the
+// backend's EDITABLE set; saveDetails sends only the ones that actually changed.
+const DETAIL_FIELDS = ['company', 'website', 'trade', 'city', 'phone', 'email'] as const
+type DetailField = (typeof DETAIL_FIELDS)[number]
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : 'Unbekannter Fehler'
@@ -92,6 +97,12 @@ export function LeadDetail({
   const [erasing, setErasing] = useState(false)
   const [dsgvoErr, setDsgvoErr] = useState<string | null>(null)
 
+  // Kontaktdaten bearbeiten (inline edit of company/contact fields)
+  const [editingDetails, setEditingDetails] = useState(false)
+  const [form, setForm] = useState<Partial<Lead>>({})
+  const [savingDetails, setSavingDetails] = useState(false)
+  const [detailsErr, setDetailsErr] = useState<string | null>(null)
+
   useEffect(() => {
     let active = true
     api.getLead(id).then(({ lead, events }) => {
@@ -125,6 +136,12 @@ export function LeadDetail({
     try {
       const { analysis } = await api.analyzeLead(id)
       setAnalysis(analysis)
+      // The analysis writes the fit confidence back into the lead's score (and may
+      // bump the priority), so refresh the lead + timeline to reflect it live.
+      const fresh = await api.getLead(id)
+      setLead(fresh.lead)
+      setEvents(fresh.events)
+      onChanged(fresh.lead)
     } catch (e) {
       setAnalysisErr(errMsg(e))
     } finally {
@@ -226,6 +243,49 @@ export function LeadDetail({
     await patch({ tags: next.join(',') })
   }
 
+  function startEditDetails() {
+    if (!lead) return
+    setForm({
+      company: lead.company,
+      website: lead.website,
+      trade: lead.trade,
+      city: lead.city,
+      phone: lead.phone,
+      email: lead.email,
+    })
+    setDetailsErr(null)
+    setEditingDetails(true)
+  }
+
+  function setDetail(key: DetailField, value: string) {
+    setForm((s) => ({ ...s, [key]: value }))
+  }
+
+  async function saveDetails() {
+    if (!lead) return
+    // Send only fields that actually changed; trim strings, empty → null.
+    const body: Partial<Lead> = {}
+    for (const key of DETAIL_FIELDS) {
+      const raw = form[key]
+      const next = typeof raw === 'string' && raw.trim() ? raw.trim() : null
+      if (next !== (lead[key] ?? null)) (body as Record<string, string | null>)[key] = next
+    }
+    if (Object.keys(body).length === 0) {
+      setEditingDetails(false)
+      return
+    }
+    setSavingDetails(true)
+    setDetailsErr(null)
+    try {
+      await patch(body)
+      setEditingDetails(false)
+    } catch (e) {
+      setDetailsErr(errMsg(e))
+    } finally {
+      setSavingDetails(false)
+    }
+  }
+
   return (
     <>
       <div className="overlay" onClick={onClose} />
@@ -249,6 +309,11 @@ export function LeadDetail({
               </div>
               <div style={{ color: 'var(--muted)', marginTop: 4 }}>
                 {[lead.trade, lead.city].filter(Boolean).join(' · ') || '—'}
+              </div>
+              <div style={{ color: 'var(--muted)', fontSize: 12, marginTop: 4 }}>
+                Angelegt {fmtDate(lead.created_at.slice(0, 10))}
+                {lead.updated_at.slice(0, 10) !== lead.created_at.slice(0, 10) &&
+                  ` · aktualisiert ${fmtDate(lead.updated_at.slice(0, 10))}`}
               </div>
               <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <button onClick={() => onCreateInvoice(lead)}>
@@ -337,49 +402,143 @@ export function LeadDetail({
                 </div>
               </div>
 
-              <div>
-                <div className="kv">
-                  <span className="k">Score</span>
-                  <span>{lead.score}</span>
+              <div className="field">
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                  }}
+                >
+                  <label style={{ margin: 0 }}>Kontaktdaten</label>
+                  {!editingDetails && (
+                    <button className="ghost" onClick={startEditDetails}>
+                      Bearbeiten
+                    </button>
+                  )}
                 </div>
-                {lead.website && (
-                  <div className="kv">
-                    <span className="k">Website</span>
-                    <a href={toHref(lead.website)} target="_blank" rel="noopener noreferrer">
-                      {lead.website.replace(/^https?:\/\//, '')}
-                    </a>
+
+                {editingDetails ? (
+                  <div style={{ marginTop: 8 }}>
+                    <div className="field">
+                      <label>Firma</label>
+                      <input
+                        value={form.company ?? ''}
+                        onChange={(e) => setDetail('company', e.target.value)}
+                      />
+                    </div>
+                    <div className="field">
+                      <label>Website</label>
+                      <input
+                        value={form.website ?? ''}
+                        placeholder="https://…"
+                        onChange={(e) => setDetail('website', e.target.value)}
+                      />
+                    </div>
+                    <div className="row2">
+                      <div className="field">
+                        <label>Gewerk</label>
+                        <input
+                          value={form.trade ?? ''}
+                          onChange={(e) => setDetail('trade', e.target.value)}
+                        />
+                      </div>
+                      <div className="field">
+                        <label>Ort</label>
+                        <input
+                          value={form.city ?? ''}
+                          onChange={(e) => setDetail('city', e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    <div className="row2">
+                      <div className="field">
+                        <label>Telefon</label>
+                        <input
+                          value={form.phone ?? ''}
+                          onChange={(e) => setDetail('phone', e.target.value)}
+                        />
+                      </div>
+                      <div className="field">
+                        <label>E-Mail</label>
+                        <input
+                          type="email"
+                          value={form.email ?? ''}
+                          onChange={(e) => setDetail('email', e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    {detailsErr && (
+                      <div className="section-error" role="alert">
+                        {detailsErr}
+                      </div>
+                    )}
+                    <div
+                      style={{
+                        marginTop: 8,
+                        display: 'flex',
+                        gap: 8,
+                        justifyContent: 'flex-end',
+                      }}
+                    >
+                      <button
+                        className="ghost"
+                        disabled={savingDetails}
+                        onClick={() => setEditingDetails(false)}
+                      >
+                        Abbrechen
+                      </button>
+                      <button className="primary" disabled={savingDetails} onClick={saveDetails}>
+                        {savingDetails ? '…' : 'Speichern'}
+                      </button>
+                    </div>
                   </div>
-                )}
-                {lead.phone && (
-                  <div className="kv">
-                    <span className="k">Telefon</span>
-                    <a href={`tel:${lead.phone}`}>{lead.phone}</a>
-                  </div>
-                )}
-                {lead.email && (
-                  <div className="kv">
-                    <span className="k">E-Mail</span>
-                    <a href={`mailto:${lead.email}`}>{lead.email}</a>
-                  </div>
-                )}
-                {lead.mobile_friendly !== null && (
-                  <div className="kv">
-                    <span className="k">Mobilfähig</span>
-                    <span className={lead.mobile_friendly ? 'mobil-yes' : 'mobil-no'}>
-                      {lead.mobile_friendly ? 'ja' : 'nein'}
-                    </span>
-                  </div>
-                )}
-                {lead.tech && (
-                  <div className="kv">
-                    <span className="k">Technik</span>
-                    <span>{lead.tech}</span>
-                  </div>
-                )}
-                {lead.staleness_signal && (
-                  <div className="kv">
-                    <span className="k">Signal</span>
-                    <span>{lead.staleness_signal}</span>
+                ) : (
+                  <div style={{ marginTop: 8 }}>
+                    <div className="kv">
+                      <span className="k">Score</span>
+                      <span>{lead.score}</span>
+                    </div>
+                    {lead.website && (
+                      <div className="kv">
+                        <span className="k">Website</span>
+                        <a href={toHref(lead.website)} target="_blank" rel="noopener noreferrer">
+                          {lead.website.replace(/^https?:\/\//, '')}
+                        </a>
+                      </div>
+                    )}
+                    {lead.phone && (
+                      <div className="kv">
+                        <span className="k">Telefon</span>
+                        <a href={`tel:${lead.phone}`}>{lead.phone}</a>
+                      </div>
+                    )}
+                    {lead.email && (
+                      <div className="kv">
+                        <span className="k">E-Mail</span>
+                        <a href={`mailto:${lead.email}`}>{lead.email}</a>
+                      </div>
+                    )}
+                    {lead.mobile_friendly !== null && (
+                      <div className="kv">
+                        <span className="k">Mobilfähig</span>
+                        <span className={lead.mobile_friendly ? 'mobil-yes' : 'mobil-no'}>
+                          {lead.mobile_friendly ? 'ja' : 'nein'}
+                        </span>
+                      </div>
+                    )}
+                    {lead.tech && (
+                      <div className="kv">
+                        <span className="k">Technik</span>
+                        <span>{lead.tech}</span>
+                      </div>
+                    )}
+                    {lead.staleness_signal && (
+                      <div className="kv">
+                        <span className="k">Signal</span>
+                        <span>{lead.staleness_signal}</span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

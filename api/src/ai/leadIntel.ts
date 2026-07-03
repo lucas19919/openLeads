@@ -50,6 +50,7 @@ export async function analyzeLead(lead: LeadRow, actor: string): Promise<LeadAiR
   )
   const tp = Array.isArray(a.talking_points) ? a.talking_points : []
   const rf = Array.isArray(a.risk_flags) ? a.risk_flags : []
+  const fitScore = Number.isFinite(a.fit_score) ? Math.round(a.fit_score) : null
   db.prepare(
     `INSERT INTO lead_ai (lead_id, summary, qualification, fit_score, next_action,
                           talking_points, risk_flags, model, created_at)
@@ -63,17 +64,31 @@ export async function analyzeLead(lead: LeadRow, actor: string): Promise<LeadAiR
     lead_id: lead.id,
     summary: a.summary ?? null,
     qualification: a.qualification ?? null,
-    fit_score: Number.isFinite(a.fit_score) ? Math.round(a.fit_score) : null,
+    fit_score: fitScore,
     next_action: a.next_action ?? null,
     talking_points: JSON.stringify(tp),
     risk_flags: JSON.stringify(rf),
     model: AI.model,
   })
+  // Let the AI assessment steer the pipeline board: the qualification sets the
+  // priority (urgency) and the model's fit confidence (0..100) becomes the lead
+  // score used to rank leads — so a freshly analysed lead no longer sits at 0.
   const mapped = a.qualification ? QUALIFICATION_PRIORITY[a.qualification] : undefined
+  const sets: string[] = []
+  const params: Record<string, string | number> = { id: lead.id }
   if (mapped && mapped !== lead.priority) {
-    db.prepare("UPDATE leads SET priority = ?, updated_at = datetime('now') WHERE id = ?").run(mapped, lead.id)
+    sets.push('priority = @priority')
+    params.priority = mapped
   }
-  audit({ actor, action: 'ai.analyze_lead', entity: 'lead', entityId: lead.id, detail: { model: AI.model, qualification: a.qualification, priority: mapped } })
+  if (fitScore !== null && fitScore !== lead.score) {
+    sets.push('score = @score')
+    params.score = fitScore
+  }
+  if (sets.length) {
+    sets.push("updated_at = datetime('now')")
+    db.prepare(`UPDATE leads SET ${sets.join(', ')} WHERE id = @id`).run(params)
+  }
+  audit({ actor, action: 'ai.analyze_lead', entity: 'lead', entityId: lead.id, detail: { model: AI.model, qualification: a.qualification, priority: mapped, fit_score: fitScore } })
   return db.prepare('SELECT * FROM lead_ai WHERE lead_id = ?').get(lead.id) as unknown as LeadAiRow
 }
 
