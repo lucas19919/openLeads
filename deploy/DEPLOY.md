@@ -1,14 +1,12 @@
 # Deploying OpenLeads (Docker Compose + nginx)
 
-OpenLeads ships as **one Docker image** that holds the built web app, the API
-that serves it, and the scraper. The simplest production setup is Docker Compose
-on a small VPS behind nginx (TLS). The SQLite DB lives in a named volume so it
-survives image rebuilds.
+OpenLeads ships as **one Docker image** that holds the built web app and the API
+that serves it. The simplest production setup is Docker Compose on a small VPS
+behind nginx (TLS). The SQLite DB lives in a named volume so it survives image
+rebuilds.
 
 ```
  host nginx (TLS) ── crm.example.com ──▶ 127.0.0.1:8787  api container
-                                              │ docker network
- host cron ─▶ docker compose --profile tools run --rm scraper ─▶ http://api:8787
 ```
 
 ## 1. Get the code + build the image
@@ -23,21 +21,18 @@ docker compose build         # builds the bundled Dockerfile → openleads:lates
 
 ## 2. Secrets
 
-Create `api.env` and `scraper.env` next to `docker-compose.yml`:
+Create `api.env` next to `docker-compose.yml`:
 
 ```bash
 # api.env
-SESSION_SECRET=$(openssl rand -hex 32)
-SERVICE_TOKEN=$(openssl rand -hex 24)
+SETTINGS_KEY=$(openssl rand -hex 32)
 WEB_ORIGIN=https://crm.example.com
 ```
 
-```bash
-# scraper.env
-ANTHROPIC_API_KEY=sk-ant-...
-CRM_SERVICE_TOKEN=<same value as SERVICE_TOKEN above>
-# MIN_SCORE=40   # optional; the Scraper tab can override this
-```
+`SETTINGS_KEY` encrypts the credentials you save in the Settings UI (AI API key,
+SMTP password) — generate it once and never rotate it casually, or those stored
+secrets become unreadable. Sessions live server-side in the DB, so no session
+secret is needed.
 
 ## 3. Start it
 
@@ -46,7 +41,9 @@ docker compose up -d api
 ```
 
 The API is published on `127.0.0.1:8787` only — host nginx terminates TLS for
-the public subdomain.
+the public subdomain. The compose file sets `TRUST_PROXY=1` so the API takes the
+client IP from `X-Forwarded-For` (which nginx sets) for rate limiting and the
+audit trail.
 
 ## 4. nginx vhost + TLS
 
@@ -80,28 +77,18 @@ A ready-made vhost is in [`nginx-crm.conf`](nginx-crm.conf).
 docker compose run --rm api npm run seed -- <your-username> '<your-password>'
 ```
 
-Open `https://crm.example.com` and log in.
-
-## 6. Schedule the scraper (daily)
-
-Add a host cron entry:
-
-```cron
-# /etc/cron.d/openleads-scraper  — every day at 06:30
-30 6 * * * root cd /opt/openleads && docker compose --profile tools run --rm scraper >> /var/log/openleads-scraper.log 2>&1
-```
-
-The scraper reads its search raster / limits from the **Scraper** tab in the app
-(falling back to built-in defaults).
+Open `https://crm.example.com` and log in. A fresh database starts with the
+isarwebsites Leistungskatalog (website packages, hosting/Pflege, SEO) prefilled
+— edit prices and items under **Einstellungen**.
 
 ## Day-to-day
 
 - **Update:** `git pull && docker compose build && docker compose up -d api`
 - **Logs:** `docker compose logs -f api`
-- **Import an xlsx:**
+- **Import an xlsx** (writes straight into the DB volume):
   ```bash
   docker compose run --rm -v /path/leads.xlsx:/tmp/leads.xlsx \
-    -e CRM_API_URL=http://api:8787 api npm run import -- /tmp/leads.xlsx
+    api npm run import -- /tmp/leads.xlsx
   ```
 - **Backup the DB** — a consistent, WAL-safe snapshot (`VACUUM INTO`), written to
   `./backups/` on the host. A bare `cp` of `leads.db` can miss un-checkpointed

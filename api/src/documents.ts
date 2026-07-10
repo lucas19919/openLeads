@@ -53,10 +53,34 @@ export function computeTotals(
   return { net_cents, vat_cents, gross_cents: net_cents + vat_cents }
 }
 
+// Explicit column list so reads never drag the signed-document BLOB (up to
+// 10 MB per row) through memory just to render a list or a JSON detail. The
+// flag (signed_doc_data IS NOT NULL) stands in for the bytes.
+const DOC_COLUMNS =
+  'id, kind, number, lead_id, customer_id, client_name, client_address, client_zip, ' +
+  'client_city, client_email, title, intro, notes, status, issue_date, due_date, ' +
+  'small_business, vat_rate, buyer_reference, client_type, client_vat_id, ' +
+  'include_payment_link, accounting_provider, accounting_external_id, accounting_pushed_at, ' +
+  'created_at, updated_at, signed_doc_name, signed_doc_mime, signed_doc_size, ' +
+  '(signed_doc_data IS NOT NULL) AS has_signed_doc'
+
+type DocRowLite = Omit<DocumentRow, 'signed_doc_data'> & { has_signed_doc: number }
+
+function assemble(doc: DocRowLite, items: DocumentItemRow[], paidCents: number): FullDocument {
+  const { has_signed_doc, ...rest } = doc
+  return {
+    ...rest,
+    items,
+    totals: computeTotals(items, !!doc.small_business, doc.vat_rate),
+    paid_cents: paidCents,
+    has_signed_doc: !!has_signed_doc,
+  }
+}
+
 /** Fetch a document with its sorted items and computed totals, or null. */
 export function getDocument(id: number): FullDocument | null {
-  const doc = db.prepare('SELECT * FROM documents WHERE id = ?').get(id) as unknown as
-    | DocumentRow
+  const doc = db.prepare(`SELECT ${DOC_COLUMNS} FROM documents WHERE id = ?`).get(id) as unknown as
+    | DocRowLite
     | undefined
   if (!doc) return null
   const items = db
@@ -65,14 +89,39 @@ export function getDocument(id: number): FullDocument | null {
   const paid = db
     .prepare('SELECT COALESCE(SUM(amount_cents), 0) AS p FROM payments WHERE document_id = ?')
     .get(id) as unknown as { p: number }
-  const { signed_doc_data, ...rest } = doc
-  return {
-    ...rest,
-    items,
-    totals: computeTotals(items, !!doc.small_business, doc.vat_rate),
-    paid_cents: paid.p,
-    has_signed_doc: signed_doc_data != null,
+  return assemble(doc, items, paid.p)
+}
+
+/**
+ * List documents (optionally by kind), newest first, with items and totals.
+ * Three fixed queries total — items and payments are fetched in bulk and
+ * bucketed, instead of two extra queries per document (the old N+1).
+ */
+export function listDocuments(kind?: string): FullDocument[] {
+  const where = kind ? 'WHERE kind = ?' : ''
+  const params = kind ? [kind] : []
+  const docs = db
+    .prepare(`SELECT ${DOC_COLUMNS} FROM documents ${where} ORDER BY created_at DESC, id DESC`)
+    .all(...params) as unknown as DocRowLite[]
+  if (docs.length === 0) return []
+
+  const itemsByDoc = new Map<number, DocumentItemRow[]>()
+  const allItems = db
+    .prepare('SELECT * FROM document_items ORDER BY document_id, sort, id')
+    .all() as unknown as DocumentItemRow[]
+  for (const it of allItems) {
+    const bucket = itemsByDoc.get(it.document_id)
+    if (bucket) bucket.push(it)
+    else itemsByDoc.set(it.document_id, [it])
   }
+
+  const paidByDoc = new Map<number, number>()
+  const paidRows = db
+    .prepare('SELECT document_id, COALESCE(SUM(amount_cents), 0) AS p FROM payments GROUP BY document_id')
+    .all() as unknown as { document_id: number; p: number }[]
+  for (const r of paidRows) paidByDoc.set(r.document_id, r.p)
+
+  return docs.map((d) => assemble(d, itemsByDoc.get(d.id) ?? [], paidByDoc.get(d.id) ?? 0))
 }
 
 /** Replace all line items of a document in one transaction. */
@@ -110,9 +159,9 @@ export function replaceItems(documentId: number, items: DocItemInput[]): void {
  */
 export function finalizeDraft(id: number): FullDocument | null {
   return tx(() => {
-    const doc = db.prepare('SELECT * FROM documents WHERE id = ?').get(id) as unknown as
-      | DocumentRow
-      | undefined
+    const doc = db
+      .prepare('SELECT id, kind, number FROM documents WHERE id = ?')
+      .get(id) as unknown as Pick<DocumentRow, 'id' | 'kind' | 'number'> | undefined
     if (!doc) return null
     if (doc.number) return getDocument(id) // already finalised — no-op
     const s = getSettings()

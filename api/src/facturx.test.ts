@@ -13,8 +13,8 @@ function settings(over: Partial<SettingsRow> = {}): SettingsRow {
     website: null, tax_id: 'DE123456789', iban: 'DE89 3704 0044 0532 0130 00',
     bic: null, bank: null, small_business: 0, vat_rate: 19, payment_terms: 14,
     rechnung_prefix: 'RE-', rechnung_next: 2, angebot_prefix: 'AN-', angebot_next: 1,
-    scraper_trades: null, scraper_towns: null, scraper_region: null, scraper_min_score: null,
-    scraper_max_pairs: null, scraper_per_pair: null, datev_revenue_account: null, datev_debitor_account: null, datev_bank_account: null,
+     
+    datev_revenue_account: null, datev_debitor_account: null, datev_bank_account: null,
     ...over,
   }
 }

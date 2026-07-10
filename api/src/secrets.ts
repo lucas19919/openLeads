@@ -17,9 +17,7 @@ import { db } from './db'
 //
 // The encryption key (SETTINGS_KEY) lives only in the environment, never in the
 // database. That is the whole point: a leaked `.db` file or a downloaded backup
-// contains ciphertext that is useless without the env key. Bootstrap secrets
-// that the app needs *before* it can read the DB — SESSION_SECRET, SERVICE_TOKEN
-// — deliberately stay in .env and are NOT handled here.
+// contains ciphertext that is useless without the env key.
 //
 // Resolution order for every field is: DB value → matching .env var → default.
 // So existing .env-only deployments keep working unchanged.

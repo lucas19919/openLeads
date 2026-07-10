@@ -1,6 +1,5 @@
 # syntax=docker/dockerfile:1
-# One image holds: the built internal web app, the API that serves it, and the
-# scraper. Build context is the crm/ directory.
+# One image holds the built internal web app and the API that serves it.
 
 # ---- Stage 1: build the internal web app (Vite) ----
 FROM node:24-alpine AS web
@@ -15,15 +14,12 @@ RUN npm run build
 FROM node:24-alpine AS runtime
 WORKDIR /app
 
-# Install deps (cached unless the lockfiles change).
+# Install deps (cached unless the lockfile changes).
 COPY api/package.json api/package-lock.json ./api/
 RUN cd api && npm ci
-COPY scraper/package.json scraper/package-lock.json ./scraper/
-RUN cd scraper && npm ci
 
 # App source.
 COPY api/ ./api/
-COPY scraper/ ./scraper/
 
 # Built web app, served by the API in production.
 COPY --from=web /web/dist ./web/dist
@@ -39,5 +35,4 @@ EXPOSE 8787
 # Liveness: the API exposes an unauthenticated /api/health.
 HEALTHCHECK --interval=30s --timeout=4s --start-period=20s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||8787)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-# Default command runs the API. The scraper service overrides this.
 CMD ["npm", "start"]

@@ -1,8 +1,8 @@
 // Lightweight website reader for the copilot's lead tools. Lets the agent turn a
 // bare URL into usable lead facts (Firma, Kontakt) instead of pestering the user
-// for details the site already shows. Self-contained (the scraper's fetchSite is a
-// separate workspace) and deliberately conservative: http/https only, a hard
-// timeout, a byte cap, and a guard against pointing the fetch at our own network.
+// for details the site already shows. Self-contained and deliberately
+// conservative: http/https only, a hard timeout, a byte cap, and a guard
+// against pointing the fetch at our own network.
 
 const USER_AGENT =
   'OpenLeads/1.0 (+https://openleads.local; Lead-Recherche im Auftrag des Betreibers)'

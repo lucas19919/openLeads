@@ -4,6 +4,33 @@ A running log of what's landed, so picking the work back up is easy. Newest firs
 
 ## Latest
 
+- **Rewrite: reorganised, hardened, scraper removed, tailored to isarwebsites.**
+  **Structure:** the 1,500-line `api/src/index.ts` is now a slim composition root;
+  every endpoint moved into `api/src/routes/*` (one module per domain) with shared
+  `middleware.ts` (auth gates, proxy-aware client IP) and `helpers.ts` (one upload
+  validator instead of three copies, CSV/inline-file responses). **Security:**
+  sessions are now server-side DB rows (SHA-256 token hashes only) — logout,
+  password resets and user deletion revoke them for real, and `SESSION_SECRET` is
+  gone entirely; added `hono/csrf` origin checks on mutating requests,
+  `secure-headers` (+ CSP in prod), request-size limits (2 MB JSON / 12 MB uploads /
+  200 MB restore), login rate-limit keyed by real client IP (`TRUST_PROXY`), audited
+  `login.success`/`login.failed` with IP, and `/api/settings` is admin-only in both
+  directions. **Efficiency:** `GET /api/documents` no longer runs 2 queries per
+  document (bulk items + payments buckets), and document reads use an explicit
+  column list so signed-doc BLOBs never ride along in lists. **Removed:** the whole
+  `scraper/` workspace, `/api/scraper/*`, `scrape.ts`, the scraper settings/secret
+  columns (dropped by migration), the Scraper tab/view/types, `SERVICE_TOKEN`
+  (the xlsx CLI now writes via `insertLead` directly), the stale `mcp/` workspace
+  (targeted the removed `/api/v1`), and `docs/INTEGRATIONS.md` (documented removed
+  subsystems). **isarwebsites:** fresh installs seed an 11-item Leistungskatalog
+  (Website Starter/Business/Premium, Relaunch, Hosting & Pflege, SEO, Google
+  Business Profil, …) + default business name; copilot/analyst/outreach prompts
+  now sell websites for isarwebsites; UI rebranded (nav, login, title); README/
+  ROADMAP/DEPLOY/setup-skill rewritten. **125 API tests green**, api + web
+  typecheck clean, web builds; verified live in the browser (login, tabs, seeded
+  catalog under Einstellungen, draft invoice, dashboards) and via curl (401 gating,
+  form-CSRF 403, security headers, logout revocation).
+
 - **Streamline: cut Zeiterfassung + Customer-360, unify document saving.** Trimmed
   back toward a focused tool rather than a swiss-army knife. **Removed** the
   Zeiterfassung module (table, `timetracking.ts`, `/api/time*`, AI time tools,

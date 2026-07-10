@@ -118,6 +118,19 @@ CREATE TABLE IF NOT EXISTS users (
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Server-side sessions. Only a SHA-256 hash of the bearer token is stored, so a
+-- leaked DB/backup cannot be replayed as a login. Rows are the source of truth:
+-- deleting one revokes the session immediately (logout, password reset, user
+-- deletion via the CASCADE).
+CREATE TABLE IF NOT EXISTS sessions (
+  id         INTEGER PRIMARY KEY,
+  token_hash TEXT NOT NULL UNIQUE,
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  expires_at TEXT NOT NULL                -- ISO-8601 UTC
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+
 CREATE TABLE IF NOT EXISTS leads (
   id               INTEGER PRIMARY KEY,
   domain           TEXT UNIQUE,            -- registrable domain, used for dedupe
@@ -136,7 +149,7 @@ CREATE TABLE IF NOT EXISTS leads (
   stage            TEXT NOT NULL DEFAULT 'neu',
   notes            TEXT,                   -- free-text sales notes
   assigned_to      TEXT,                   -- username, for future multi-user
-  source           TEXT DEFAULT 'manual',  -- scraper / manual / import
+  source           TEXT DEFAULT 'manual',  -- manual / import / empfehlung / ...
   created_at       TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -148,7 +161,7 @@ CREATE TABLE IF NOT EXISTS lead_events (
   id         INTEGER PRIMARY KEY,
   lead_id    INTEGER NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
   at         TEXT NOT NULL DEFAULT (datetime('now')),
-  actor      TEXT,                          -- username or 'scraper'
+  actor      TEXT,                          -- username or 'ai'
   type       TEXT NOT NULL,                 -- created / stage_change / note / edit
   from_stage TEXT,
   to_stage   TEXT,
@@ -178,13 +191,7 @@ CREATE TABLE IF NOT EXISTS settings (
   rechnung_prefix TEXT NOT NULL DEFAULT 'RE-',
   rechnung_next   INTEGER NOT NULL DEFAULT 1,
   angebot_prefix  TEXT NOT NULL DEFAULT 'AN-',
-  angebot_next    INTEGER NOT NULL DEFAULT 1,
-  -- Scraper config (newline/comma-separated lists; NULL = use defaults).
-  scraper_trades    TEXT,
-  scraper_towns     TEXT,
-  scraper_min_score INTEGER,
-  scraper_max_pairs INTEGER,
-  scraper_per_pair  INTEGER
+  angebot_next    INTEGER NOT NULL DEFAULT 1
 );
 INSERT OR IGNORE INTO settings (id) VALUES (1);
 
@@ -235,7 +242,7 @@ db.exec(`
 CREATE TABLE IF NOT EXISTS audit_log (
   id         INTEGER PRIMARY KEY,
   at         TEXT NOT NULL DEFAULT (datetime('now')),
-  actor      TEXT,                    -- username, 'scraper', or 'ai'
+  actor      TEXT,                    -- username or 'ai'
   action     TEXT NOT NULL,           -- e.g. lead.update, ai.outreach, dsgvo.erase
   entity     TEXT,                    -- 'lead' | 'document' | 'settings' | ...
   entity_id  INTEGER,
@@ -651,28 +658,37 @@ try {
   // column already gone
 }
 
-// Scraper config columns on the settings table (added after the first release).
+// One-time seeding marker (see seed.ts): whether the isarwebsites defaults
+// (Leistungskatalog etc.) were already offered to this database.
+try {
+  db.exec('ALTER TABLE settings ADD COLUMN defaults_seeded INTEGER NOT NULL DEFAULT 0')
+} catch {
+  // column already exists
+}
+
+// The lead scraper was removed — drop its config columns from databases that
+// still carry them. Fails harmlessly on fresh databases.
 for (const col of [
-  'scraper_trades TEXT',
-  'scraper_towns TEXT',
-  'scraper_region TEXT', // region phrase for the discovery prompt (was hardcoded)
-  'scraper_min_score INTEGER',
-  'scraper_max_pairs INTEGER',
-  'scraper_per_pair INTEGER',
+  'scraper_trades',
+  'scraper_towns',
+  'scraper_region',
+  'scraper_min_score',
+  'scraper_max_pairs',
+  'scraper_per_pair',
+  'scraper_ai_api_key_enc',
 ]) {
   try {
-    db.exec(`ALTER TABLE settings ADD COLUMN ${col}`)
+    db.exec(`ALTER TABLE settings DROP COLUMN ${col}`)
   } catch {
-    // column already exists
+    // column already gone
   }
 }
 
 // Operator-editable AI provider + SMTP connection, settable from the Settings UI
 // instead of .env. Plain config is stored as-is; the two secrets (AI key, SMTP
 // password) are stored ENCRYPTED — see secrets.ts. Any value here overrides the
-// matching .env var; .env stays the fallback. Bootstrap secrets (SESSION_SECRET,
-// SERVICE_TOKEN) are NOT here on purpose: the app needs them before it can read
-// this table.
+// matching .env var; .env stays the fallback. The encryption key (SETTINGS_KEY)
+// is NOT here on purpose: it must never live next to the ciphertext.
 for (const col of [
   'ai_base_url TEXT',
   'ai_model TEXT',
@@ -684,9 +700,6 @@ for (const col of [
   'smtp_pass_enc TEXT', // AES-256-GCM ciphertext, never plaintext
   'smtp_secure INTEGER',
   'smtp_from TEXT',
-  // Lead-discovery API key (the scraper inherits it when run from the UI; the
-  // model is the operator's default AI model). Encrypted like the other secrets.
-  'scraper_ai_api_key_enc TEXT', // AES-256-GCM ciphertext, never plaintext
 ]) {
   try {
     db.exec(`ALTER TABLE settings ADD COLUMN ${col}`)
@@ -759,12 +772,6 @@ export interface SettingsRow {
   rechnung_next: number
   angebot_prefix: string
   angebot_next: number
-  scraper_trades: string | null
-  scraper_towns: string | null
-  scraper_region: string | null
-  scraper_min_score: number | null
-  scraper_max_pairs: number | null
-  scraper_per_pair: number | null
   datev_revenue_account: string | null
   datev_debitor_account: string | null
   datev_bank_account: string | null
@@ -781,7 +788,6 @@ export interface SettingsRow {
   smtp_pass_enc?: string | null
   smtp_secure?: number | null
   smtp_from?: string | null
-  scraper_ai_api_key_enc?: string | null
   // AGB text + contract numbering (added by a late migration).
   agb_text?: string | null
   contract_prefix?: string

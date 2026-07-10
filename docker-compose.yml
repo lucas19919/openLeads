@@ -7,9 +7,9 @@ services:
     image: ${OPENLEADS_IMAGE:-openleads:latest}
     build: .
     restart: unless-stopped
-    # api.env holds: SESSION_SECRET, SERVICE_TOKEN, WEB_ORIGIN, and (optional)
-    # the AI core + mail vars: AI_BASE_URL, AI_MODEL, AI_API_KEY,
-    # SMTP_HOST/PORT/USER/PASS/FROM. See api/.env.example for the full list.
+    # api.env holds: SETTINGS_KEY, WEB_ORIGIN, and (optional) the AI core + mail
+    # vars: AI_BASE_URL, AI_MODEL, AI_API_KEY, SMTP_HOST/PORT/USER/PASS/FROM.
+    # See api/.env.example for the full list.
     env_file:
       - ./api.env
     environment:
@@ -18,6 +18,7 @@ services:
       PORT: "8787"
       DB_PATH: /data/leads.db
       WEB_DIST: /app/web/dist
+      TRUST_PROXY: "1" # host nginx sets X-Forwarded-For
     # Reach an Ollama running on the *host* (the on-prem AI default) from inside
     # the container via this name; set AI_BASE_URL=http://host.docker.internal:11434/v1
     extra_hosts:
@@ -26,19 +27,6 @@ services:
       - crm-data:/data # SQLite DB survives image updates
     ports:
       - "127.0.0.1:8787:8787" # only localhost — host nginx proxies the subdomain
-
-  # One-shot lead scraper. Not started by `up` (tools profile). Run it with:
-  #   docker compose --profile tools run --rm scraper
-  # Schedule it from host cron for a daily run.
-  scraper:
-    image: ${OPENLEADS_IMAGE:-openleads:latest}
-    profiles: ["tools"]
-    working_dir: /app/scraper
-    env_file:
-      - ./scraper.env # ANTHROPIC_API_KEY, CRM_SERVICE_TOKEN, MIN_SCORE
-    environment:
-      CRM_API_URL: http://api:8787
-    command: ["npm", "start"]
 
 volumes:
   crm-data:

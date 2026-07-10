@@ -1,25 +1,20 @@
-// Import an existing lead .xlsx into the CRM via the API (dedupes by domain).
+// Import an existing lead .xlsx straight into the database (dedupes by domain).
 //
 //   Usage: npm run import -- <path-to.xlsx>
 //
-// The API must be running. Most people will use the "Import" button in the web
-// app instead — this CLI is for server-side bulk loads. Uses the same parser as
-// the upload endpoint (auto-detects the header row, maps German/English columns).
+// Most people will use the "Import" button in the web app instead — this CLI is
+// for server-side bulk loads. Uses the same parser and insert logic as the
+// upload endpoint (auto-detects the header row, maps German/English columns),
+// writing directly via insertLead(), so no running API or token is needed.
 import '../src/env'
 import ExcelJS from 'exceljs'
 import { parseWorksheet } from '../src/import'
-
-const API = process.env.CRM_API_URL ?? `http://127.0.0.1:${process.env.PORT ?? 8787}`
-const TOKEN = process.env.SERVICE_TOKEN ?? ''
+import { insertLead } from '../src/leads'
 
 async function main() {
   const path = process.argv[2]
   if (!path) {
     console.error('Usage: npm run import -- <path-to.xlsx>')
-    process.exit(1)
-  }
-  if (!TOKEN) {
-    console.error('SERVICE_TOKEN missing in crm/api/.env')
     process.exit(1)
   }
 
@@ -45,24 +40,12 @@ async function main() {
 
   let posted = 0
   let deduped = 0
-  let skipped = 0
   for (const lead of leads) {
-    const res = await fetch(`${API}/api/leads`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` },
-      body: JSON.stringify(lead),
-    })
-    if (!res.ok) {
-      skipped++
-      continue
-    }
-    const body = (await res.json().catch(() => null)) as { deduped?: boolean } | null
-    if (!body) skipped++
-    else if (body.deduped) deduped++
+    if (insertLead({ ...lead, source: 'import' }, 'cli-import').deduped) deduped++
     else posted++
   }
 
-  console.log(`Import fertig. Neu: ${posted}, Dedupe: ${deduped}, übersprungen: ${skipped}`)
+  console.log(`Import fertig. Neu: ${posted}, Dedupe: ${deduped}`)
 }
 
 main().catch((e) => {

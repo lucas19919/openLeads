@@ -27,9 +27,32 @@ export function normalizeTags(input: unknown): string | null {
   return out.length ? out.join(',') : null
 }
 
+/**
+ * List leads with the shared stage/free-text filter — the one query behind both
+ * GET /api/leads and the CSV export, so the export always matches the view.
+ */
+export function queryLeads(stage?: string, q?: string): LeadRow[] {
+  const clauses: string[] = []
+  const params: string[] = []
+  if (stage && STAGES.includes(stage as never)) {
+    clauses.push('stage = ?')
+    params.push(stage)
+  }
+  const term = q?.trim()
+  if (term) {
+    clauses.push('(company LIKE ? OR city LIKE ? OR trade LIKE ? OR website LIKE ?)')
+    const like = `%${term}%`
+    params.push(like, like, like, like)
+  }
+  const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''
+  return db
+    .prepare(`SELECT * FROM leads ${where} ORDER BY score DESC, created_at DESC`)
+    .all(...params) as unknown as LeadRow[]
+}
+
 // Insert one lead. Dedupes by registrable domain so already-known businesses are
-// never re-added. Shared by the create endpoint, the public API, and the xlsx
-// import. Emits 'lead.created' only on a genuine insert (never on a dedupe hit).
+// never re-added. Shared by the create endpoint and the xlsx import. Emits
+// 'lead.created' only on a genuine insert (never on a dedupe hit).
 export function insertLead(
   b: Record<string, unknown>,
   actor: string,

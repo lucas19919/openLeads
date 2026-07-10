@@ -1,5 +1,5 @@
 import { db, ROLES, type UserRow } from './db'
-import { hashPassword } from './auth'
+import { hashPassword, destroyUserSessions } from './auth'
 
 // Multi-user account management. Roles are 'admin' (may manage users + settings)
 // and 'member' (works the pipeline + invoicing). A single-operator install has
@@ -69,6 +69,9 @@ export function updateUser(
     params.password_hash = hashPassword(String(patch.password))
   }
   if (sets.length) db.prepare(`UPDATE users SET ${sets.join(', ')} WHERE id = @id`).run(params)
+  // A password reset invalidates every existing login of that user — whoever
+  // held the old credential (or a stolen cookie) is signed out immediately.
+  if (patch.password !== undefined) destroyUserSessions(id)
   return db
     .prepare('SELECT id, username, role, created_at FROM users WHERE id = ?')
     .get(id) as unknown as PublicUser

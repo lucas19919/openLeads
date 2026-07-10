@@ -9,7 +9,7 @@
     "import": "tsx scripts/import-xlsx.ts",
     "backup": "tsx scripts/backup.ts",
     "restore": "tsx scripts/restore.ts",
-    "test": "node --import tsx --test --test-concurrency=1 src/documents.test.ts src/pdf.test.ts src/validate.test.ts src/facturx.test.ts src/mailer.test.ts src/export.test.ts src/dsgvo.test.ts src/payments.test.ts src/expenses.test.ts src/subscriptions.test.ts src/backup.test.ts src/recurring.test.ts src/contracts.test.ts src/catalog.test.ts src/dashboard.test.ts src/customers.test.ts src/report.test.ts src/leads.test.ts src/leadIntel.test.ts src/scrape.test.ts src/ai-leadtools.test.ts src/ai-newtools.test.ts"
+    "test": "node --import tsx --test --test-concurrency=1 src/documents.test.ts src/pdf.test.ts src/validate.test.ts src/facturx.test.ts src/mailer.test.ts src/export.test.ts src/dsgvo.test.ts src/payments.test.ts src/expenses.test.ts src/subscriptions.test.ts src/backup.test.ts src/recurring.test.ts src/contracts.test.ts src/catalog.test.ts src/dashboard.test.ts src/customers.test.ts src/report.test.ts src/leads.test.ts src/leadIntel.test.ts src/ai-leadtools.test.ts src/ai-newtools.test.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",

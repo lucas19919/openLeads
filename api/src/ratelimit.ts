@@ -11,7 +11,10 @@ interface Window {
 
 export function rateLimit(opts: { windowMs: number; max: number; key?: (c: Context) => string }): MiddlewareHandler {
   const hits = new Map<string, Window>()
-  const keyOf = opts.key ?? ((c: Context) => c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ?? 'global')
+  // Callers pass an explicit key (user id, or clientIp from routes/middleware —
+  // which only trusts X-Forwarded-For behind a declared proxy). The fallback is
+  // a single global bucket, safe but coarse.
+  const keyOf = opts.key ?? (() => 'global')
 
   // Opportunistic cleanup so the map can't grow unbounded.
   function sweep(now: number) {
