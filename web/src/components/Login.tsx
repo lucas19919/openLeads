@@ -28,8 +28,10 @@ export function Login({ onSuccess }: { onSuccess: (u: User) => void }) {
   return (
     <div className="login-wrap">
       <form className="login-card" onSubmit={submit}>
-        <h1>OpenLeads</h1>
-        <div className="sub">Interne Tools — Leads & Rechnungen</div>
+        <h1 className="brand">
+          Open<i>Leads</i>
+        </h1>
+        <div className="sub">isarwebsites · Interne Tools — Leads & Rechnungen</div>
         <div className="field">
           <label>Benutzer</label>
           <input

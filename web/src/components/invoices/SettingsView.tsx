@@ -59,7 +59,7 @@ export function SettingsView({ user, config }: { user: User; config: Config }) {
   return (
     <>
       <div className="toolbar">
-        <span className="page-title">Einstellungen</span>
+        <h1 className="page-title">Einstellungen</h1>
         <div className="spacer" />
         {error && <span className="user-chip" style={{ color: 'var(--danger, #c0392b)' }}>{error}</span>}
         {saved && <span className="user-chip">Gespeichert</span>}

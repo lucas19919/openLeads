@@ -3,7 +3,11 @@ import { parseTags } from '../util'
 import type { Lead } from '../types'
 
 function prioColor(p: string) {
-  return p === 'hoch' ? '#c0392b' : p === 'mittel' ? '#d98324' : '#9aa7b2'
+  return p === 'hoch'
+    ? 'var(--prio-hoch)'
+    : p === 'mittel'
+      ? 'var(--prio-mittel)'
+      : 'var(--prio-niedrig)'
 }
 
 function Card({ lead, onOpen }: { lead: Lead; onOpen: (id: number) => void }) {

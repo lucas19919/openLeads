@@ -9,6 +9,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fontsource/public-sans": "^5.2.7",
+    "@fontsource/spectral": "^5.2.8",
     "react": "^19.2.6",
     "react-dom": "^19.2.6"
   },

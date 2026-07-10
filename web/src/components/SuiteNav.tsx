@@ -7,7 +7,6 @@ export type Module =
   | 'dashboard'
   | 'copilot'
   | 'leads'
-  | 'scraper'
   | 'documents'
   | 'recurring'
   | 'contracts'
@@ -19,13 +18,14 @@ const TABS: { id: Module; label: string; adminOnly?: boolean }[] = [
   { id: 'dashboard', label: 'Übersicht' },
   { id: 'copilot', label: 'Chat' },
   { id: 'leads', label: 'Leads' },
-  { id: 'scraper', label: 'Scraper' },
   { id: 'documents', label: 'Rechnungen' },
   { id: 'recurring', label: 'Abo-Rechnungen' },
   { id: 'contracts', label: 'Verträge' },
   { id: 'expenses', label: 'Ausgaben' },
-  { id: 'settings', label: 'Einstellungen' },
+  { id: 'settings', label: 'Einstellungen', adminOnly: true },
 ]
+
+const ROLE_LABEL: Record<string, string> = { admin: 'Admin', member: 'Team' }
 
 export function SuiteNav({
   module,
@@ -39,7 +39,7 @@ export function SuiteNav({
   onLogout: () => void
 }) {
   const [aiStatus, setAiStatus] = useState<AiStatus | null>(null)
-  // Mobile only: the tab list collapses behind a burger. Selecting a tab closes it.
+  // Mobile only: the nav list collapses behind a burger. Selecting a tab closes it.
   const [menuOpen, setMenuOpen] = useState(false)
   useEffect(() => {
     let alive = true
@@ -60,9 +60,9 @@ export function SuiteNav({
   }
 
   return (
-    <div className={`suite-nav${menuOpen ? ' open' : ''}`}>
+    <aside className={`side${menuOpen ? ' open' : ''}`}>
       <div className="brand">
-        Open<span>Leads</span>
+        Open<i>Leads</i>
       </div>
       <button
         className="nav-burger"
@@ -72,23 +72,33 @@ export function SuiteNav({
       >
         {menuOpen ? '✕' : '☰'}
       </button>
-      <nav className="suite-tabs">
+      <nav className="nav">
         {tabs.map((t) => (
           <button
             key={t.id}
-            className={module === t.id ? 'active' : ''}
+            className={`nav-item${module === t.id ? ' active' : ''}`}
             onClick={() => pick(t.id)}
           >
+            <span className="dot" />
             {t.label}
           </button>
         ))}
       </nav>
-      <div className="spacer" />
-      <AiBadge status={aiStatus} />
-      <span className="user-chip">{user.username}</span>
-      <button className="ghost" onClick={onLogout}>
-        Abmelden
-      </button>
-    </div>
+      <div className="side-foot">
+        <AiBadge status={aiStatus} />
+        <div className="side-user">
+          <span className="avatar">{user.username.slice(0, 2)}</span>
+          <div>
+            <div className="side-user-name">{user.username}</div>
+            <div className="side-user-role">
+              {ROLE_LABEL[user.role] ?? user.role} · isarwebsites
+            </div>
+          </div>
+        </div>
+        <button className="ghost" onClick={onLogout}>
+          Abmelden
+        </button>
+      </div>
+    </aside>
   )
 }

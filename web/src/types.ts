@@ -79,12 +79,6 @@ export interface Settings {
   rechnung_next: number
   angebot_prefix: string
   angebot_next: number
-  scraper_trades: string | null
-  scraper_towns: string | null
-  scraper_region: string | null
-  scraper_min_score: number | null
-  scraper_max_pairs: number | null
-  scraper_per_pair: number | null
   datev_revenue_account?: string | null
   datev_debitor_account?: string | null
   datev_bank_account?: string | null
@@ -100,60 +94,12 @@ export interface Settings {
   smtp_from?: string | null
   ai_api_key_set?: boolean
   smtp_pass_set?: boolean
-  scraper_ai_api_key_set?: boolean
   settings_key_configured?: boolean
   // Verträge / AGB
   agb_text?: string | null
   contract_prefix?: string
   contract_next?: number
   agb_attach_documents?: number
-}
-
-export interface ScraperConfig {
-  trades: string[]
-  towns: string[]
-  region: string
-  min_score: number
-  max_pairs: number
-  per_pair: number
-  using_defaults: { trades: boolean; towns: boolean; region: boolean }
-}
-
-export interface ScrapeResult {
-  ok: boolean
-  detail: string
-  posted?: number
-  deduped?: number
-  skipped?: number
-  dry: boolean
-}
-
-export interface ScrapeRun {
-  running: boolean
-  dry: boolean
-  started_at: string | null
-  finished_at: string | null
-  last: ScrapeResult | null
-}
-
-export interface ScraperStatus {
-  total: number
-  scraped: number
-  last: string | null
-  today: number
-  byStage: { stage: string; n: number }[]
-  recent: {
-    id: number
-    company: string | null
-    trade: string | null
-    city: string | null
-    score: number
-    priority: string
-    created_at: string
-  }[]
-  run: ScrapeRun
-  reachable: boolean
-  service_token_configured: boolean
 }
 
 export interface DocItem {

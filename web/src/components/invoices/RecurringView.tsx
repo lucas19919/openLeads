@@ -279,7 +279,7 @@ export function RecurringView({ config }: { config: Config }) {
   return (
     <>
       <div className="toolbar">
-        <span className="page-title">Abo-Rechnungen</span>
+        <h1 className="page-title">Abo-Rechnungen</h1>
         <span className="user-chip">{rows.length} Abos</span>
         <div className="spacer" />
         <button onClick={runDue} disabled={busy}>Fällige jetzt erzeugen</button>
@@ -287,10 +287,10 @@ export function RecurringView({ config }: { config: Config }) {
       </div>
 
       <div className="content">
-        <p className="settings-hint">
+        <div className="hint">
           Ein Abo erzeugt je Turnus einen <strong>Rechnungsentwurf</strong> — du prüfst und schreibst ihn
           selbst fest. Nichts wird automatisch versendet.
-        </p>
+        </div>
         {msg && <div className="section-info">{msg}</div>}
 
         {rows.length === 0 ? (

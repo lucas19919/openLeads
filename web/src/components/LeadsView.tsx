@@ -86,8 +86,8 @@ export function LeadsView({
       <div className="content">
         {leads.length === 0 ? (
           <div className="center-muted">
-            Noch keine Leads. Der Scraper füllt sie automatisch — oder lege manuell
-            einen an („+ Lead").
+            Noch keine Leads. Importiere eine Liste (.xlsx), lass den KI-Chat eine
+            Website prüfen — oder lege manuell einen an („+ Lead").
           </div>
         ) : view === 'board' ? (
           <Board stages={config.stages} leads={filtered} onOpen={setSelectedId} onMove={onMove} />

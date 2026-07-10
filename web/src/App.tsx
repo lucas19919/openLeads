@@ -10,7 +10,6 @@ import { SettingsView } from './components/invoices/SettingsView'
 import { DashboardView } from './components/DashboardView'
 import { RecurringView } from './components/invoices/RecurringView'
 import { ContractsView } from './components/contracts/ContractsView'
-import { ScraperView } from './components/scraper/ScraperView'
 import { ExpensesModule } from './components/expenses/ExpensesModule'
 
 export default function App() {
@@ -44,29 +43,30 @@ export default function App() {
   return (
     <div className="app">
       <SuiteNav module={module} setModule={setModule} user={user} onLogout={onLogout} />
-      {module === 'dashboard' && <DashboardView config={config!} onNavigate={setModule} />}
-      {module === 'copilot' && <CopilotView />}
-      {module === 'leads' && (
-        <LeadsView
-          config={config!}
-          onCreateInvoice={(lead) => {
-            setInvoiceLead(lead)
-            setModule('documents')
-          }}
-        />
-      )}
-      {module === 'documents' && (
-        <InvoicesView
-          config={config!}
-          prefillLead={invoiceLead}
-          onPrefillHandled={() => setInvoiceLead(null)}
-        />
-      )}
-      {module === 'scraper' && <ScraperView />}
-      {module === 'recurring' && <RecurringView config={config!} />}
-      {module === 'contracts' && <ContractsView config={config!} />}
-      {module === 'expenses' && <ExpensesModule config={config!} />}
-      {module === 'settings' && <SettingsView user={user} config={config!} />}
+      <div className="main">
+        {module === 'dashboard' && <DashboardView config={config!} onNavigate={setModule} />}
+        {module === 'copilot' && <CopilotView />}
+        {module === 'leads' && (
+          <LeadsView
+            config={config!}
+            onCreateInvoice={(lead) => {
+              setInvoiceLead(lead)
+              setModule('documents')
+            }}
+          />
+        )}
+        {module === 'documents' && (
+          <InvoicesView
+            config={config!}
+            prefillLead={invoiceLead}
+            onPrefillHandled={() => setInvoiceLead(null)}
+          />
+        )}
+        {module === 'recurring' && <RecurringView config={config!} />}
+        {module === 'contracts' && <ContractsView config={config!} />}
+        {module === 'expenses' && <ExpensesModule config={config!} />}
+        {module === 'settings' && <SettingsView user={user} config={config!} />}
+      </div>
     </div>
   )
 }

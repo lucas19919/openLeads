@@ -38,7 +38,7 @@ function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : 'Unbekannter Fehler'
 }
 
-// Imported/scraped websites are often bare domains ("foo.de") with no scheme.
+// Imported websites are often bare domains ("foo.de") with no scheme.
 // Without a scheme the browser treats the link as relative — prepend https://.
 function toHref(url: string): string {
   return /^https?:\/\//i.test(url) ? url : `https://${url}`
@@ -302,7 +302,7 @@ export function LeadDetail({
                   alignItems: 'center',
                 }}
               >
-                <strong style={{ fontSize: 16 }}>{lead.company ?? 'Lead'}</strong>
+                <span className="drawer-title">{lead.company ?? 'Lead'}</span>
                 <button className="ghost" onClick={onClose}>
                   Schließen
                 </button>
@@ -316,7 +316,7 @@ export function LeadDetail({
                   ` · aktualisiert ${fmtDate(lead.updated_at.slice(0, 10))}`}
               </div>
               <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <button onClick={() => onCreateInvoice(lead)}>
+                <button className="primary" onClick={() => onCreateInvoice(lead)}>
                   Angebot / Rechnung erstellen
                 </button>
               </div>

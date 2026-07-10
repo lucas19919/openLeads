@@ -100,7 +100,7 @@ export function CopilotView() {
   return (
     <>
       <div className="toolbar">
-        <span className="page-title">Chat</span>
+        <h1 className="page-title">Chat</h1>
         <div className="spacer" />
         <AiBadge status={status} />
       </div>
@@ -134,6 +134,13 @@ export function CopilotView() {
           {turns.length === 0 && digest && (
             <div className="digest">
               <h2>{digest.headline}</h2>
+              {digest.priorities.length > 0 && (
+                <div className="digest-sub">
+                  Dein KI-Tagesbriefing · {digest.priorities.length}{' '}
+                  {digest.priorities.length === 1 ? 'Sache, die' : 'Dinge, die'} heute
+                  {digest.priorities.length === 1 ? ' zählt' : ' zählen'}
+                </div>
+              )}
               {digest.priorities.length === 0 ? (
                 <p className="muted">Nichts Dringendes — guter Zeitpunkt für neue Leads.</p>
               ) : (

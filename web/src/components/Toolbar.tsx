@@ -24,7 +24,7 @@ export function Toolbar({
   const fileRef = useRef<HTMLInputElement>(null)
   return (
     <div className="toolbar">
-      <span className="page-title">Leads</span>
+      <h1 className="page-title">Leads</h1>
       <div className="seg">
         <button
           className={view === 'board' ? 'active' : ''}
@@ -64,7 +64,7 @@ export function Toolbar({
       <a className="btn" href={exportHref} download title="Sichtbare Leads als CSV exportieren">
         Export CSV
       </a>
-      <button onClick={onNew}>+ Lead</button>
+      <button className="primary" onClick={onNew}>+ Lead</button>
     </div>
   )
 }

@@ -11,6 +11,12 @@ const MONTH_LABEL = (m: string) => {
   return `${mm}/${y.slice(2)}`
 }
 
+const TODAY = new Date().toLocaleDateString('de-DE', {
+  day: 'numeric',
+  month: 'long',
+  year: 'numeric',
+})
+
 export function DashboardView({
   config,
   onNavigate,
@@ -39,9 +45,9 @@ export function DashboardView({
   return (
     <>
       <div className="toolbar">
-        <span className="page-title">Übersicht</span>
+        <h1 className="page-title">Übersicht</h1>
         <div className="spacer" />
-        <span className="user-chip">Live aus deinen Daten</span>
+        <span className="user-chip">Live aus deinen Daten · {TODAY}</span>
       </div>
 
       <div className="content">
@@ -54,7 +60,7 @@ export function DashboardView({
 
           <button className="dash-card dash-clickable" onClick={() => onNavigate('documents')}>
             <span className="dash-card-label">Überfällig</span>
-            <span className="dash-card-value" style={{ color: data.invoices.overdue_count ? 'var(--danger)' : 'var(--text)' }}>
+            <span className={`dash-card-value${data.invoices.overdue_count ? ' num-neg' : ''}`}>
               {euro(data.invoices.overdue_total_cents)}
             </span>
             <span className="dash-card-sub">{data.invoices.overdue_count} Rechnung(en) über Frist</span>
@@ -66,20 +72,9 @@ export function DashboardView({
             <span className="dash-card-sub">davon {euro(data.invoices.paid_total_cents)} bezahlt</span>
           </div>
 
-          <button className="dash-card dash-clickable" onClick={() => onNavigate('expenses')}>
-            <span className="dash-card-label">Ausgaben</span>
-            <span className="dash-card-value">{euro(data.expenses.gross_total_cents)}</span>
-            <span className="dash-card-sub">
-              {euro(data.expenses.ytd_gross_cents)} im Jahr · {data.expenses.count} Belege
-            </span>
-          </button>
-
           <div className="dash-card">
             <span className="dash-card-label">Ergebnis (Netto)</span>
-            <span
-              className="dash-card-value"
-              style={{ color: data.result.net_cents < 0 ? 'var(--danger)' : 'var(--ok)' }}
-            >
+            <span className={`dash-card-value ${data.result.net_cents < 0 ? 'num-neg' : 'num-pos'}`}>
               {euro(data.result.net_cents)}
             </span>
             <span className="dash-card-sub">Umsatz netto − Ausgaben netto</span>
@@ -99,10 +94,12 @@ export function DashboardView({
             </span>
           </div>
 
-          <button className="dash-card dash-clickable" onClick={() => onNavigate('documents')}>
-            <span className="dash-card-label">Entwürfe</span>
-            <span className="dash-card-value">{data.invoices.drafts}</span>
-            <span className="dash-card-sub">offene Rechnungsentwürfe</span>
+          <button className="dash-card dash-clickable" onClick={() => onNavigate('expenses')}>
+            <span className="dash-card-label">Ausgaben</span>
+            <span className="dash-card-value">{euro(data.expenses.gross_total_cents)}</span>
+            <span className="dash-card-sub">
+              {euro(data.expenses.ytd_gross_cents)} im Jahr · {data.expenses.count} Belege
+            </span>
           </button>
 
           <button className="dash-card dash-clickable" onClick={() => onNavigate('contracts')}>
@@ -112,34 +109,19 @@ export function DashboardView({
               {euro(data.contracts.active_value_cents)} Wert · {data.contracts.drafts} Entwürfe
             </span>
           </button>
+
+          <button className="dash-card dash-clickable" onClick={() => onNavigate('documents')}>
+            <span className="dash-card-label">Entwürfe</span>
+            <span className="dash-card-value">{data.invoices.drafts}</span>
+            <span className="dash-card-sub">offene Rechnungsentwürfe</span>
+          </button>
         </div>
 
-        {data.contracts.expiring_soon.length > 0 && (
-          <fieldset className="doc-block">
-            <legend>Verträge mit Fristende (60 Tage)</legend>
-            <div className="table-wrap">
-              <table className="items-table">
-                <thead>
-                  <tr><th>Ende</th><th>Vertrag</th><th>Kunde</th><th>Kündigungsfrist</th></tr>
-                </thead>
-                <tbody>
-                  {data.contracts.expiring_soon.map((c) => (
-                    <tr key={c.id} className="dash-clickable" onClick={() => onNavigate('contracts')}>
-                      <td data-label="Ende">{c.end_date ? fmtDate(c.end_date) : '—'}</td>
-                      <td data-label="Vertrag" className="cell-primary">{c.number ? `${c.number} · ` : ''}{c.title ?? '—'}</td>
-                      <td data-label="Kunde">{c.client_name ?? '—'}</td>
-                      <td data-label="Kündigungsfrist">{c.notice_period ?? '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </fieldset>
-        )}
-
         <div className="dash-row2">
-          <fieldset className="doc-block">
-            <legend>Umsatz (12 Monate)</legend>
+          <div className="panel">
+            <div className="panel-title">
+              Umsatz<em>letzte 12 Monate</em>
+            </div>
             {data.revenue_by_month.every((m) => m.gross_cents === 0) ? (
               <div className="center-muted" style={{ padding: 16 }}>Noch kein ausgestellter Umsatz.</div>
             ) : (
@@ -158,19 +140,24 @@ export function DashboardView({
                 ))}
               </div>
             )}
-          </fieldset>
+          </div>
 
-          <fieldset className="doc-block">
-            <legend>Pipeline</legend>
+          <div className="panel">
+            <div className="panel-title">
+              Pipeline<em>nach Phase</em>
+            </div>
             <div className="dash-bars">
-              {stageOrder.map((stage) => {
+              {stageOrder.map((stage, i) => {
                 const n = stageCounts.get(stage) ?? 0
+                // Early funnel stages render muted teal; the late stages
+                // (Angebot, Gewonnen) get the solid accent, as in the design.
+                const soft = i < stageOrder.length - 2
                 return (
                   <div className="dash-bar-row" key={stage}>
                     <span className="dash-bar-label dash-bar-label-stage">{stage}</span>
                     <div className="dash-bar-track">
                       <div
-                        className="dash-bar-fill dash-bar-stage"
+                        className={`dash-bar-fill${soft ? ' dash-bar-soft' : ''}`}
                         style={{ width: `${Math.round((n / maxStage) * 100)}%` }}
                       />
                     </div>
@@ -179,8 +166,35 @@ export function DashboardView({
                 )
               })}
             </div>
-          </fieldset>
+          </div>
         </div>
+
+        {data.contracts.expiring_soon.length > 0 && (
+          <div className="panel">
+            <div className="panel-title">
+              Verträge mit Fristende<em>nächste 60 Tage</em>
+            </div>
+            <div className="table-wrap">
+              <table className="items-table">
+                <thead>
+                  <tr><th>Ende</th><th>Vertrag</th><th>Kunde</th><th>Kündigungsfrist</th></tr>
+                </thead>
+                <tbody>
+                  {data.contracts.expiring_soon.map((c) => (
+                    <tr key={c.id} className="dash-clickable" onClick={() => onNavigate('contracts')}>
+                      <td data-label="Ende">{c.end_date ? fmtDate(c.end_date) : '—'}</td>
+                      <td data-label="Vertrag" className="cell-primary">{c.number ? `${c.number} · ` : ''}{c.title ?? '—'}</td>
+                      <td data-label="Kunde">{c.client_name ?? '—'}</td>
+                      <td data-label="Kündigungsfrist">
+                        {c.notice_period ? <span className="tag">{c.notice_period}</span> : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
     </>
   )

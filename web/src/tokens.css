@@ -1,0 +1,99 @@
+/* ============================================================================
+   OpenLeads design tokens — "Kanzlei" redesign.
+   Single source of truth for color, type, spacing, radius and shadow.
+   Every rule in styles.css references these; no raw hex outside this file.
+   ========================================================================== */
+
+:root {
+  /* ---- color: warm neutral base ---- */
+  --canvas: #efebe3;         /* body background behind the app */
+  --surface-app: #f6f3ed;    /* main content background */
+  --surface-chrome: #fbf9f4; /* sidebar, top bar, table headers */
+  --surface-card: #ffffff;   /* cards, panels, tables, inputs */
+  --ink: #211e1a;            /* primary text, headings */
+  --ink-2: #3a362e;          /* body text in tables/cells */
+  --muted: #918978;          /* secondary text, labels */
+  --muted-2: #a49c8c;        /* faint captions, sub-values */
+  --nav-ink: #6b655a;        /* resting nav/segmented/ghost text */
+  --column: #f1ece2;         /* kanban column bg, hover fills, neutral chips */
+  --hover-fill: #f4efe6;     /* secondary-button hover bg */
+
+  /* ---- color: lines ---- */
+  --line: #e7e1d6;           /* structural dividers (sidebar/top/drawer) */
+  --line-card: #eae4d8;      /* card & panel borders */
+  --line-row: #efe9de;       /* table row dividers */
+  --line-input: #e0d9cc;     /* input & secondary-button borders */
+  --line-input-hover: #d3cabb;
+
+  /* ---- color: accent (OpenLeads teal) ---- */
+  --accent: #1f7a8c;             /* active nav, primary buttons, bars, links */
+  --accent-dark: #155e6c;        /* primary hover, link hover, accent text */
+  --accent-soft: #e6f1f3;        /* tag bg, soft-accent chips, active thread */
+  --accent-soft-hover: #dbedf0;
+  --accent-soft-border: #cfe6ea; /* borders on soft-accent elements */
+  --accent-soft-border-2: #bcdfe6;
+  --accent-bar-soft: #a3ccd3;    /* muted teal for secondary bars */
+
+  /* ---- color: status ---- */
+  --ok: #2e8b57;             /* paid/active text; KI-online badge */
+  --ok-soft: #e2f3ea;        /* paid/active pill bg */
+  --ki-badge-bg: #eef8f1;    /* KI "lokal" badge bg */
+  --ki-badge-border: #cbe6d5;
+  --danger: #c0392b;         /* overdue, "nein", hoch, errors */
+  --danger-ink: #a6432f;     /* negative result figure */
+  --danger-soft: #fbe3e0;    /* danger pill bg, hot score chip */
+  --danger-soft-border: #efc9c3;
+  --warn-ink: #b06a12;       /* warm score / mittel badge text, "offen" */
+  --warn-soft: #fdf0e0;      /* warm score chip bg, "offen" pill bg */
+  --warn-soft-border: #f0d9b5;
+  --warn-mid: #d98324;       /* priority "mittel" card left-border */
+  --neutral-ink: #8a8377;    /* neutral chip/badge text */
+  --neutral-soft: #eee9df;   /* neutral chip/badge bg */
+
+  /* priority left-border colors on lead cards */
+  --prio-hoch: #c0392b;
+  --prio-mittel: #d98324;
+  --prio-niedrig: #b3a998;
+
+  /* ---- typography ---- */
+  --font-ui: 'Public Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Spectral', Georgia, serif;
+
+  /* ---- spacing ---- */
+  --side-w: 246px;           /* sidebar width */
+  --top-h: 66px;             /* top bar height */
+  --content-pad: 26px 30px 44px;
+  --content-gap: 24px;
+  --card-pad: 18px 19px 17px;
+  --panel-pad: 20px 22px;
+
+  /* ---- radius ---- */
+  --radius-card: 15px;       /* cards, panels */
+  --radius-table: 14px;      /* tables, kanban columns */
+  --radius-lead: 11px;       /* lead cards */
+  --radius-btn: 9px;         /* buttons */
+  --radius-input: 10px;      /* inputs, search, segmented control */
+  --radius-seg-thumb: 8px;
+  --radius-pill: 20px;       /* pills, badges, tags, toggles */
+
+  /* ---- code block (SETTINGS_KEY warning) ---- */
+  --code-bg: #2f2b24;
+  --code-ink: #f1ece2;
+
+  /* ---- shadow ---- */
+  --shadow-card: 0 1px 2px rgba(30, 25, 15, 0.05);
+  --shadow-thumb: 0 1px 2px rgba(30, 25, 15, 0.08);
+  --shadow-drawer: -16px 0 50px -16px rgba(30, 25, 15, 0.35);
+  --scrim: rgba(33, 30, 26, 0.32);
+
+  /* ---- legacy aliases ----
+     Older rules and inline styles in components reference these names.
+     They resolve into the palette above so everything stays consistent. */
+  --bg: var(--surface-app);
+  --surface: var(--surface-card);
+  --border: var(--line-card);
+  --text: var(--ink);
+  --warn: var(--warn-ink);
+  --shadow: var(--shadow-card);
+  --radius: var(--radius-input);
+}

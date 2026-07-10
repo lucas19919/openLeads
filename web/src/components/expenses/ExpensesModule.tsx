@@ -11,10 +11,10 @@ export function ExpensesTabs({ tab, onTab }: { tab: ExpTab; onTab: (t: ExpTab) =
   return (
     <div className="seg">
       <button className={tab === 'belege' ? 'active' : ''} onClick={() => onTab('belege')}>
-        Belege
+        Ausgaben
       </button>
       <button className={tab === 'abos' ? 'active' : ''} onClick={() => onTab('abos')}>
-        Abos
+        Laufende Abos
       </button>
     </div>
   )

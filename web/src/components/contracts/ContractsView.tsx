@@ -416,18 +416,18 @@ export function ContractsView({ config }: { config: Config }) {
   return (
     <>
       <div className="toolbar">
-        <span className="page-title">Verträge</span>
+        <h1 className="page-title">Verträge</h1>
         <span className="user-chip">{rows.length} Verträge</span>
         <div className="spacer" />
         <button className="primary" onClick={() => { setDraft(blankDraft(config)); setMsg(null); setError(null) }}>+ Neuer Vertrag</button>
       </div>
 
       <div className="content">
-        <p className="settings-hint">
+        <div className="hint">
           Erstelle Dienst-, Werk- oder Wartungsverträge mit deinen <strong>AGB</strong>. Beim Festschreiben wird eine
           Vertragsnummer vergeben und die AGB eingefroren; nichts wird automatisch versendet. AGB pflegst du unter
           <strong> Einstellungen → Verträge & AGB</strong>.
-        </p>
+        </div>
         {error && <div className="section-error">{error}</div>}
         {msg && <div className="section-info">{msg}</div>}
 

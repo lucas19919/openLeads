@@ -113,7 +113,7 @@ export function InvoicesView({
   return (
     <>
       <div className="toolbar">
-        <span className="page-title">Rechnungen &amp; Angebote</span>
+        <h1 className="page-title">Rechnungen &amp; Angebote</h1>
         <div className="seg">
           <button className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>
             Alle

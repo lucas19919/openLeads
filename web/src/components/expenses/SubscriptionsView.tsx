@@ -74,7 +74,7 @@ export function SubscriptionsView({
   return (
     <>
       <div className="toolbar">
-        <span className="page-title">Ausgaben</span>
+        <h1 className="page-title">Ausgaben</h1>
         <ExpensesTabs tab={tab} onTab={onTab} />
         {summary && <span className="user-chip">{summary.active_count} aktiv</span>}
         <div className="spacer" />

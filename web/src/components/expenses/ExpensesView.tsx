@@ -69,7 +69,7 @@ export function ExpensesView({
   return (
     <>
       <div className="toolbar">
-        <span className="page-title">Ausgaben</span>
+        <h1 className="page-title">Ausgaben</h1>
         <ExpensesTabs tab={tab} onTab={onTab} />
         <input
           className="search"
@@ -205,7 +205,7 @@ export function ExpensesView({
                       {e.paid_on ? (
                         fmtDate(e.paid_on)
                       ) : (
-                        <span className="doc-status" title="Noch nicht als bezahlt markiert">offen</span>
+                        <span className="doc-status doc-status-offen" title="Noch nicht als bezahlt markiert">offen</span>
                       )}
                     </td>
                     <td data-label="" onClick={(ev) => ev.stopPropagation()}>
