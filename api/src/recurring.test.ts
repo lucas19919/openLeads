@@ -9,6 +9,8 @@ process.env.DB_PATH = DB_FILE
 
 const { db } = await import('./db')
 const { getDocument } = await import('./documents')
+const { createCustomer } = await import('./customers')
+const { createContract, deleteContract } = await import('./contracts')
 const {
   addMonths,
   advanceDate,
@@ -16,6 +18,9 @@ const {
   getRecurring,
   runRecurring,
   processDueRecurring,
+  recurringFromContract,
+  listRecurring,
+  defaultItemsFromContract,
 } = await import('./recurring')
 
 after(() => {
@@ -79,4 +84,55 @@ test('processDueRecurring only fires templates that are due', () => {
   assert.equal(getRecurring(future.id)!.next_run, '2099-01-01')
   // the due one did
   assert.notEqual(getRecurring(due.id)!.next_run, '2026-06-01')
+})
+
+test('recurringFromContract prefills client, links contract_id, default items from value', () => {
+  const cust = createCustomer({ name: 'Host GmbH', city: 'München' })
+  const k = createContract({
+    customer_id: cust.id,
+    type: 'wartungsvertrag',
+    title: 'Hosting & Pflege',
+    value_cents: 4900,
+    start_date: '2026-07-01',
+  })
+  const r = recurringFromContract(k.id)
+  assert.equal(r.contract_id, k.id)
+  assert.equal(r.customer_id, cust.id)
+  assert.equal(r.client_name, 'Host GmbH')
+  assert.equal(r.client_city, 'München')
+  assert.equal(r.title, 'Hosting & Pflege')
+  assert.equal(r.next_run, '2026-07-01')
+  const items = JSON.parse(r.items) as { unit_price_cents: number; description: string }[]
+  assert.equal(items.length, 1)
+  assert.equal(items[0].unit_price_cents, 4900)
+  assert.match(items[0].description, /Hosting|Vertrag|Leistung/)
+
+  assert.throws(() => recurringFromContract(999999), /Vertrag nicht gefunden/)
+  assert.throws(() => createRecurring({ contract_id: 999999 }), /Vertrag nicht gefunden/)
+})
+
+test('listRecurring filters by contract_id / customer_id in SQL', () => {
+  const c = createCustomer({ name: 'Filter Kunde' })
+  const k = createContract({ customer_id: c.id, title: 'V' })
+  const r1 = recurringFromContract(k.id, { title: 'Serie A' })
+  createRecurring({ customer_id: c.id, title: 'Ohne Vertrag' })
+  const byContract = listRecurring({ contract_id: k.id })
+  assert.equal(byContract.length, 1)
+  assert.equal(byContract[0].id, r1.id)
+  const byCust = listRecurring({ customer_id: c.id })
+  assert.ok(byCust.length >= 2)
+})
+
+test('deleting a draft contract nulls series contract_id (ON DELETE SET NULL)', () => {
+  const k = createContract({ title: 'Draft link', value_cents: 1000 })
+  const r = recurringFromContract(k.id)
+  assert.equal(r.contract_id, k.id)
+  const del = deleteContract(k.id)
+  assert.equal(del.ok, true)
+  assert.equal(getRecurring(r.id)!.contract_id, null)
+})
+
+test('defaultItemsFromContract returns empty when value is 0', () => {
+  const k = createContract({ title: 'Null', value_cents: 0 })
+  assert.deepEqual(defaultItemsFromContract(k), [])
 })

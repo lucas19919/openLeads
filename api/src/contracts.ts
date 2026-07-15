@@ -77,10 +77,18 @@ const COLS_NO_BLOB =
   'updated_at, signed_doc_name, signed_doc_mime, signed_doc_size, ' +
   'CASE WHEN signed_doc_data IS NOT NULL THEN X\'01\' ELSE NULL END AS signed_doc_data'
 
-export function listContracts(): FullContract[] {
-  const rows = db
-    .prepare(`SELECT ${COLS_NO_BLOB} FROM contracts ORDER BY created_at DESC, id DESC`)
-    .all() as unknown as ContractRow[]
+export function listContracts(customerId?: number): FullContract[] {
+  const rows = (
+    customerId != null
+      ? db
+          .prepare(
+            `SELECT ${COLS_NO_BLOB} FROM contracts WHERE customer_id = ? ORDER BY created_at DESC, id DESC`,
+          )
+          .all(customerId)
+      : db
+          .prepare(`SELECT ${COLS_NO_BLOB} FROM contracts ORDER BY created_at DESC, id DESC`)
+          .all()
+  ) as unknown as ContractRow[]
   return rows.map(withTotals)
 }
 
@@ -96,7 +104,12 @@ export function createContract(input: ContractInput, createdBy?: string | null):
   const type = input.type && TYPE_IDS.has(input.type as never) ? input.type : 'dienstvertrag'
 
   // Prefill precedence: explicit field > linked customer > linked lead.
-  const customer = input.customer_id != null ? getCustomer(Number(input.customer_id)) : null
+  // Unknown customer_id is an error (not a silent unlink).
+  let customer = null as ReturnType<typeof getCustomer>
+  if (input.customer_id != null) {
+    customer = getCustomer(Number(input.customer_id))
+    if (!customer) throw new Error('Kunde nicht gefunden.')
+  }
   let name = input.client_name ?? customer?.name ?? null
   let address = input.client_address ?? customer?.address ?? null
   let zip = input.client_zip ?? customer?.zip ?? null
@@ -154,13 +167,17 @@ export function createContract(input: ContractInput, createdBy?: string | null):
 }
 
 const EDITABLE_COLS = new Set([
-  'type', 'lead_id', 'document_id', 'client_name', 'client_address', 'client_zip', 'client_city',
-  'client_email', 'client_type', 'title', 'intro', 'body', 'value_cents', 'small_business',
-  'vat_rate', 'payment_terms', 'start_date', 'end_date', 'notice_period', 'notes',
+  'type', 'lead_id', 'customer_id', 'document_id', 'client_name', 'client_address', 'client_zip',
+  'client_city', 'client_email', 'client_type', 'title', 'intro', 'body', 'value_cents',
+  'small_business', 'vat_rate', 'payment_terms', 'start_date', 'end_date', 'notice_period', 'notes',
 ])
 
 export function updateContract(id: number, patch: ContractInput): FullContract | null {
   if (!getContract(id)) return null
+  // Link-only: customer_id may change; client_* snapshots are never auto-copied on PATCH.
+  if (patch.customer_id !== undefined && patch.customer_id !== null) {
+    if (!getCustomer(Number(patch.customer_id))) throw new Error('Kunde nicht gefunden.')
+  }
   const sets: string[] = []
   const params: Record<string, string | number | null> = { id }
   for (const [key, value] of Object.entries(patch)) {
@@ -169,7 +186,9 @@ export function updateContract(id: number, patch: ContractInput): FullContract |
     let v: string | number | null
     if (key === 'small_business') v = value ? 1 : 0
     else if (key === 'value_cents') v = Math.round(Number(value ?? 0))
-    else if (typeof value === 'boolean') v = value ? 1 : 0
+    else if (key === 'customer_id' || key === 'lead_id' || key === 'document_id') {
+      v = value == null || value === '' ? null : Number(value)
+    } else if (typeof value === 'boolean') v = value ? 1 : 0
     else v = (value as string | number | null) ?? null
     sets.push(`${key} = @${key}`)
     params[key] = v

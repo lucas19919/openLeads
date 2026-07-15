@@ -5,6 +5,8 @@ import type {
   CatalogItem,
   Config,
   Contract,
+  Customer,
+  CustomerOverview,
   Dashboard,
   EuerReport,
   Digest,
@@ -121,8 +123,13 @@ export const api = {
     }),
 
   // --- documents (Angebote + Rechnungen) ---
-  listDocuments: (kind?: string) =>
-    req<{ documents: Doc[] }>(`/documents${kind ? `?kind=${kind}` : ''}`),
+  listDocuments: (kind?: string, customerId?: number) => {
+    const qs = new URLSearchParams()
+    if (kind) qs.set('kind', kind)
+    if (customerId != null) qs.set('customer_id', String(customerId))
+    const suffix = qs.toString() ? `?${qs}` : ''
+    return req<{ documents: Doc[] }>(`/documents${suffix}`)
+  },
   getDocument: (id: number) => req<{ document: Doc }>(`/documents/${id}`),
   createDocument: (body: {
     kind: string
@@ -252,8 +259,27 @@ export const api = {
     return `/api/export/expenses-datev.csv${qs.toString() ? `?${qs}` : ''}`
   },
 
+  // --- Kunden (customer registry) ---
+  listCustomers: (activeOnly = false) =>
+    req<{ customers: Customer[] }>(`/customers${activeOnly ? '?active=1' : ''}`),
+  getCustomer: (id: number) => req<{ customer: Customer }>(`/customers/${id}`),
+  createCustomer: (body: Partial<Customer>) =>
+    req<{ customer: Customer }>('/customers', { method: 'POST', body: JSON.stringify(body) }),
+  updateCustomer: (id: number, patch: Partial<Customer>) =>
+    req<{ customer: Customer }>(`/customers/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  deleteCustomer: (id: number) => req<{ ok: true }>(`/customers/${id}`, { method: 'DELETE' }),
+  customerOverview: (id: number) => req<{ overview: CustomerOverview }>(`/customers/${id}/overview`),
+
   // --- Serienrechnungen (recurring invoices) ---
-  listRecurring: () => req<{ recurring: RecurringInvoice[] }>('/recurring'),
+  listRecurring: (params: { customer_id?: number; contract_id?: number; active?: boolean } = {}) => {
+    const qs = new URLSearchParams()
+    if (params.customer_id != null) qs.set('customer_id', String(params.customer_id))
+    if (params.contract_id != null) qs.set('contract_id', String(params.contract_id))
+    if (params.active === true) qs.set('active', '1')
+    if (params.active === false) qs.set('active', '0')
+    const suffix = qs.toString() ? `?${qs}` : ''
+    return req<{ recurring: RecurringInvoice[] }>(`/recurring${suffix}`)
+  },
   createRecurring: (body: Omit<Partial<RecurringInvoice>, 'items'> & { items?: DocItem[] }) =>
     req<{ recurring: RecurringInvoice }>('/recurring', {
       method: 'POST',
@@ -272,6 +298,14 @@ export const api = {
     req<{ document: Doc }>(`/recurring/${id}/run`, { method: 'POST' }),
   runDueRecurring: () =>
     req<{ generated: number; document_ids: number[] }>('/recurring/run-due', { method: 'POST' }),
+  createRecurringFromContract: (
+    contractId: number,
+    body: Omit<Partial<RecurringInvoice>, 'items'> & { items?: DocItem[] } = {},
+  ) =>
+    req<{ recurring: RecurringInvoice }>(`/contracts/${contractId}/recurring`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 
   // --- Leistungskatalog (reusable services/products) ---
   listCatalog: (activeOnly = false) =>
@@ -283,7 +317,10 @@ export const api = {
   deleteCatalogItem: (id: number) => req<{ ok: true }>(`/catalog/${id}`, { method: 'DELETE' }),
 
   // --- Verträge (contracts / AGB) ---
-  listContracts: () => req<{ contracts: Contract[] }>('/contracts'),
+  listContracts: (customerId?: number) =>
+    req<{ contracts: Contract[] }>(
+      `/contracts${customerId != null ? `?customer_id=${customerId}` : ''}`,
+    ),
   getContract: (id: number) => req<{ contract: Contract }>(`/contracts/${id}`),
   createContract: (body: Partial<Contract>) =>
     req<{ contract: Contract }>('/contracts', { method: 'POST', body: JSON.stringify(body) }),

@@ -3,7 +3,8 @@ import { api } from '../../api'
 import { euro, centsToInput, inputToCents, lineTotalCents } from '../../money'
 import { fmtDate, todayISO } from '../../util'
 import { CatalogPicker, catalogItemToLine } from './CatalogPicker'
-import type { CatalogItem, Config, Doc, DocItem, Payment, ValidationResult } from '../../types'
+import { CustomerPicker } from '../CustomerPicker'
+import type { CatalogItem, Config, Customer, Doc, DocItem, Payment, ValidationResult } from '../../types'
 
 const EMPTY_ITEM: DocItem = { description: '', quantity: 1, unit: 'Pauschal', unit_price_cents: 0 }
 const CLIENT_TYPE_LABEL: Record<string, string> = { geschaeft: 'Geschäft (B2B)', privat: 'Privat (B2C)' }
@@ -108,6 +109,7 @@ export function DocumentEditor({
     setSaving(true)
     try {
       const { document } = await api.updateDocument(id, {
+        customer_id: doc!.customer_id ?? null,
         client_name: doc!.client_name,
         client_address: doc!.client_address,
         client_zip: doc!.client_zip,
@@ -425,6 +427,33 @@ export function DocumentEditor({
 
       <fieldset className="doc-block">
         <legend>Empfänger</legend>
+        <CustomerPicker
+          value={doc.customer_id}
+          disabled={locked}
+          onSelect={(c: Customer | null) => {
+            if (!c) {
+              field('customer_id', null)
+              return
+            }
+            // Prefill from customer on select; later manual edits keep customer_id.
+            setDoc((d) =>
+              d
+                ? {
+                    ...d,
+                    customer_id: c.id,
+                    client_name: c.name,
+                    client_address: c.address,
+                    client_zip: c.zip,
+                    client_city: c.city,
+                    client_email: c.email,
+                    client_vat_id: c.vat_id,
+                    client_type: c.client_type || d.client_type,
+                  }
+                : d,
+            )
+            setDirty(true)
+          }}
+        />
         <div className="field">
           <label>Name / Firma</label>
           <input value={doc.client_name ?? ''} disabled={locked} onChange={(e) => field('client_name', e.target.value)} />

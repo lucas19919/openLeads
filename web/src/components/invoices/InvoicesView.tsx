@@ -1,59 +1,101 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../api'
 import { euro } from '../../money'
 import { fmtDate } from '../../util'
-import type { Config, Doc, Lead } from '../../types'
+import type { Config, Doc } from '../../types'
+import type { ModuleIntent } from '../SuiteNav'
 import { DocumentEditor } from './DocumentEditor'
 
 const KIND_LABEL: Record<string, string> = { angebot: 'Angebot', rechnung: 'Rechnung' }
 
+type DocIntent = Extract<NonNullable<ModuleIntent>, { module: 'documents' }>
+
 export function InvoicesView({
   config,
-  prefillLead,
-  onPrefillHandled,
+  intent,
+  onIntentConsumed,
 }: {
   config: Config
-  prefillLead: Lead | null
-  onPrefillHandled: () => void
+  intent: DocIntent | null
+  onIntentConsumed: () => void
 }) {
   const [docs, setDocs] = useState<Doc[]>([])
   const [filter, setFilter] = useState<'all' | 'angebot' | 'rechnung'>('all')
+  const [filterCustomerId, setFilterCustomerId] = useState<number | ''>('')
+  const [customers, setCustomers] = useState<{ id: number; name: string }[]>([])
   const [openId, setOpenId] = useState<number | null>(null)
   const [draftText, setDraftText] = useState('')
   const [drafting, setDrafting] = useState(false)
   const [draftError, setDraftError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
-    const { documents } = await api.listDocuments()
+    const { documents } = await api.listDocuments(
+      undefined,
+      filterCustomerId === '' ? undefined : filterCustomerId,
+    )
     setDocs(documents)
-  }, [])
+  }, [filterCustomerId])
 
   useEffect(() => {
     refresh()
   }, [refresh])
 
-  // A lead was sent over from the CRM → spin up a draft Angebot and open it.
   useEffect(() => {
-    if (!prefillLead) return
+    api.listCustomers(true).then(({ customers: c }) => setCustomers(c)).catch(() => {})
+  }, [])
+
+  // Handle open / create intents once (ref avoids React StrictMode double-create).
+  const intentKey = intent
+    ? intent.type === 'open'
+      ? `open-${intent.openId}`
+      : `create-${intent.kind}-${intent.customer_id ?? ''}-${intent.lead_id ?? ''}`
+    : null
+  const handledIntent = useRef<string | null>(null)
+  useEffect(() => {
+    if (!intent || !intentKey) return
+    if (handledIntent.current === intentKey) return
+    handledIntent.current = intentKey
     let active = true
-    api
-      .createDocument({
-        kind: 'angebot',
-        lead_id: prefillLead.id,
-        client_name: prefillLead.company,
-        client_city: prefillLead.city,
-        client_email: prefillLead.email,
-      })
-      .then(({ document }) => {
+    ;(async () => {
+      try {
+        if (intent.type === 'open') {
+          if (active) setOpenId(intent.openId)
+          return
+        }
+        const body: {
+          kind: string
+          customer_id?: number
+          lead_id?: number
+          client_name?: string | null
+          client_city?: string | null
+          client_email?: string | null
+        } = { kind: intent.kind }
+        if (intent.customer_id != null) body.customer_id = intent.customer_id
+        if (intent.lead_id != null) {
+          body.lead_id = intent.lead_id
+          try {
+            const { lead } = await api.getLead(intent.lead_id)
+            body.client_name = lead.company
+            body.client_city = lead.city
+            body.client_email = lead.email
+          } catch {
+            /* prefill optional */
+          }
+        }
+        const { document } = await api.createDocument(body)
         if (!active) return
-        refresh()
+        await refresh()
         setOpenId(document.id)
-      })
-      .finally(() => onPrefillHandled())
+      } catch (e) {
+        if (active) alert(e instanceof Error ? e.message : 'Aktion fehlgeschlagen.')
+      } finally {
+        if (active) onIntentConsumed()
+      }
+    })()
     return () => {
       active = false
     }
-  }, [prefillLead, refresh, onPrefillHandled])
+  }, [intent, intentKey, refresh, onIntentConsumed])
 
   async function createNew(kind: 'angebot' | 'rechnung') {
     const { document } = await api.createDocument({ kind })
@@ -125,6 +167,19 @@ export function InvoicesView({
             Rechnungen
           </button>
         </div>
+        <select
+          value={filterCustomerId === '' ? '' : String(filterCustomerId)}
+          onChange={(e) => setFilterCustomerId(e.target.value ? Number(e.target.value) : '')}
+          style={{ maxWidth: 200 }}
+          title="Nach Kunde filtern"
+        >
+          <option value="">Alle Kunden</option>
+          {customers.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
         <span className="user-chip">{visible.length} Dokumente</span>
         <div className="spacer" />
         <button onClick={() => createNew('angebot')}>+ Angebot</button>

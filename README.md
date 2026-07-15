@@ -31,9 +31,12 @@ The modules, behind one login:
   embedded EN 16931 XML), Kleinunternehmer (§19 UStG) aware, with gapless
   numbering and a built-in EN 16931 validator. Record payments (partial
   supported); upload the signed/final copy to keep it with the record.
-- **Abo-Rechnungen** — recurring invoices for Hosting- und Wartungsverträge: a
+- **Serienrechnungen** — recurring invoices for Hosting- und Wartungsverträge: a
   template + cadence (monthly / quarterly / yearly) produces a draft Rechnung
-  each period for you to review and finalise. Nothing is auto-sent.
+  each period for you to review and finalise. Link a Serie to a Vertrag from the
+  contract editor. Nothing is auto-sent.
+- **Kunden** — central client registry with overview (KPIs, linked documents,
+  contracts, series); prefills recipient data into invoices, contracts and series.
 - **Verträge** — contracts (Dienst-, Werk-, Wartungsvertrag,
   Auftragsbestätigung, Rahmenvertrag, AVV …) with parties, scope, remuneration,
   term and notice. Your AGB are *frozen onto* a contract when it's finalised.

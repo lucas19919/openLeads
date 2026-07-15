@@ -5,6 +5,7 @@ import {
   createCustomer,
   updateCustomer,
   deleteCustomer,
+  customerOverview,
 } from '../customers'
 import { audit } from '../audit'
 import { requireAuth, type Vars } from './middleware'
@@ -13,6 +14,13 @@ export function registerCustomerRoutes(app: Hono<{ Variables: Vars }>): void {
   app.get('/api/customers', requireAuth, (c) => {
     const activeOnly = c.req.query('active') === '1'
     return c.json({ customers: listCustomers(activeOnly) })
+  })
+
+  // Overview must be registered before /:id so "overview" is not captured as an id.
+  app.get('/api/customers/:id/overview', requireAuth, (c) => {
+    const overview = customerOverview(Number(c.req.param('id')))
+    if (!overview) return c.json({ error: 'not found' }, 404)
+    return c.json({ overview })
   })
 
   app.get('/api/customers/:id', requireAuth, (c) => {

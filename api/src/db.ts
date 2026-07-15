@@ -573,6 +573,22 @@ for (const stmt of [
   }
 }
 
+// Serienrechnung → Vertrag (billing plan for a Wartungs-/Abovertrag). Nullable so
+// orphan series remain valid; ON DELETE SET NULL so draft-contract deletes do not
+// wipe templates (finalised contracts cannot be deleted anyway).
+try {
+  db.exec(
+    'ALTER TABLE recurring_invoices ADD COLUMN contract_id INTEGER REFERENCES contracts(id) ON DELETE SET NULL',
+  )
+} catch {
+  // column already exists
+}
+try {
+  db.exec('CREATE INDEX IF NOT EXISTS idx_recurring_contract ON recurring_invoices(contract_id)')
+} catch {
+  // ignore
+}
+
 // DATEV/GoBD export account numbers (Steuerberater handoff). SKR03 defaults.
 // datev_bank_account is the Gegenkonto for expense bookings (Aufwand an Bank);
 // the Konto comes from the expense category's SKR03 account. Default 1200 (Bank).
@@ -931,6 +947,7 @@ export interface RecurringInvoiceRow {
   client_type: string
   lead_id: number | null
   customer_id: number | null
+  contract_id: number | null
   title: string | null
   intro: string | null
   notes: string | null

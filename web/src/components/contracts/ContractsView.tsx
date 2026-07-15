@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../api'
 import { euro, centsToInput, inputToCents } from '../../money'
 import { fmtDate, todayISO } from '../../util'
-import type { Config, Contract } from '../../types'
+import type { Config, Contract, Customer } from '../../types'
+import type { ModuleIntent } from '../SuiteNav'
+import { CustomerPicker } from '../CustomerPicker'
 
 const CLIENT_TYPE_LABEL: Record<string, string> = { geschaeft: 'Geschäft (B2B)', privat: 'Privat (B2C)' }
 const STATUS_LABEL: Record<string, string> = {
@@ -34,23 +36,97 @@ function blankDraft(config: Config): Draft {
   }
 }
 
-export function ContractsView({ config }: { config: Config }) {
+type ContractIntent = Extract<NonNullable<ModuleIntent>, { module: 'contracts' }>
+
+export function ContractsView({
+  config,
+  intent,
+  onIntentConsumed,
+  onNavigateRecurring,
+}: {
+  config: Config
+  intent?: ContractIntent | null
+  onIntentConsumed?: () => void
+  /** Jump to Serienrechnungen with open intent after creating a series from a contract. */
+  onNavigateRecurring?: (recurringId: number) => void
+}) {
   const [rows, setRows] = useState<Contract[]>([])
   const [draft, setDraft] = useState<Draft | null>(null)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [linkedSeries, setLinkedSeries] = useState<{ id: number; title: string | null; cadence: string; active: number }[]>([])
+  const [filterCustomerId, setFilterCustomerId] = useState<number | ''>('')
+  const [customers, setCustomers] = useState<Customer[]>([])
 
   const typeLabel = (id: string) => config.contractTypes.find((t) => t.id === id)?.label ?? id
 
   const refresh = useCallback(async () => {
-    const { contracts } = await api.listContracts()
+    const { contracts } = await api.listContracts(
+      filterCustomerId === '' ? undefined : filterCustomerId,
+    )
     setRows(contracts)
-  }, [])
+  }, [filterCustomerId])
 
   useEffect(() => {
     refresh()
   }, [refresh])
+
+  useEffect(() => {
+    api.listCustomers(true).then(({ customers: c }) => setCustomers(c)).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    if (!draft?.id) {
+      setLinkedSeries([])
+      return
+    }
+    let alive = true
+    api
+      .listRecurring({ contract_id: draft.id })
+      .then(({ recurring }) => {
+        if (alive) setLinkedSeries(recurring.map((r) => ({ id: r.id, title: r.title, cadence: r.cadence, active: r.active })))
+      })
+      .catch(() => {
+        if (alive) setLinkedSeries([])
+      })
+    return () => {
+      alive = false
+    }
+  }, [draft?.id])
+
+  const intentKey = intent
+    ? intent.type === 'open'
+      ? `open-${intent.openId}`
+      : `create-${intent.customer_id}`
+    : null
+  const handledIntent = useRef<string | null>(null)
+  useEffect(() => {
+    if (!intent || !intentKey) return
+    if (handledIntent.current === intentKey) return
+    handledIntent.current = intentKey
+    let active = true
+    ;(async () => {
+      try {
+        if (intent.type === 'open') {
+          const { contract } = await api.getContract(intent.openId)
+          if (active) setDraft(contract)
+          return
+        }
+        const { contract } = await api.createContract({ customer_id: intent.customer_id })
+        if (!active) return
+        await refresh()
+        setDraft(contract)
+      } catch (e) {
+        if (active) setError(e instanceof Error ? e.message : 'Aktion fehlgeschlagen.')
+      } finally {
+        if (active) onIntentConsumed?.()
+      }
+    })()
+    return () => {
+      active = false
+    }
+  }, [intent, intentKey, refresh, onIntentConsumed])
 
   function flash(m: string) {
     setMsg(m)
@@ -77,6 +153,7 @@ export function ContractsView({ config }: { config: Config }) {
     try {
       const body: Partial<Contract> = {
         type: draft.type,
+        customer_id: draft.customer_id ?? null,
         client_name: draft.client_name,
         client_address: draft.client_address,
         client_zip: draft.client_zip,
@@ -196,6 +273,23 @@ export function ContractsView({ config }: { config: Config }) {
     }
   }
 
+  async function createSeriesFromContract() {
+    if (!draft?.id) return
+    setBusy(true)
+    setError(null)
+    try {
+      const { recurring } = await api.createRecurringFromContract(draft.id)
+      flash('Serienrechnung angelegt.')
+      const { recurring: list } = await api.listRecurring({ contract_id: draft.id })
+      setLinkedSeries(list.map((r) => ({ id: r.id, title: r.title, cadence: r.cadence, active: r.active })))
+      if (onNavigateRecurring) onNavigateRecurring(recurring.id)
+    } catch (e) {
+      fail(e)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   // --- editor ---
   if (draft) {
     const d = draft
@@ -225,6 +319,11 @@ export function ContractsView({ config }: { config: Config }) {
             )}
             {d.id && !d.number && (
               <button onClick={finalize} disabled={busy}>Festschreiben</button>
+            )}
+            {d.id && (
+              <button onClick={createSeriesFromContract} disabled={busy} title="Serienrechnung aus diesem Vertrag anlegen">
+                Serie anlegen
+              </button>
             )}
             {d.number && (
               <button onClick={send} disabled={busy || !d.client_email} title={d.client_email ? 'Vertrag als PDF per E-Mail senden' : 'Keine E-Mail hinterlegt'}>Senden</button>
@@ -268,6 +367,25 @@ export function ContractsView({ config }: { config: Config }) {
 
           <fieldset className="doc-block">
             <legend>Auftraggeber</legend>
+            <CustomerPicker
+              value={d.customer_id}
+              disabled={locked}
+              onSelect={(c: Customer | null) => {
+                if (!c) {
+                  setD({ customer_id: null })
+                  return
+                }
+                setD({
+                  customer_id: c.id,
+                  client_name: c.name,
+                  client_address: c.address,
+                  client_zip: c.zip,
+                  client_city: c.city,
+                  client_email: c.email,
+                  client_type: c.client_type,
+                })
+              }}
+            />
             <div className="field">
               <label>Name / Firma</label>
               <input value={d.client_name ?? ''} disabled={locked} onChange={(e) => setD({ client_name: e.target.value })} />
@@ -364,6 +482,27 @@ export function ContractsView({ config }: { config: Config }) {
             </p>
           )}
 
+          {d.id && linkedSeries.length > 0 && (
+            <fieldset className="doc-block">
+              <legend>Verknüpfte Serienrechnungen</legend>
+              <ul style={{ margin: 0, paddingLeft: 18 }}>
+                {linkedSeries.map((s) => (
+                  <li key={s.id}>
+                    {s.title ?? `Serie #${s.id}`} · {s.cadence} · {s.active ? 'aktiv' : 'pausiert'}
+                    {onNavigateRecurring && (
+                      <>
+                        {' '}
+                        <button className="ghost" type="button" onClick={() => onNavigateRecurring(s.id)}>
+                          Öffnen
+                        </button>
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </fieldset>
+          )}
+
           {d.id && (
             <fieldset className="doc-block">
               <legend>Unterschriebenes Dokument</legend>
@@ -417,6 +556,19 @@ export function ContractsView({ config }: { config: Config }) {
     <>
       <div className="toolbar">
         <h1 className="page-title">Verträge</h1>
+        <select
+          value={filterCustomerId === '' ? '' : String(filterCustomerId)}
+          onChange={(e) => setFilterCustomerId(e.target.value ? Number(e.target.value) : '')}
+          style={{ maxWidth: 220 }}
+          title="Nach Kunde filtern"
+        >
+          <option value="">Alle Kunden</option>
+          {customers.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
         <span className="user-chip">{rows.length} Verträge</span>
         <div className="spacer" />
         <button className="primary" onClick={() => { setDraft(blankDraft(config)); setMsg(null); setError(null) }}>+ Neuer Vertrag</button>
@@ -443,6 +595,7 @@ export function ContractsView({ config }: { config: Config }) {
                   <th>Art</th>
                   <th className="num">Wert</th>
                   <th>Status</th>
+                  <th>Unterschrift</th>
                   <th />
                 </tr>
               </thead>
@@ -457,6 +610,15 @@ export function ContractsView({ config }: { config: Config }) {
                     <td data-label="Wert" className="num">{euro(r.totals.gross_cents)}</td>
                     <td data-label="Status">
                       <span className={`doc-status doc-status-${r.status}`}>{STATUS_LABEL[r.status] ?? r.status}</span>
+                    </td>
+                    <td data-label="Unterschrift">
+                      {r.has_signed_doc ? (
+                        <span className="user-chip" title={r.signed_doc_name ?? undefined}>
+                          ✓
+                        </span>
+                      ) : (
+                        '—'
+                      )}
                     </td>
                     <td data-label="" onClick={(e) => e.stopPropagation()}>
                       <a href={api.contractPdfUrl(r.id)} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>

@@ -97,11 +97,20 @@ export function getDocument(id: number): FullDocument | null {
  * Three fixed queries total — items and payments are fetched in bulk and
  * bucketed, instead of two extra queries per document (the old N+1).
  */
-export function listDocuments(kind?: string): FullDocument[] {
-  const where = kind ? 'WHERE kind = ?' : ''
-  const params = kind ? [kind] : []
+export function listDocuments(kind?: string, customerId?: number): FullDocument[] {
+  const where: string[] = []
+  const params: (string | number)[] = []
+  if (kind) {
+    where.push('kind = ?')
+    params.push(kind)
+  }
+  if (customerId != null) {
+    where.push('customer_id = ?')
+    params.push(customerId)
+  }
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : ''
   const docs = db
-    .prepare(`SELECT ${DOC_COLUMNS} FROM documents ${where} ORDER BY created_at DESC, id DESC`)
+    .prepare(`SELECT ${DOC_COLUMNS} FROM documents ${whereSql} ORDER BY created_at DESC, id DESC`)
     .all(...params) as unknown as DocRowLite[]
   if (docs.length === 0) return []
 

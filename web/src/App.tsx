@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { api } from './api'
-import type { Config, Lead, User } from './types'
+import type { Config, User } from './types'
 import { Login } from './components/Login'
-import { SuiteNav, type Module } from './components/SuiteNav'
+import { SuiteNav, type Module, type ModuleIntent } from './components/SuiteNav'
 import { CopilotView } from './components/ai/CopilotView'
 import { LeadsView } from './components/LeadsView'
+import { CustomersView } from './components/customers/CustomersView'
 import { InvoicesView } from './components/invoices/InvoicesView'
 import { SettingsView } from './components/invoices/SettingsView'
 import { DashboardView } from './components/DashboardView'
@@ -16,8 +17,7 @@ export default function App() {
   const [user, setUser] = useState<User | null | undefined>(undefined)
   const [config, setConfig] = useState<Config | null>(null)
   const [module, setModule] = useState<Module>('dashboard')
-  // A lead handed from the CRM to the invoicing module to prefill a new Angebot.
-  const [invoiceLead, setInvoiceLead] = useState<Lead | null>(null)
+  const [intent, setIntent] = useState<ModuleIntent>(null)
 
   useEffect(() => {
     api
@@ -32,6 +32,15 @@ export default function App() {
     setUser(null)
   }
 
+  function navigateWithIntent(next: ModuleIntent) {
+    if (!next) {
+      setIntent(null)
+      return
+    }
+    setIntent(next)
+    setModule(next.module)
+  }
+
   if (user === undefined || (user && !config))
     return (
       <div className="center-muted" style={{ paddingTop: 80 }}>
@@ -39,6 +48,13 @@ export default function App() {
       </div>
     )
   if (user === null) return <Login onSuccess={setUser} />
+
+  const documentsIntent =
+    intent && intent.module === 'documents' ? intent : null
+  const contractsIntent =
+    intent && intent.module === 'contracts' ? intent : null
+  const recurringIntent =
+    intent && intent.module === 'recurring' ? intent : null
 
   return (
     <div className="app">
@@ -50,20 +66,42 @@ export default function App() {
           <LeadsView
             config={config!}
             onCreateInvoice={(lead) => {
-              setInvoiceLead(lead)
-              setModule('documents')
+              navigateWithIntent({
+                type: 'create',
+                module: 'documents',
+                kind: 'angebot',
+                lead_id: lead.id,
+              })
             }}
           />
+        )}
+        {module === 'customers' && (
+          <CustomersView config={config!} onIntent={navigateWithIntent} />
         )}
         {module === 'documents' && (
           <InvoicesView
             config={config!}
-            prefillLead={invoiceLead}
-            onPrefillHandled={() => setInvoiceLead(null)}
+            intent={documentsIntent}
+            onIntentConsumed={() => setIntent(null)}
           />
         )}
-        {module === 'recurring' && <RecurringView config={config!} />}
-        {module === 'contracts' && <ContractsView config={config!} />}
+        {module === 'recurring' && (
+          <RecurringView
+            config={config!}
+            intent={recurringIntent}
+            onIntentConsumed={() => setIntent(null)}
+          />
+        )}
+        {module === 'contracts' && (
+          <ContractsView
+            config={config!}
+            intent={contractsIntent}
+            onIntentConsumed={() => setIntent(null)}
+            onNavigateRecurring={(id) =>
+              navigateWithIntent({ type: 'open', module: 'recurring', openId: id })
+            }
+          />
+        )}
         {module === 'expenses' && <ExpensesModule config={config!} />}
         {module === 'settings' && <SettingsView user={user} config={config!} />}
       </div>

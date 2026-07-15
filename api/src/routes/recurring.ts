@@ -12,21 +12,40 @@ import { audit } from '../audit'
 import { requireAuth, type Vars } from './middleware'
 
 export function registerRecurringRoutes(app: Hono<{ Variables: Vars }>): void {
-  app.get('/api/recurring', requireAuth, (c) => c.json({ recurring: listRecurring() }))
+  app.get('/api/recurring', requireAuth, (c) => {
+    const customer_id = c.req.query('customer_id')
+    const contract_id = c.req.query('contract_id')
+    const activeQ = c.req.query('active')
+    return c.json({
+      recurring: listRecurring({
+        customer_id: customer_id != null && customer_id !== '' ? Number(customer_id) : undefined,
+        contract_id: contract_id != null && contract_id !== '' ? Number(contract_id) : undefined,
+        active: activeQ === '1' ? true : activeQ === '0' ? false : undefined,
+      }),
+    })
+  })
 
   app.post('/api/recurring', requireAuth, async (c) => {
     const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
-    const r = createRecurring(b)
-    audit({ actor: c.get('user').username, action: 'recurring.create', entity: 'recurring', entityId: r.id, detail: { cadence: r.cadence, next_run: r.next_run } })
-    return c.json({ recurring: r }, 201)
+    try {
+      const r = createRecurring(b)
+      audit({ actor: c.get('user').username, action: 'recurring.create', entity: 'recurring', entityId: r.id, detail: { cadence: r.cadence, next_run: r.next_run } })
+      return c.json({ recurring: r }, 201)
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400)
+    }
   })
 
   app.patch('/api/recurring/:id', requireAuth, async (c) => {
     const id = Number(c.req.param('id'))
     const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
-    const r = updateRecurring(id, b)
-    if (!r) return c.json({ error: 'not found' }, 404)
-    return c.json({ recurring: r })
+    try {
+      const r = updateRecurring(id, b)
+      if (!r) return c.json({ error: 'not found' }, 404)
+      return c.json({ recurring: r })
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400)
+    }
   })
 
   app.delete('/api/recurring/:id', requireAuth, (c) => {

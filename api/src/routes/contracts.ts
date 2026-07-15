@@ -13,6 +13,7 @@ import {
   getSignedDoc,
   deleteSignedDoc,
 } from '../contracts'
+import { recurringFromContract } from '../recurring'
 import { renderContractPdf, contractPdfFilename } from '../contractPdf'
 import { getSettings } from '../documents'
 import { audit } from '../audit'
@@ -23,7 +24,12 @@ import { requireAuth, type Vars } from './middleware'
 import { readUpload, inlineFile } from './helpers'
 
 export function registerContractRoutes(app: Hono<{ Variables: Vars }>): void {
-  app.get('/api/contracts', requireAuth, (c) => c.json({ contracts: listContracts() }))
+  app.get('/api/contracts', requireAuth, (c) => {
+    const customer_id = c.req.query('customer_id')
+    const cid =
+      customer_id != null && customer_id !== '' ? Number(customer_id) : undefined
+    return c.json({ contracts: listContracts(cid) })
+  })
 
   app.get('/api/contracts/:id', requireAuth, (c) => {
     const contract = getContract(Number(c.req.param('id')))
@@ -33,10 +39,14 @@ export function registerContractRoutes(app: Hono<{ Variables: Vars }>): void {
 
   app.post('/api/contracts', requireAuth, async (c) => {
     const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
-    const contract = createContract(b, c.get('user').username)
-    audit({ actor: c.get('user').username, action: 'contract.create', entity: 'contract', entityId: contract.id, detail: { type: contract.type, client_name: contract.client_name } })
-    emit('contract.created', { id: contract.id, type: contract.type })
-    return c.json({ contract }, 201)
+    try {
+      const contract = createContract(b, c.get('user').username)
+      audit({ actor: c.get('user').username, action: 'contract.create', entity: 'contract', entityId: contract.id, detail: { type: contract.type, client_name: contract.client_name } })
+      emit('contract.created', { id: contract.id, type: contract.type })
+      return c.json({ contract }, 201)
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400)
+    }
   })
 
   app.patch('/api/contracts/:id', requireAuth, async (c) => {
@@ -52,9 +62,33 @@ export function registerContractRoutes(app: Hono<{ Variables: Vars }>): void {
         return c.json({ error: (e as Error).message }, 400)
       }
     }
-    const contract = updateContract(id, b)
-    if (!contract) return c.json({ error: 'not found' }, 404)
-    return c.json({ contract })
+    try {
+      const contract = updateContract(id, b)
+      if (!contract) return c.json({ error: 'not found' }, 404)
+      return c.json({ contract })
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400)
+    }
+  })
+
+  // Create a Serienrechnung (billing plan) from this Vertrag — draft only.
+  app.post('/api/contracts/:id/recurring', requireAuth, async (c) => {
+    const id = Number(c.req.param('id'))
+    if (!getContract(id)) return c.json({ error: 'not found' }, 404)
+    const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+    try {
+      const recurring = recurringFromContract(id, b)
+      audit({
+        actor: c.get('user').username,
+        action: 'recurring.create',
+        entity: 'recurring',
+        entityId: recurring.id,
+        detail: { contract_id: id, cadence: recurring.cadence, next_run: recurring.next_run },
+      })
+      return c.json({ recurring }, 201)
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400)
+    }
   })
 
   // Finalise: assign a gapless number, freeze the AGB text in force now, mark sent.

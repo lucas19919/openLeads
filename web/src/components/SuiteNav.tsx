@@ -7,19 +7,37 @@ export type Module =
   | 'dashboard'
   | 'copilot'
   | 'leads'
+  | 'customers'
   | 'documents'
   | 'recurring'
   | 'contracts'
   | 'expenses'
   | 'settings'
 
+/** Cross-module open / create intents (no client router). Module is per-variant for narrowing. */
+export type ModuleIntent =
+  | { type: 'open'; module: 'documents'; openId: number }
+  | { type: 'open'; module: 'contracts'; openId: number }
+  | { type: 'open'; module: 'recurring'; openId: number }
+  | {
+      type: 'create'
+      module: 'documents'
+      kind: 'angebot' | 'rechnung'
+      customer_id?: number
+      lead_id?: number
+    }
+  | { type: 'create'; module: 'contracts'; customer_id: number }
+  | { type: 'create'; module: 'recurring'; customer_id: number }
+  | null
+
 // `adminOnly` tabs are hidden for members (the backend also gates the routes).
 const TABS: { id: Module; label: string; adminOnly?: boolean }[] = [
   { id: 'dashboard', label: 'Übersicht' },
   { id: 'copilot', label: 'Chat' },
   { id: 'leads', label: 'Leads' },
+  { id: 'customers', label: 'Kunden' },
   { id: 'documents', label: 'Rechnungen' },
-  { id: 'recurring', label: 'Abo-Rechnungen' },
+  { id: 'recurring', label: 'Serienrechnungen' },
   { id: 'contracts', label: 'Verträge' },
   { id: 'expenses', label: 'Ausgaben' },
   { id: 'settings', label: 'Einstellungen', adminOnly: true },

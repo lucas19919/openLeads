@@ -26,15 +26,18 @@ import { readUpload, inlineFile } from './helpers'
 const DOC_EDITABLE = new Set([
   'client_name', 'client_address', 'client_zip', 'client_city', 'client_email',
   'client_type', 'title', 'intro', 'notes', 'due_date', 'small_business', 'vat_rate',
-  'buyer_reference', 'client_vat_id', 'include_payment_link',
+  'buyer_reference', 'client_vat_id', 'include_payment_link', 'customer_id', 'lead_id',
 ])
 
 export function registerDocumentRoutes(app: Hono<{ Variables: Vars }>): void {
-  // List documents (optionally filtered by kind), newest first, with totals.
+  // List documents (optionally filtered by kind / customer), newest first, with totals.
   app.get('/api/documents', requireAuth, (c) => {
     const kind = c.req.query('kind')
     const filtered = kind && DOC_KINDS.includes(kind as never) ? kind : undefined
-    return c.json({ documents: listDocuments(filtered) })
+    const customer_id = c.req.query('customer_id')
+    const cid =
+      customer_id != null && customer_id !== '' ? Number(customer_id) : undefined
+    return c.json({ documents: listDocuments(filtered, cid) })
   })
 
   app.get('/api/documents/:id', requireAuth, (c) => {
@@ -61,8 +64,10 @@ export function registerDocumentRoutes(app: Hono<{ Variables: Vars }>): void {
     const s = getSettings()
 
     // Prefill precedence: explicit body field > linked customer > linked lead.
+    // Unknown customer_id → 400 (not a silent unlink).
     const customerId = b.customer_id != null ? Number(b.customer_id) : null
-    const customer = customerId ? getCustomer(customerId) : null
+    const customer = customerId != null ? getCustomer(customerId) : null
+    if (customerId != null && !customer) return c.json({ error: 'Kunde nicht gefunden.' }, 400)
     let prefillName: string | null = (b.client_name as string) ?? customer?.name ?? null
     let prefillAddress: string | null = (b.client_address as string) ?? customer?.address ?? null
     let prefillZip: string | null = (b.client_zip as string) ?? customer?.zip ?? null
@@ -128,6 +133,11 @@ export function registerDocumentRoutes(app: Hono<{ Variables: Vars }>): void {
       if (!allowed.includes(b.status)) return c.json({ error: 'invalid status' }, 400)
     }
 
+    // Link-only: customer_id may change; client_* snapshots are never auto-copied.
+    if ('customer_id' in b && b.customer_id != null) {
+      if (!getCustomer(Number(b.customer_id))) return c.json({ error: 'Kunde nicht gefunden.' }, 400)
+    }
+
     const sets: string[] = []
     const params: Record<string, string | number | null> = { id }
     for (const key of [...DOC_EDITABLE, 'status']) {
@@ -138,7 +148,9 @@ export function registerDocumentRoutes(app: Hono<{ Variables: Vars }>): void {
       let bound: string | number | null
       if (v === undefined || v === null) bound = null
       else if (typeof v === 'boolean') bound = v ? 1 : 0
-      else if (typeof v === 'string' || typeof v === 'number') bound = v
+      else if (key === 'customer_id' || key === 'lead_id') {
+        bound = v === '' || v === null ? null : Number(v)
+      } else if (typeof v === 'string' || typeof v === 'number') bound = v
       else continue
       sets.push(`${key} = @${key}`)
       params[key] = bound

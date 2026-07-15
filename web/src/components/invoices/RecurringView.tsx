@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../api'
 import { euro, centsToInput, inputToCents, lineTotalCents } from '../../money'
 import { fmtDate, todayISO } from '../../util'
 import { CatalogPicker, catalogItemToLine } from './CatalogPicker'
-import type { Config, DocItem, RecurringInvoice } from '../../types'
+import { CustomerPicker } from '../CustomerPicker'
+import type { Config, Customer, DocItem, RecurringInvoice } from '../../types'
+import type { ModuleIntent } from '../SuiteNav'
 
 const CADENCE_LABEL: Record<string, string> = {
   monatlich: 'Monatlich',
@@ -42,20 +44,72 @@ function blankDraft(config: Config): Draft {
   }
 }
 
-export function RecurringView({ config }: { config: Config }) {
+type RecurringIntent = Extract<NonNullable<ModuleIntent>, { module: 'recurring' }>
+
+export function RecurringView({
+  config,
+  intent,
+  onIntentConsumed,
+}: {
+  config: Config
+  intent?: RecurringIntent | null
+  onIntentConsumed?: () => void
+}) {
   const [rows, setRows] = useState<RecurringInvoice[]>([])
   const [draft, setDraft] = useState<Draft | null>(null)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
+  const [filterCustomerId, setFilterCustomerId] = useState<number | ''>('')
+  const [customers, setCustomers] = useState<Customer[]>([])
 
   const refresh = useCallback(async () => {
-    const { recurring } = await api.listRecurring()
+    const { recurring } = await api.listRecurring(
+      filterCustomerId === '' ? {} : { customer_id: filterCustomerId },
+    )
     setRows(recurring)
-  }, [])
+  }, [filterCustomerId])
 
   useEffect(() => {
     refresh()
   }, [refresh])
+
+  useEffect(() => {
+    api.listCustomers(true).then(({ customers: c }) => setCustomers(c)).catch(() => {})
+  }, [])
+
+  const intentKey = intent
+    ? intent.type === 'open'
+      ? `open-${intent.openId}`
+      : `create-${intent.customer_id}`
+    : null
+  const handledIntent = useRef<string | null>(null)
+  useEffect(() => {
+    if (!intent || !intentKey) return
+    if (handledIntent.current === intentKey) return
+    handledIntent.current = intentKey
+    let active = true
+    ;(async () => {
+      try {
+        if (intent.type === 'open') {
+          const { recurring } = await api.listRecurring()
+          const row = recurring.find((r) => r.id === intent.openId)
+          if (active && row) setDraft(toDraft(row))
+          return
+        }
+        const { recurring: created } = await api.createRecurring({ customer_id: intent.customer_id })
+        if (!active) return
+        await refresh()
+        setDraft(toDraft(created))
+      } catch (e) {
+        if (active) setMsg(e instanceof Error ? e.message : 'Aktion fehlgeschlagen.')
+      } finally {
+        if (active) onIntentConsumed?.()
+      }
+    })()
+    return () => {
+      active = false
+    }
+  }, [intent, intentKey, refresh, onIntentConsumed])
 
   async function runDue() {
     setBusy(true)
@@ -65,7 +119,7 @@ export function RecurringView({ config }: { config: Config }) {
       setMsg(
         generated
           ? `${generated} Rechnungsentwurf/-entwürfe erzeugt — unter „Rechnungen" prüfen und festschreiben.`
-          : 'Keine fälligen Abos.',
+          : 'Keine fälligen Serienrechnungen.',
       )
       await refresh()
     } finally {
@@ -91,7 +145,7 @@ export function RecurringView({ config }: { config: Config }) {
   }
 
   async function remove(id: number) {
-    if (!confirm('Abo löschen? Bereits erzeugte Rechnungen bleiben erhalten.')) return
+    if (!confirm('Serienrechnung löschen? Bereits erzeugte Rechnungen bleiben erhalten.')) return
     await api.deleteRecurring(id)
     await refresh()
   }
@@ -102,6 +156,8 @@ export function RecurringView({ config }: { config: Config }) {
     try {
       const items = draft.itemList.filter((it) => (it.description ?? '').trim() || it.unit_price_cents !== 0)
       const body = {
+        customer_id: draft.customer_id ?? null,
+        contract_id: draft.contract_id ?? null,
         client_name: draft.client_name,
         client_address: draft.client_address,
         client_zip: draft.client_zip,
@@ -141,7 +197,10 @@ export function RecurringView({ config }: { config: Config }) {
         <div className="doc-editor">
           <div className="doc-editor-head">
             <button className="ghost" onClick={() => setDraft(null)}>Zurück</button>
-            <strong>{d.id ? 'Abo bearbeiten' : 'Neues Abo'}</strong>
+            <strong>{d.id ? 'Serie bearbeiten' : 'Neue Serie'}</strong>
+            {d.contract_id != null && (
+              <span className="user-chip">Vertrag #{d.contract_id}</span>
+            )}
             <div className="spacer" />
             <button className="primary" onClick={saveDraft} disabled={busy}>
               {busy ? '…' : 'Speichern'}
@@ -169,6 +228,24 @@ export function RecurringView({ config }: { config: Config }) {
 
           <fieldset className="doc-block">
             <legend>Empfänger</legend>
+            <CustomerPicker
+              value={d.customer_id}
+              onSelect={(c: Customer | null) => {
+                if (!c) {
+                  setD({ customer_id: null })
+                  return
+                }
+                setD({
+                  customer_id: c.id,
+                  client_name: c.name,
+                  client_address: c.address,
+                  client_zip: c.zip,
+                  client_city: c.city,
+                  client_email: c.email,
+                  client_type: c.client_type,
+                })
+              }}
+            />
             <div className="field">
               <label>Name / Firma</label>
               <input value={d.client_name ?? ''} onChange={(e) => setD({ client_name: e.target.value })} />
@@ -279,22 +356,39 @@ export function RecurringView({ config }: { config: Config }) {
   return (
     <>
       <div className="toolbar">
-        <h1 className="page-title">Abo-Rechnungen</h1>
-        <span className="user-chip">{rows.length} Abos</span>
+        <h1 className="page-title">Serienrechnungen</h1>
+        <select
+          value={filterCustomerId === '' ? '' : String(filterCustomerId)}
+          onChange={(e) => setFilterCustomerId(e.target.value ? Number(e.target.value) : '')}
+          style={{ maxWidth: 220 }}
+          title="Nach Kunde filtern"
+        >
+          <option value="">Alle Kunden</option>
+          {customers.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+        <span className="user-chip">{rows.length} Serien</span>
         <div className="spacer" />
         <button onClick={runDue} disabled={busy}>Fällige jetzt erzeugen</button>
-        <button className="primary" onClick={() => setDraft(blankDraft(config))}>+ Neues Abo</button>
+        <button className="primary" onClick={() => setDraft(blankDraft(config))}>+ Neue Serie</button>
       </div>
 
       <div className="content">
         <div className="hint">
-          Ein Abo erzeugt je Turnus einen <strong>Rechnungsentwurf</strong> — du prüfst und schreibst ihn
-          selbst fest. Nichts wird automatisch versendet.
+          Eine Serienrechnung (z.&nbsp;B. Hosting-/Wartungsvertrag) erzeugt je Turnus einen{' '}
+          <strong>Rechnungsentwurf</strong> — du prüfst und schreibst ihn selbst fest. Nichts wird
+          automatisch versendet.
         </div>
         {msg && <div className="section-info">{msg}</div>}
 
         {rows.length === 0 ? (
-          <div className="center-muted">Noch keine Abos. Lege eins an, z. B. für eine monatliche Wartungspauschale.</div>
+          <div className="center-muted">
+            Noch keine Serienrechnungen. Lege eine an, z.&nbsp;B. für eine monatliche Wartungspauschale —
+            oder starte vom Vertrag aus („Serie anlegen“).
+          </div>
         ) : (
           <div className="table-wrap">
             <table className="leads">
@@ -302,6 +396,7 @@ export function RecurringView({ config }: { config: Config }) {
                 <tr>
                   <th>Titel</th>
                   <th>Kunde</th>
+                  <th>Vertrag</th>
                   <th>Turnus</th>
                   <th>Nächster Lauf</th>
                   <th>Letzter Lauf</th>
@@ -314,6 +409,7 @@ export function RecurringView({ config }: { config: Config }) {
                   <tr key={r.id} onClick={() => setDraft(toDraft(r))}>
                     <td data-label="Titel" className="cell-primary">{r.title ?? '—'}</td>
                     <td data-label="Kunde">{r.client_name ?? '—'}</td>
+                    <td data-label="Vertrag">{r.contract_id != null ? `#${r.contract_id}` : '—'}</td>
                     <td data-label="Turnus">{CADENCE_LABEL[r.cadence] ?? r.cadence}</td>
                     <td data-label="Nächster Lauf">{fmtDate(r.next_run)}</td>
                     <td data-label="Letzter Lauf">{r.last_run ? fmtDate(r.last_run) : '—'}</td>

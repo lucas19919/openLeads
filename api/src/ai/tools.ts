@@ -4,6 +4,7 @@ import { createExpense, listExpenses, expenseSummary } from '../expenses'
 import { listCatalog, createCatalogItem } from '../catalog'
 import { listContracts, createContract, finalizeContract, contractFromDocument } from '../contracts'
 import { listCustomers, getCustomer, createCustomer } from '../customers'
+import { listRecurring, createRecurring, recurringFromContract } from '../recurring'
 import { insertLead } from '../leads'
 import { audit } from '../audit'
 import { analyzeLead, draftOutreach } from './leadIntel'
@@ -532,6 +533,100 @@ export const TOOLS: AgentTool[] = [
       if (!contract) return { error: 'Dokument nicht gefunden' }
       audit({ actor: ctx.actor, action: 'ai.contract_from_document', entity: 'contract', entityId: contract.id, detail: { document_id: Number(a.document_id) }, ip: ctx.ip })
       return { ok: true, contract }
+    },
+  ),
+
+  // --- Serienrechnungen (recurring billing templates) ---
+  def(
+    'list_recurring',
+    'Liste Serienrechnungen (Abrechnungsvorlagen mit Turnus). Filterbar nach Kunde, Vertrag, aktiv. ' +
+      'Jede Serie erzeugt periodisch einen Rechnungs-ENTWURF — nichts wird automatisch finalisiert.',
+    obj({
+      customer_id: { type: 'number' },
+      contract_id: { type: 'number' },
+      active_only: { type: 'boolean', description: 'nur aktive Serien (Standard: alle)' },
+      limit: { type: 'number' },
+    }),
+    (a) => {
+      const rows = listRecurring({
+        customer_id: a.customer_id != null ? Number(a.customer_id) : undefined,
+        contract_id: a.contract_id != null ? Number(a.contract_id) : undefined,
+        active: a.active_only ? true : undefined,
+      })
+      const limit = Math.min(Number(a.limit ?? 30) || 30, 100)
+      return {
+        count: rows.length,
+        recurring: rows.slice(0, limit).map((r) => ({
+          id: r.id,
+          title: r.title,
+          client_name: r.client_name,
+          cadence: r.cadence,
+          next_run: r.next_run,
+          active: r.active,
+          customer_id: r.customer_id,
+          contract_id: r.contract_id,
+        })),
+      }
+    },
+  ),
+
+  def(
+    'create_recurring',
+    'Lege eine Serienrechnung (Abrechnungsvorlage) an — ENTWURF-Vorlage, die je Turnus eine ' +
+      'Rechnungsentwurf erzeugt. Mit `contract_id` wird aus dem Vertrag prefilled (empfohlen für ' +
+      'Wartungsverträge); sonst `customer_id` oder manuelle Empfängerfelder. Nicht auto-finalisiert.',
+    obj({
+      title: { type: 'string' },
+      customer_id: { type: 'number' },
+      contract_id: { type: 'number', description: 'Vertrag (z. B. Wartungsvertrag) — prefillt Empfänger/Wert' },
+      cadence: { type: 'string', enum: ['monatlich', 'quartalsweise', 'jährlich'] },
+      next_run: { type: 'string', description: 'YYYY-MM-DD nächster Lauf' },
+      items: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            description: { type: 'string' },
+            quantity: { type: 'number' },
+            unit: { type: 'string' },
+            unit_price_cents: { type: 'number' },
+          },
+        },
+      },
+    }),
+    (a, ctx) => {
+      try {
+        const items = Array.isArray(a.items)
+          ? (a.items as { description?: string; quantity?: number; unit?: string; unit_price_cents?: number }[])
+          : undefined
+        const recurring =
+          a.contract_id != null
+            ? recurringFromContract(Number(a.contract_id), {
+                title: (a.title as string) ?? undefined,
+                cadence: (a.cadence as string) ?? undefined,
+                next_run: (a.next_run as string) ?? undefined,
+                customer_id: a.customer_id != null ? Number(a.customer_id) : undefined,
+                items,
+              })
+            : createRecurring({
+                title: (a.title as string) ?? null,
+                customer_id: a.customer_id != null ? Number(a.customer_id) : null,
+                cadence: (a.cadence as string) ?? null,
+                next_run: (a.next_run as string) ?? null,
+                items,
+              })
+        audit({
+          actor: ctx.actor,
+          action: 'ai.create_recurring',
+          entity: 'recurring',
+          entityId: recurring.id,
+          detail: { contract_id: recurring.contract_id, customer_id: recurring.customer_id },
+          ip: ctx.ip,
+        })
+        return { ok: true, recurring }
+      } catch (e) {
+        return { error: (e as Error).message }
+      }
     },
   ),
 

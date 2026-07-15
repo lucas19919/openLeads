@@ -171,6 +171,75 @@ export interface PaymentSummary {
   outstanding_cents: number
 }
 
+/** Kundenstamm — once maintained, reused on documents/contracts/series. */
+export interface Customer {
+  id: number
+  name: string
+  contact_name: string | null
+  address: string | null
+  zip: string | null
+  city: string | null
+  email: string | null
+  phone: string | null
+  vat_id: string | null
+  client_type: string
+  payment_terms: number | null
+  lead_id: number | null
+  notes: string | null
+  active: number
+  created_at: string
+  updated_at: string
+}
+
+export interface CustomerOverviewKpis {
+  invoices_count: number
+  invoiced_gross_cents: number
+  paid_cents: number
+  open_cents: number
+  quotes_count: number
+  contracts_active: number
+  contracts_total: number
+  series_active: number
+}
+
+export interface CustomerOverview {
+  customer: Customer
+  kpis: CustomerOverviewKpis
+  documents: {
+    id: number
+    kind: string
+    number: string | null
+    status: string
+    title: string | null
+    issue_date: string | null
+    gross_cents: number
+    paid_cents: number
+    open_cents: number
+    has_signed_doc: boolean
+  }[]
+  contracts: {
+    id: number
+    number: string | null
+    type: string
+    status: string
+    title: string | null
+    value_cents: number
+    start_date: string | null
+    end_date: string | null
+    has_signed_doc: boolean
+    signed_doc_name?: string | null
+  }[]
+  recurring: {
+    id: number
+    title: string | null
+    cadence: string
+    next_run: string
+    active: number
+    contract_id?: number | null
+    contract_number?: string | null
+  }[]
+}
+
 export interface RecurringInvoice {
   id: number
   client_name: string | null
@@ -181,6 +250,7 @@ export interface RecurringInvoice {
   client_type: string
   lead_id: number | null
   customer_id?: number | null
+  contract_id?: number | null
   title: string | null
   intro: string | null
   notes: string | null
