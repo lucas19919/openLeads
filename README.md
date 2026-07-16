@@ -1,11 +1,11 @@
-# OpenLeads · isarwebsites
+# OpenLeads
 
-The internal sales and billing suite of **isarwebsites** — a web agency selling
-websites, hosting/Pflege and local online marketing to small businesses. It is
-self-hosted, covers the whole path from a prospect with an outdated website to a
-proper German invoice, and the AI can actually drive it — read and update the
-pipeline, draft outreach, turn a sentence into an invoice — rather than sitting
-in a chat box off to the side.
+A self-hosted sales and billing suite for a web agency selling websites,
+hosting/Pflege and local online marketing to small businesses. It covers the
+whole path from a prospect with an outdated website to a proper German invoice,
+and the AI can actually drive it — read and update the pipeline, draft
+outreach, turn a sentence into an invoice — rather than sitting in a chat box
+off to the side.
 
 It runs on open models you host yourself (a local Ollama by default), so
 customer data doesn't leave your machine.
@@ -19,7 +19,7 @@ The modules, behind one login:
 - **Chat (KI)** — a copilot that operates the rest of the suite through the same
   audited tools the UI uses: qualify leads, move pipeline stages, draft
   outreach, build invoices, manage the service catalog and customer registry,
-  and draft/finalise contracts — all in German, tuned to the isarwebsites
+  and draft/finalise contracts — all in German, tuned to a web agency's
   offering (Website-Pakete, Relaunch, Hosting & Pflege, SEO). Point it at a URL
   and it reads the site and creates a qualified lead.
 - **Leads** — the CRM pipeline (kanban + table, stages, tags, notes), built for
@@ -30,7 +30,11 @@ The modules, behind one login:
   PDF. A finalised invoice is a ZUGFeRD / Factur-X e-invoice (PDF/A-3 with
   embedded EN 16931 XML), Kleinunternehmer (§19 UStG) aware, with gapless
   numbering and a built-in EN 16931 validator. Record payments (partial
-  supported); upload the signed/final copy to keep it with the record.
+  supported); upload the signed/final copy to keep it with the record. Issued
+  documents are immutable (GoBD, enforced server-side) — corrections go through
+  a one-click **Stornorechnung**: a linked draft with negated positions that
+  flips the original to `storniert` when finalised, with the pair netting to
+  zero in every report.
 - **Serienrechnungen** — recurring invoices for Hosting- und Wartungsverträge: a
   template + cadence (monthly / quarterly / yearly) produces a draft Rechnung
   each period for you to review and finalise. Link a Serie to a Vertrag from the
@@ -49,18 +53,22 @@ The modules, behind one login:
   and there's a journal + DATEV expense export for the Steuerberater. Plus
   laufende Abos (your own SaaS/hosting costs) with renewal reminders.
 - **Einstellungen** (admin) — business profile, numbering, AGB, the
-  **Leistungskatalog** (a fresh install is prefilled with the isarwebsites
-  packages: Website Starter/Business/Premium, Relaunch, Hosting & Pflege, SEO,
-  Google Business Profil, …), customer registry, users, AI + SMTP connections,
-  Steuerberater exports, backup/restore and the DSGVO toolkit.
+  **Leistungskatalog** (a fresh install is prefilled with a starter catalog of
+  web-agency packages: Website Starter/Business/Premium, Relaunch, Hosting &
+  Pflege, SEO, Google Business Profil, …), customer registry, users, AI + SMTP
+  connections, Steuerberater exports, backup/restore and the DSGVO toolkit.
+
+Billing papers hang off the **Kunden** hub and the Übersicht drill-downs rather
+than their own tabs; every cross-module jump leaves a "Zurück zu …" trail (the
+browser back button works too), and **Strg/Cmd+K** opens a global search over
+Kunden, Belege, Verträge, Serien and Leads. The app is mobile-friendly and
+installable as a PWA.
 
 The UI is German and the invoicing follows German tax rules (§19 UStG,
 ZUGFeRD). On the compliance side: it's self-hosted, AI inference can stay
 local, there's an append-only audit log, one-click data export (Art. 15/20) and
 erasure (Art. 17), a consent ledger, and an Art. 30 processing record. The AI
 never sends anything on its own — a human approves every outgoing message.
-More detail in [`docs/AI.md`](docs/AI.md) and
-[`docs/COMPLIANCE.md`](docs/COMPLIANCE.md).
 
 ## Stack
 
@@ -81,7 +89,7 @@ small Hono API, a Vite/React app, and pure-JS PDF generation.
 api/src/
   index.ts        # composition root: middleware, routes, static, scheduler
   routes/         # one HTTP module per domain (leads, documents, contracts, …)
-  ai/             # provider, agent loop, tools, prompts (isarwebsites voice)
+  ai/             # provider, agent loop, tools, prompts (web-agency voice)
   <domain>.ts     # domain logic + SQL, one module per table-ish concern
   <domain>.test.ts
 ```
@@ -116,8 +124,8 @@ npm run dev
 ```
 
 `node:sqlite` prints an `ExperimentalWarning` on boot. That's expected; ignore
-it. A fresh database starts with the isarwebsites Leistungskatalog prefilled —
-edit it under Einstellungen.
+it. A fresh database starts with a starter Leistungskatalog prefilled — edit it
+under Einstellungen.
 
 ## Configuration
 

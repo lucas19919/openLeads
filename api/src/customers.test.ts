@@ -16,10 +16,11 @@ const {
   listCustomers,
   customerOverview,
 } = await import('./customers')
-const { createContract, getContract, updateContract, setSignedDoc, setContractStatus } =
+const { createContract, getContract, updateContract, setSignedDoc, setContractStatus, finalizeContract } =
   await import('./contracts')
 const { createRecurring, updateRecurring } = await import('./recurring')
 const { addPayment } = await import('./payments')
+const { getDocument, assertDocumentPatchable } = await import('./documents')
 
 after(() => {
   try {
@@ -172,4 +173,62 @@ test('customerOverview returns null for missing customer; list caps do not shrin
   assert.equal(o.kpis.invoices_count, 22)
   assert.equal(o.kpis.invoiced_gross_cents, 2200)
   assert.equal(o.documents.length, 20)
+})
+
+test('link-only customer_id on a numbered invoice does not rewrite the client snapshot', () => {
+  const c = createCustomer({ name: 'Stamm GmbH', city: 'München' })
+  // Numbered invoice with free-text recipient, no customer yet (historical paper).
+  const info = db
+    .prepare(
+      `INSERT INTO documents
+        (kind, number, status, customer_id, client_name, client_city, small_business, vat_rate, client_type, issue_date)
+       VALUES ('rechnung', 'RE-LINK-1', 'versendet', NULL, 'Histortext AG', 'Hamburg', 1, 19, 'geschaeft', '2026-06-01')`,
+    )
+    .run()
+  const docId = Number(info.lastInsertRowid)
+  db.prepare(
+    'INSERT INTO document_items (document_id, description, quantity, unit_price_cents, sort) VALUES (?, ?, 1, ?, 0)',
+  ).run(docId, 'Leistung', 5000)
+
+  // Simulate PATCH { customer_id } only (same as routes/documents link-only path).
+  db.prepare(`UPDATE documents SET customer_id = ?, updated_at = datetime('now') WHERE id = ?`).run(c.id, docId)
+
+  const doc = getDocument(docId)!
+  assert.equal(doc.customer_id, c.id)
+  assert.equal(doc.client_name, 'Histortext AG')
+  assert.equal(doc.client_city, 'Hamburg')
+
+  const o = customerOverview(c.id)!
+  assert.ok(o.documents.some((d) => d.id === docId))
+  assert.ok(o.kpis.invoices_count >= 1)
+})
+
+test('issued documents refuse content patches; links + metadata stay writable', () => {
+  // Content of a numbered document is frozen (GoBD) …
+  assert.throws(() => assertDocumentPatchable(true, { client_name: 'Neu' }), /unveränderlich/)
+  assert.throws(() => assertDocumentPatchable(true, { items: [] }), /items/)
+  assert.throws(() => assertDocumentPatchable(true, { customer_id: 1, vat_rate: 7 }), /vat_rate/)
+  // … while the Stamm-link and post-issuance metadata remain writable.
+  assertDocumentPatchable(true, {
+    customer_id: 3,
+    lead_id: null,
+    due_date: '2026-08-01',
+    client_type: 'privat',
+    client_email: 'neu@x.de',
+    status: 'bezahlt',
+  })
+  // Drafts are unrestricted.
+  assertDocumentPatchable(false, { client_name: 'Neu', items: [] })
+})
+
+test('finalised contracts refuse content patches; link + delivery e-mail stay writable', () => {
+  const c = createCustomer({ name: 'Frozen GmbH' })
+  const k = createContract({ title: 'Wartung Alt', value_cents: 1000 })
+  finalizeContract(k.id)
+  assert.throws(() => updateContract(k.id, { title: 'Anders' }), /unveränderlich/)
+  assert.throws(() => updateContract(k.id, { value_cents: 99999 }), /value_cents/)
+  const u = updateContract(k.id, { customer_id: c.id, client_email: 'neu@frozen.de' })!
+  assert.equal(u.customer_id, c.id)
+  assert.equal(u.client_email, 'neu@frozen.de')
+  assert.equal(u.title, 'Wartung Alt') // frozen content untouched
 })

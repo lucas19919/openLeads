@@ -11,7 +11,6 @@ import {
   expenseSummary,
 } from '../expenses'
 import { audit } from '../audit'
-import { emit } from '../events'
 import { requireAuth, type Vars } from './middleware'
 import { readUpload, inlineFile } from './helpers'
 
@@ -26,12 +25,6 @@ export function registerExpenseRoutes(app: Hono<{ Variables: Vars }>): void {
       q: c.req.query('q') || undefined,
     }
     return c.json({ expenses: listExpenses(filter), summary: expenseSummary(filter) })
-  })
-
-  app.get('/api/expenses/:id', requireAuth, (c) => {
-    const exp = getExpense(Number(c.req.param('id')))
-    if (!exp) return c.json({ error: 'not found' }, 404)
-    return c.json({ expense: exp })
   })
 
   app.post('/api/expenses', requireAuth, async (c) => {
@@ -55,7 +48,6 @@ export function registerExpenseRoutes(app: Hono<{ Variables: Vars }>): void {
       c.get('user').username,
     )
     audit({ actor: c.get('user').username, action: 'expense.create', entity: 'expense', entityId: exp.id, detail: { gross_cents: exp.gross_cents, category: exp.category, vendor: exp.vendor } })
-    emit('expense.created', { id: exp.id, gross_cents: exp.gross_cents, category: exp.category })
     return c.json({ expense: exp }, 201)
   })
 
@@ -72,7 +64,6 @@ export function registerExpenseRoutes(app: Hono<{ Variables: Vars }>): void {
     const exp = updateExpense(id, b)
     if (!exp) return c.json({ error: 'not found' }, 404)
     audit({ actor: c.get('user').username, action: 'expense.update', entity: 'expense', entityId: id, detail: { fields: Object.keys(b) } })
-    emit('expense.updated', { id, gross_cents: exp.gross_cents, category: exp.category })
     return c.json({ expense: exp })
   })
 
@@ -80,7 +71,6 @@ export function registerExpenseRoutes(app: Hono<{ Variables: Vars }>): void {
     const id = Number(c.req.param('id'))
     if (!deleteExpense(id)) return c.json({ error: 'not found' }, 404)
     audit({ actor: c.get('user').username, action: 'expense.delete', entity: 'expense', entityId: id })
-    emit('expense.deleted', { id })
     return c.json({ ok: true })
   })
 

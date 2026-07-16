@@ -131,6 +131,8 @@ export const api = {
     return req<{ documents: Doc[] }>(`/documents${suffix}`)
   },
   getDocument: (id: number) => req<{ document: Doc }>(`/documents/${id}`),
+  stornoDocument: (id: number) =>
+    req<{ document: Doc }>(`/documents/${id}/storno`, { method: 'POST' }),
   createDocument: (body: {
     kind: string
     lead_id?: number | null
@@ -204,7 +206,6 @@ export const api = {
     const suffix = qs.toString() ? `?${qs}` : ''
     return req<{ expenses: Expense[]; summary: ExpenseSummary }>(`/expenses${suffix}`)
   },
-  getExpense: (id: number) => req<{ expense: Expense }>(`/expenses/${id}`),
   createExpense: (body: Partial<Expense>) =>
     req<{ expense: Expense }>('/expenses', { method: 'POST', body: JSON.stringify(body) }),
   updateExpense: (id: number, patch: Partial<Expense>) =>
@@ -260,8 +261,13 @@ export const api = {
   },
 
   // --- Kunden (customer registry) ---
-  listCustomers: (activeOnly = false) =>
-    req<{ customers: Customer[] }>(`/customers${activeOnly ? '?active=1' : ''}`),
+  listCustomers: (activeOnly = false, leadId?: number) => {
+    const qs = new URLSearchParams()
+    if (activeOnly) qs.set('active', '1')
+    if (leadId != null) qs.set('lead_id', String(leadId))
+    const suffix = qs.toString() ? `?${qs}` : ''
+    return req<{ customers: Customer[] }>(`/customers${suffix}`)
+  },
   getCustomer: (id: number) => req<{ customer: Customer }>(`/customers/${id}`),
   createCustomer: (body: Partial<Customer>) =>
     req<{ customer: Customer }>('/customers', { method: 'POST', body: JSON.stringify(body) }),
@@ -453,13 +459,6 @@ export const api = {
       `/dsgvo/lead/${leadId}/erase`,
       { method: 'POST', body: JSON.stringify({ reason }) },
     ),
-  dsgvoAudit: (entity?: string, entityId?: number) => {
-    const qs = new URLSearchParams()
-    if (entity) qs.set('entity', entity)
-    if (entityId) qs.set('entity_id', String(entityId))
-    const s = qs.toString() ? `?${qs}` : ''
-    return req<{ audit: Record<string, unknown>[] }>(`/dsgvo/audit${s}`)
-  },
 }
 
 export { ApiError }

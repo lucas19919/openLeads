@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
-import { fmtDate, parseTags } from '../util'
+import { fmtDate, parseTags, useEscapeKey } from '../util'
 import type { Lead, LeadAnalysis, LeadEvent, Outreach, PublicUser } from '../types'
 
 // talking_points / risk_flags arrive as JSON strings from the model.
@@ -64,6 +64,7 @@ export function LeadDetail({
   onClose,
   onChanged,
   onCreateInvoice,
+  onOpenCustomer,
 }: {
   id: number
   stages: string[]
@@ -71,6 +72,8 @@ export function LeadDetail({
   onClose: () => void
   onChanged: (l: Lead) => void
   onCreateInvoice: (l: Lead) => void
+  /** Open or create the Kunden registry entry for this lead. */
+  onOpenCustomer?: (l: Lead) => void | Promise<void>
 }) {
   const [lead, setLead] = useState<Lead | null>(null)
   const [events, setEvents] = useState<LeadEvent[]>([])
@@ -78,6 +81,8 @@ export function LeadDetail({
   const [saving, setSaving] = useState(false)
   const [tagInput, setTagInput] = useState('')
   const [users, setUsers] = useState<PublicUser[]>([])
+  const [customerBusy, setCustomerBusy] = useState(false)
+  useEscapeKey(onClose)
 
   // KI-Analyse
   const [analysis, setAnalysis] = useState<LeadAnalysis | null>(null)
@@ -316,7 +321,23 @@ export function LeadDetail({
                   ` · aktualisiert ${fmtDate(lead.updated_at.slice(0, 10))}`}
               </div>
               <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <button className="primary" onClick={() => onCreateInvoice(lead)}>
+                {onOpenCustomer && (
+                  <button
+                    className="primary"
+                    disabled={customerBusy}
+                    onClick={async () => {
+                      setCustomerBusy(true)
+                      try {
+                        await onOpenCustomer(lead)
+                      } finally {
+                        setCustomerBusy(false)
+                      }
+                    }}
+                  >
+                    {customerBusy ? '…' : 'Als Kunde anlegen / öffnen'}
+                  </button>
+                )}
+                <button onClick={() => onCreateInvoice(lead)}>
                   Angebot / Rechnung erstellen
                 </button>
               </div>

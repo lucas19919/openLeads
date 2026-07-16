@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api'
 import type { Config, Lead } from '../types'
+import type { ModuleIntent } from './SuiteNav'
 import { Toolbar } from './Toolbar'
 import { Board } from './Board'
 import { Table } from './Table'
@@ -9,12 +10,19 @@ import { NewLeadModal } from './NewLeadModal'
 
 export function LeadsView({
   config,
+  intent,
+  onIntentConsumed,
   onCreateInvoice,
+  onOpenCustomer,
 }: {
   config: Config
+  intent?: Extract<NonNullable<ModuleIntent>, { module: 'leads' }> | null
+  onIntentConsumed?: () => void
   onCreateInvoice: (lead: Lead) => void
+  onOpenCustomer?: (lead: Lead) => void | Promise<void>
 }) {
   const [leads, setLeads] = useState<Lead[]>([])
+  const [loaded, setLoaded] = useState(false)
   // Kanban drag-and-drop needs a mouse; default phones to the table view, whose
   // per-row Phase dropdown works with touch.
   const [view, setView] = useState<'board' | 'table'>(() =>
@@ -31,8 +39,16 @@ export function LeadsView({
   }, [])
 
   useEffect(() => {
-    refresh()
+    refresh().finally(() => setLoaded(true))
   }, [refresh])
+
+  // Open a lead's drawer when jumped to from another module (Kunde → Lead, back-nav).
+  useEffect(() => {
+    if (!intent || intent.type !== 'open') return
+    setSelectedId(intent.openId)
+    onIntentConsumed?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [intent?.type === 'open' ? intent.openId : null])
 
   async function onMove(id: number, stage: string) {
     setLeads((ls) => ls.map((l) => (l.id === id ? { ...l, stage } : l)))
@@ -84,7 +100,9 @@ export function LeadsView({
         exportHref={api.exportLeadsUrl({ q: search.trim() || undefined })}
       />
       <div className="content">
-        {leads.length === 0 ? (
+        {!loaded ? (
+          <div className="center-muted">Lädt…</div>
+        ) : leads.length === 0 ? (
           <div className="center-muted">
             Noch keine Leads. Importiere eine Liste (.xlsx), lass den KI-Chat eine
             Website prüfen — oder lege manuell einen an („+ Lead").
@@ -107,6 +125,14 @@ export function LeadsView({
             setSelectedId(null)
             onCreateInvoice(lead)
           }}
+          onOpenCustomer={
+            onOpenCustomer
+              ? async (lead) => {
+                  setSelectedId(null)
+                  await onOpenCustomer(lead)
+                }
+              : undefined
+          }
         />
       )}
 

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { api } from '../../api'
+import { invalidateCustomersCache } from '../../customersCache'
 import { euro } from '../../money'
-import { fmtDate } from '../../util'
-import type { Config, Customer, CustomerOverview } from '../../types'
-import type { ModuleIntent } from '../SuiteNav'
+import { fmtDate, useEscapeKey } from '../../util'
+import type { Config, Contract, Customer, CustomerOverview, Doc, RecurringInvoice } from '../../types'
+import type { BackTarget, ModuleIntent } from '../SuiteNav'
 
 const CLIENT_TYPE_LABEL: Record<string, string> = {
   geschaeft: 'Geschäft (B2B)',
@@ -43,21 +44,39 @@ function blankDraft(config: Config): Draft {
   }
 }
 
+const LAST_CUSTOMER_KEY = 'openleads.lastCustomerId'
+
 export function CustomersView({
   config,
   onIntent,
+  intent,
+  onIntentConsumed,
 }: {
   config: Config
   onIntent: (intent: ModuleIntent) => void
+  intent?: Extract<NonNullable<ModuleIntent>, { module: 'customers' }> | null
+  onIntentConsumed?: () => void
 }) {
   const [rows, setRows] = useState<Customer[]>([])
+  const [loaded, setLoaded] = useState(false)
   const [q, setQ] = useState('')
   const [activeOnly, setActiveOnly] = useState(true)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [overview, setOverview] = useState<CustomerOverview | null>(null)
+  const [overviewLoading, setOverviewLoading] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
+  // Attach existing Belege (docs / contracts / series) to this customer.
+  type AttachKind = 'documents' | 'contracts' | 'recurring'
+  const [attachKind, setAttachKind] = useState<AttachKind | null>(null)
+  const [attachCandidates, setAttachCandidates] = useState<
+    { id: number; label: string; sub: string }[]
+  >([])
+  const [attachSelected, setAttachSelected] = useState<Set<number>>(new Set())
+  const [attachQ, setAttachQ] = useState('')
+  const [attachBusy, setAttachBusy] = useState(false)
+  const [attachLoading, setAttachLoading] = useState(false)
 
   const refresh = useCallback(async () => {
     const { customers } = await api.listCustomers(false)
@@ -65,8 +84,56 @@ export function CustomersView({
   }, [])
 
   useEffect(() => {
-    refresh().catch((e) => setError(e instanceof Error ? e.message : 'Laden fehlgeschlagen.'))
+    refresh()
+      .catch((e) => setError(e instanceof Error ? e.message : 'Laden fehlgeschlagen.'))
+      .finally(() => setLoaded(true))
   }, [refresh])
+
+  // Restore last open customer when returning to the tab (no cold empty list).
+  useEffect(() => {
+    if (intent) return
+    if (draft) return
+    const raw = sessionStorage.getItem(LAST_CUSTOMER_KEY)
+    if (!raw) return
+    const id = Number(raw)
+    if (!Number.isFinite(id)) return
+    let alive = true
+    api
+      .getCustomer(id)
+      .then(({ customer }) => {
+        if (alive) void openCustomer(customer)
+      })
+      .catch(() => {
+        sessionStorage.removeItem(LAST_CUSTOMER_KEY)
+      })
+    return () => {
+      alive = false
+    }
+    // Only on mount — openCustomer is stable enough for this restore path.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Open customer from Lead → Kunde intent.
+  useEffect(() => {
+    if (!intent || intent.type !== 'open') return
+    let alive = true
+    api
+      .getCustomer(intent.openId)
+      .then(({ customer }) => {
+        if (!alive) return
+        void openCustomer(customer)
+      })
+      .catch((e) => {
+        if (alive) setError(e instanceof Error ? e.message : 'Kunde nicht gefunden.')
+      })
+      .finally(() => {
+        if (alive) onIntentConsumed?.()
+      })
+    return () => {
+      alive = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [intent?.type === 'open' ? intent.openId : null])
 
   const visible = useMemo(() => {
     const needle = q.trim().toLowerCase()
@@ -78,16 +145,133 @@ export function CustomersView({
     })
   }, [rows, q, activeOnly])
 
+  async function loadOverview(customerId: number) {
+    setOverviewLoading(true)
+    try {
+      const { overview: o } = await api.customerOverview(customerId)
+      setOverview(o)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Übersicht konnte nicht geladen werden.')
+    } finally {
+      setOverviewLoading(false)
+    }
+  }
+
   async function openCustomer(c: Customer) {
     setError(null)
     setMsg(null)
     setDraft({ ...c })
-    setOverview(null)
     try {
-      const { overview: o } = await api.customerOverview(c.id)
-      setOverview(o)
+      sessionStorage.setItem(LAST_CUSTOMER_KEY, String(c.id))
+    } catch {
+      /* ignore */
+    }
+    // Keep previous overview visible while reloading when re-opening same id.
+    if (overview?.customer.id !== c.id) setOverview(null)
+    await loadOverview(c.id)
+  }
+
+  async function openAttach(kind: AttachKind) {
+    if (!draft?.id) return
+    setAttachKind(kind)
+    setAttachSelected(new Set())
+    setAttachQ('')
+    setAttachCandidates([])
+    setAttachLoading(true)
+    setError(null)
+    try {
+      if (kind === 'documents') {
+        const { documents } = await api.listDocuments()
+        setAttachCandidates(
+          documents
+            .filter((d: Doc) => d.customer_id == null)
+            .map((d) => ({
+              id: d.id,
+              label: `${KIND_LABEL[d.kind] ?? d.kind}${d.number ? ` ${d.number}` : ' (Entwurf)'}`,
+              sub: [d.client_name, d.title, d.status].filter(Boolean).join(' · '),
+            })),
+        )
+      } else if (kind === 'contracts') {
+        const { contracts } = await api.listContracts()
+        setAttachCandidates(
+          contracts
+            .filter((k: Contract) => k.customer_id == null)
+            .map((k) => ({
+              id: k.id,
+              label: k.number ? `Vertrag ${k.number}` : `Entwurf: ${k.title ?? 'Vertrag'}`,
+              sub: [k.client_name, k.title, STATUS_LABEL[k.status] ?? k.status].filter(Boolean).join(' · '),
+            })),
+        )
+      } else {
+        const { recurring } = await api.listRecurring()
+        setAttachCandidates(
+          recurring
+            .filter((r: RecurringInvoice) => r.customer_id == null)
+            .map((r) => ({
+              id: r.id,
+              label: r.title ?? 'Serienrechnung',
+              sub: [r.client_name, CADENCE_LABEL[r.cadence] ?? r.cadence].filter(Boolean).join(' · '),
+            })),
+        )
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Übersicht konnte nicht geladen werden.')
+      setError(e instanceof Error ? e.message : 'Liste konnte nicht geladen werden.')
+      setAttachKind(null)
+    } finally {
+      setAttachLoading(false)
+    }
+  }
+
+  async function confirmAttach() {
+    if (!draft?.id || !attachKind || attachSelected.size === 0) return
+    setAttachBusy(true)
+    setError(null)
+    try {
+      const ids = [...attachSelected]
+      for (const id of ids) {
+        if (attachKind === 'documents') await api.updateDocument(id, { customer_id: draft.id })
+        else if (attachKind === 'contracts') await api.updateContract(id, { customer_id: draft.id })
+        else await api.updateRecurring(id, { customer_id: draft.id })
+      }
+      setAttachKind(null)
+      setMsg(
+        ids.length === 1
+          ? '1 Beleg verknüpft.'
+          : `${ids.length} Belege verknüpft.`,
+      )
+      await loadOverview(draft.id)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Verknüpfen fehlgeschlagen.')
+    } finally {
+      setAttachBusy(false)
+    }
+  }
+
+  /** Remove the Stamm-link from one Beleg (snapshot untouched, re-linkable any time). */
+  async function detach(kind: AttachKind, id: number) {
+    if (!draft?.id) return
+    setError(null)
+    try {
+      if (kind === 'documents') await api.updateDocument(id, { customer_id: null })
+      else if (kind === 'contracts') await api.updateContract(id, { customer_id: null })
+      else await api.updateRecurring(id, { customer_id: null })
+      setMsg('Verknüpfung gelöst.')
+      await loadOverview(draft.id)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Lösen fehlgeschlagen.')
+    }
+  }
+
+  /** Detach the pipeline lead from this customer (registry link only). */
+  async function detachLead() {
+    if (!draft?.id) return
+    setError(null)
+    try {
+      const { customer } = await api.updateCustomer(draft.id, { lead_id: null })
+      setDraft(customer)
+      setMsg('Lead-Verknüpfung gelöst.')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Lösen fehlgeschlagen.')
     }
   }
 
@@ -119,6 +303,7 @@ export function CustomersView({
       const { customer } = draft.id
         ? await api.updateCustomer(draft.id, body)
         : await api.createCustomer(body)
+      invalidateCustomersCache()
       setDraft(customer)
       await refresh()
       const { overview: o } = await api.customerOverview(customer.id)
@@ -137,6 +322,7 @@ export function CustomersView({
     setBusy(true)
     try {
       await api.deleteCustomer(draft.id)
+      invalidateCustomersCache()
       setDraft(null)
       setOverview(null)
       await refresh()
@@ -155,6 +341,12 @@ export function CustomersView({
   if (draft) {
     const d = draft
     const k = overview?.kpis
+    // Cross-module jumps from this editor return here (same customer re-opened).
+    const backHere = (): BackTarget => ({
+      label: `Kunde ${(d.name ?? '').trim()}`.trim(),
+      module: 'customers',
+      openId: d.id ?? undefined,
+    })
     return (
       <div className="content">
         <div className="doc-editor">
@@ -166,6 +358,11 @@ export function CustomersView({
                 setOverview(null)
                 setMsg(null)
                 setError(null)
+                try {
+                  sessionStorage.removeItem(LAST_CUSTOMER_KEY)
+                } catch {
+                  /* ignore */
+                }
               }}
             >
               Zurück
@@ -254,6 +451,28 @@ export function CustomersView({
               <label>Notizen (intern)</label>
               <textarea rows={2} value={d.notes ?? ''} onChange={(e) => setD({ notes: e.target.value })} />
             </div>
+            {d.lead_id != null && (
+              <div className="muted" style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span>Verknüpfter Lead #{d.lead_id}</span>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() =>
+                    onIntent({
+                      type: 'open',
+                      module: 'leads',
+                      openId: d.lead_id!,
+                      back: backHere(),
+                    })
+                  }
+                >
+                  Lead öffnen
+                </button>
+                <button type="button" className="ghost" onClick={detachLead}>
+                  Lösen
+                </button>
+              </div>
+            )}
           </fieldset>
 
           {d.id != null && (
@@ -263,25 +482,31 @@ export function CustomersView({
                 <div className="spacer" />
                 <button
                   onClick={() =>
-                    onIntent({ type: 'create', module: 'documents', kind: 'rechnung', customer_id: d.id! })
+                    onIntent({ type: 'create', module: 'documents', kind: 'rechnung', customer_id: d.id!, back: backHere() })
                   }
                 >
                   + Rechnung
                 </button>
                 <button
                   onClick={() =>
-                    onIntent({ type: 'create', module: 'documents', kind: 'angebot', customer_id: d.id! })
+                    onIntent({ type: 'create', module: 'documents', kind: 'angebot', customer_id: d.id!, back: backHere() })
                   }
                 >
                   + Angebot
                 </button>
-                <button onClick={() => onIntent({ type: 'create', module: 'contracts', customer_id: d.id! })}>
+                <button onClick={() => onIntent({ type: 'create', module: 'contracts', customer_id: d.id!, back: backHere() })}>
                   + Vertrag
                 </button>
-                <button onClick={() => onIntent({ type: 'create', module: 'recurring', customer_id: d.id! })}>
+                <button onClick={() => onIntent({ type: 'create', module: 'recurring', customer_id: d.id!, back: backHere() })}>
                   + Serie
                 </button>
               </div>
+
+              {overviewLoading && !k && (
+                <div className="center-muted" style={{ marginTop: 16 }}>
+                  Lädt Übersicht…
+                </div>
+              )}
 
               {k && (
                 <div className="dash-cards" style={{ marginTop: 12 }}>
@@ -312,6 +537,11 @@ export function CustomersView({
                   <OverviewTable
                     title="Dokumente"
                     empty="Keine verknüpften Angebote/Rechnungen."
+                    action={
+                      <button className="ghost" type="button" onClick={() => openAttach('documents')}>
+                        Bestehende verknüpfen
+                      </button>
+                    }
                     rows={overview.documents}
                     columns={['Art', 'Nr.', 'Status', 'Brutto', 'Offen', '']}
                     render={(doc) => (
@@ -321,12 +551,19 @@ export function CustomersView({
                         <td>{STATUS_LABEL[doc.status] ?? doc.status}</td>
                         <td className="num">{euro(doc.gross_cents)}</td>
                         <td className="num">{euro(doc.open_cents)}</td>
-                        <td>
+                        <td className="row-actions">
                           <button
                             className="ghost"
-                            onClick={() => onIntent({ type: 'open', module: 'documents', openId: doc.id })}
+                            onClick={() => onIntent({ type: 'open', module: 'documents', openId: doc.id, back: backHere() })}
                           >
                             Öffnen
+                          </button>
+                          <button
+                            className="ghost"
+                            title="Kunden-Verknüpfung lösen (Beleg bleibt erhalten)"
+                            onClick={() => detach('documents', doc.id)}
+                          >
+                            Lösen
                           </button>
                         </td>
                       </tr>
@@ -335,6 +572,11 @@ export function CustomersView({
                   <OverviewTable
                     title="Verträge"
                     empty="Keine verknüpften Verträge."
+                    action={
+                      <button className="ghost" type="button" onClick={() => openAttach('contracts')}>
+                        Bestehende verknüpfen
+                      </button>
+                    }
                     rows={overview.contracts}
                     columns={['Nr.', 'Titel', 'Status', 'Wert', 'Unterschrift', '']}
                     render={(krow) => (
@@ -352,12 +594,19 @@ export function CustomersView({
                             '—'
                           )}
                         </td>
-                        <td>
+                        <td className="row-actions">
                           <button
                             className="ghost"
-                            onClick={() => onIntent({ type: 'open', module: 'contracts', openId: krow.id })}
+                            onClick={() => onIntent({ type: 'open', module: 'contracts', openId: krow.id, back: backHere() })}
                           >
                             Öffnen
+                          </button>
+                          <button
+                            className="ghost"
+                            title="Kunden-Verknüpfung lösen (Vertrag bleibt erhalten)"
+                            onClick={() => detach('contracts', krow.id)}
+                          >
+                            Lösen
                           </button>
                         </td>
                       </tr>
@@ -366,6 +615,11 @@ export function CustomersView({
                   <OverviewTable
                     title="Serienrechnungen"
                     empty="Keine verknüpften Serien."
+                    action={
+                      <button className="ghost" type="button" onClick={() => openAttach('recurring')}>
+                        Bestehende verknüpfen
+                      </button>
+                    }
                     rows={overview.recurring}
                     columns={['Titel', 'Vertrag', 'Turnus', 'Nächster Lauf', 'Status', '']}
                     render={(s) => (
@@ -381,18 +635,47 @@ export function CustomersView({
                         <td>{CADENCE_LABEL[s.cadence] ?? s.cadence}</td>
                         <td>{fmtDate(s.next_run)}</td>
                         <td>{s.active ? 'aktiv' : 'pausiert'}</td>
-                        <td>
+                        <td className="row-actions">
                           <button
                             className="ghost"
-                            onClick={() => onIntent({ type: 'open', module: 'recurring', openId: s.id })}
+                            onClick={() => onIntent({ type: 'open', module: 'recurring', openId: s.id, back: backHere() })}
                           >
                             Öffnen
+                          </button>
+                          <button
+                            className="ghost"
+                            title="Kunden-Verknüpfung lösen (Serie bleibt erhalten)"
+                            onClick={() => detach('recurring', s.id)}
+                          >
+                            Lösen
                           </button>
                         </td>
                       </tr>
                     )}
                   />
                 </div>
+              )}
+
+              {attachKind && (
+                <AttachModal
+                  kind={attachKind}
+                  loading={attachLoading}
+                  busy={attachBusy}
+                  candidates={attachCandidates}
+                  selected={attachSelected}
+                  query={attachQ}
+                  onQuery={setAttachQ}
+                  onToggle={(id) => {
+                    setAttachSelected((prev) => {
+                      const next = new Set(prev)
+                      if (next.has(id)) next.delete(id)
+                      else next.add(id)
+                      return next
+                    })
+                  }}
+                  onClose={() => setAttachKind(null)}
+                  onConfirm={confirmAttach}
+                />
               )}
             </>
           )}
@@ -427,10 +710,11 @@ export function CustomersView({
       </div>
       <div className="content">
         {error && <div className="section-error">{error}</div>}
-        {visible.length === 0 ? (
+        {!loaded ? (
+          <div className="center-muted">Lädt…</div>
+        ) : visible.length === 0 ? (
           <div className="center-muted">
-            Noch keine Kunden. Lege einen Kunden an — dann fließen Name und Adresse in Rechnungen, Verträge und
-            Serien.
+            Noch keine Kunden. Lege einen Kunden an, oder öffne einen Lead und wähle „Als Kunde anlegen".
           </div>
         ) : (
           <div className="table-wrap">
@@ -476,16 +760,21 @@ function OverviewTable<T>({
   rows,
   columns,
   render,
+  action,
 }: {
   title: string
   empty: string
   rows: T[]
   columns: string[]
   render: (row: T) => ReactNode
+  action?: ReactNode
 }) {
   return (
     <fieldset className="doc-block">
-      <legend>{title}</legend>
+      <legend style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+        <span>{title}</span>
+        {action ? <span style={{ marginLeft: 'auto', fontWeight: 400 }}>{action}</span> : null}
+      </legend>
       {rows.length === 0 ? (
         <div className="muted">{empty}</div>
       ) : (
@@ -494,7 +783,7 @@ function OverviewTable<T>({
             <thead>
               <tr>
                 {columns.map((h) => (
-                  <th key={h}>{h}</th>
+                  <th key={h}>{h || ' '}</th>
                 ))}
               </tr>
             </thead>
@@ -503,5 +792,123 @@ function OverviewTable<T>({
         </div>
       )}
     </fieldset>
+  )
+}
+
+function AttachModal({
+  kind,
+  loading,
+  busy,
+  candidates,
+  selected,
+  query,
+  onQuery,
+  onToggle,
+  onClose,
+  onConfirm,
+}: {
+  kind: 'documents' | 'contracts' | 'recurring'
+  loading: boolean
+  busy: boolean
+  candidates: { id: number; label: string; sub: string }[]
+  selected: Set<number>
+  query: string
+  onQuery: (q: string) => void
+  onToggle: (id: number) => void
+  onClose: () => void
+  onConfirm: () => void
+}) {
+  useEscapeKey(() => {
+    if (!busy) onClose()
+  })
+  const title =
+    kind === 'documents'
+      ? 'Bestehende Dokumente verknüpfen'
+      : kind === 'contracts'
+        ? 'Bestehende Verträge verknüpfen'
+        : 'Bestehende Serien verknüpfen'
+  const needle = query.trim().toLowerCase()
+  const visible = candidates.filter((c) => {
+    if (!needle) return true
+    return `${c.label} ${c.sub}`.toLowerCase().includes(needle)
+  })
+
+  return (
+    <div
+      className="modal"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      onClick={() => {
+        if (!busy) onClose()
+      }}
+    >
+      <div className="modal-card modal-card-wide" onClick={(e) => e.stopPropagation()}>
+        <h2>{title}</h2>
+        <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+          Nur Belege <strong>ohne</strong> Kunden-Verknüpfung. Festgeschriebene Belege behalten ihren
+          Empfängertext — es ändert sich nur die Stamm-Verknüpfung.
+        </p>
+        <input
+          className="search"
+          placeholder="Suche Nummer, Name, Titel…"
+          value={query}
+          onChange={(e) => onQuery(e.target.value)}
+          style={{ width: '100%' }}
+        />
+        {loading ? (
+          <div className="center-muted" style={{ padding: 16 }}>
+            Lädt…
+          </div>
+        ) : visible.length === 0 ? (
+          <div className="center-muted" style={{ padding: 16 }}>
+            Keine unverknüpften Belege gefunden.
+          </div>
+        ) : (
+          <div className="table-wrap" style={{ maxHeight: 320, overflow: 'auto' }}>
+            <table className="leads">
+              <tbody>
+                {visible.map((c) => (
+                  <tr key={c.id} className="clickable" onClick={() => onToggle(c.id)}>
+                    <td style={{ width: 32 }}>
+                      <input
+                        type="checkbox"
+                        checked={selected.has(c.id)}
+                        onChange={() => onToggle(c.id)}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </td>
+                    <td>
+                      <strong>{c.label}</strong>
+                      {c.sub ? (
+                        <div className="muted" style={{ fontSize: 12 }}>
+                          {c.sub}
+                        </div>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <div className="modal-actions" style={{ alignItems: 'center' }}>
+          <span className="user-chip" style={{ marginRight: 'auto' }}>
+            {selected.size} ausgewählt
+          </span>
+          <button type="button" className="ghost" onClick={onClose} disabled={busy}>
+            Abbrechen
+          </button>
+          <button
+            className="primary"
+            type="button"
+            onClick={onConfirm}
+            disabled={busy || selected.size === 0}
+          >
+            {busy ? '…' : 'Verknüpfen'}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }

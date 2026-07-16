@@ -1,6 +1,6 @@
 # Roadmap
 
-The aim is the one self-hosted tool for the whole isarwebsites flow — Leads →
+The aim is the one self-hosted tool for a web agency's whole flow — Leads →
 Ansprache → Angebot → Rechnung/Vertrag — in the DACH market, where the AI runs
 on open weights you host yourself and DSGVO/UWG is handled in the product
 rather than left to the operator.
@@ -18,8 +18,8 @@ is the one box that does the whole flow on-prem, tailored to selling websites.
 - Angebote / Rechnungen, gapless numbering, ZUGFeRD / Factur-X PDF/A-3, §19 UStG,
   built-in EN 16931 validator, Käuferreferenz / Leitweg-ID (BT-10).
 - Model-agnostic AI provider (OpenAI-compatible, open/local first); copilot agent
-  that operates the CRM and invoicing through audited tools, tuned to the
-  isarwebsites offering.
+  that operates the CRM and invoicing through audited tools, tuned to a web
+  agency's offering.
 - Lead intelligence (qualification, fit scoring, next action), outreach drafting
   (human-approved, never auto-sent), natural-language invoicing, lead-from-URL
   (fetch a website, extract the facts, create a qualified lead).
@@ -42,9 +42,9 @@ is the one box that does the whole flow on-prem, tailored to selling websites.
   print-ready multi-page PDF with signature block; e-mail for signature;
   acceptance record; signed copy stored with the contract.
 - Leistungskatalog: reusable line items (price/unit/USt/SKU), copied by value
-  into documents; "+ Aus Katalog" picker; a fresh install is prefilled with the
-  isarwebsites packages (Website Starter/Business/Premium, Relaunch, Hosting &
-  Pflege, SEO, Google Business Profil, …).
+  into documents; "+ Aus Katalog" picker; a fresh install is prefilled with a
+  starter catalog of web-agency packages (Website Starter/Business/Premium,
+  Relaunch, Hosting & Pflege, SEO, Google Business Profil, …).
 - Kunden (customer registry): central client list; documents/contracts/recurring
   created from a customer are prefilled, value-snapshotted and linked.
 - Dashboard (Übersicht): live KPIs — open/overdue/paid, 12-month revenue,
@@ -55,7 +55,17 @@ is the one box that does the whole flow on-prem, tailored to selling websites.
   hardening headers + CSP, request-size limits; settings admin-gated; document
   list N+1 removed and BLOBs kept out of list queries; the lead scraper, the
   stale MCP workspace and the removed-integrations docs were dropped; defaults
-  and AI prompts tailored to isarwebsites.
+  and AI prompts tailored to the web-agency workflow.
+- Kunden hub + navigation spine: billing papers drill down from Kunden /
+  Übersicht with a "Zurück zu …" return trail (hardware/browser back included);
+  Lead ⇄ Kunde linked both ways; existing Belege/Verträge/Serien link and
+  unlink per customer; finalised-document immutability enforced server-side
+  (GoBD), not just in the UI.
+- Stornorechnung: one click creates a linked correction draft with negated
+  positions; the original flips to `storniert` when the Storno is finalised,
+  and the pair nets to zero in dashboard, EÜR and customer KPIs.
+- Global search (Strg/Cmd+K) over Kunden, Belege, Verträge, Serien and Leads;
+  installable as a PWA (manifest + icons).
 
 ## Open
 

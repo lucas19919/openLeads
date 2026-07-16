@@ -77,8 +77,8 @@ A ready-made vhost is in [`nginx-crm.conf`](nginx-crm.conf).
 docker compose run --rm api npm run seed -- <your-username> '<your-password>'
 ```
 
-Open `https://crm.example.com` and log in. A fresh database starts with the
-isarwebsites Leistungskatalog (website packages, hosting/Pflege, SEO) prefilled
+Open `https://crm.example.com` and log in. A fresh database starts with a
+starter Leistungskatalog (website packages, hosting/Pflege, SEO) prefilled
 — edit prices and items under **Einstellungen**.
 
 ## Day-to-day

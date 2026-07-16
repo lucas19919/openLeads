@@ -5,6 +5,7 @@ import { fmtDate, todayISO } from '../../util'
 import { CatalogPicker, catalogItemToLine } from './CatalogPicker'
 import { CustomerPicker } from '../CustomerPicker'
 import type { CatalogItem, Config, Customer, Doc, DocItem, Payment, ValidationResult } from '../../types'
+import type { ModuleIntent } from '../SuiteNav'
 
 const EMPTY_ITEM: DocItem = { description: '', quantity: 1, unit: 'Pauschal', unit_price_cents: 0 }
 const CLIENT_TYPE_LABEL: Record<string, string> = { geschaeft: 'Geschäft (B2B)', privat: 'Privat (B2C)' }
@@ -14,11 +15,17 @@ export function DocumentEditor({
   config,
   onClose,
   onChanged,
+  onOpenDocument,
+  onIntent,
 }: {
   id: number
   config: Config
   onClose: () => void
   onChanged: () => void
+  /** Open a sibling document in this module (Angebot → Rechnung conversion). */
+  onOpenDocument?: (id: number) => void
+  /** Cross-module jump (Angebot → Vertrag conversion). */
+  onIntent?: (intent: ModuleIntent) => void
 }) {
   const [doc, setDoc] = useState<Doc | null>(null)
   const [items, setItems] = useState<DocItem[]>([])
@@ -33,7 +40,7 @@ export function DocumentEditor({
   const [payAmount, setPayAmount] = useState('')
   const [payDate, setPayDate] = useState(todayISO())
   const [payMethod, setPayMethod] = useState('Überweisung')
-  // Integration actions (pay link, e-mail send, VIES check).
+  // E-mail send + signed-doc upload + link-only customer PATCH share one busy flag.
   const [busy, setBusy] = useState(false)
   const [actionMsg, setActionMsg] = useState<string | null>(null)
 
@@ -152,12 +159,29 @@ export function DocumentEditor({
   async function convert() {
     const { document } = await api.convertDocument(id)
     onChanged()
+    if (onOpenDocument) {
+      onOpenDocument(document.id)
+      return
+    }
     alert(`Rechnung als Entwurf erstellt (${document.title ?? 'Rechnung'}). Du findest sie in der Liste.`)
   }
 
   async function toContract() {
     if (dirty && !locked) await save()
     const { contract } = await api.documentToContract(id)
+    if (onIntent) {
+      onIntent({
+        type: 'open',
+        module: 'contracts',
+        openId: contract.id,
+        back: {
+          label: doc?.number ? `${isAngebot ? 'Angebot' : 'Rechnung'} ${doc.number}` : 'Angebot (Entwurf)',
+          module: 'documents',
+          openId: id,
+        },
+      })
+      return
+    }
     alert(`Vertragsentwurf erstellt (${contract.title ?? 'Vertrag'}). Du findest ihn unter „Verträge".`)
   }
 
@@ -181,8 +205,8 @@ export function DocumentEditor({
     }
   }
 
-  // Debtor type drives the §288 dunning Pauschale (B2B only). Editable even after
-  // finalisation; persisted immediately when locked (no Save button then).
+  // Debtor classification (B2B/B2C), kept as a record on the document. Editable
+  // even after finalisation; persisted immediately when locked (no Save button then).
   async function changeClientType(ct: string) {
     field('client_type', ct)
     if (locked) {
@@ -282,6 +306,30 @@ export function DocumentEditor({
     }
   }
 
+  // GoBD-correct cancellation: a linked draft with negated positions. The
+  // original flips to 'storniert' when the Storno is finalised.
+  async function createStorno() {
+    if (
+      !confirm(
+        'Stornorechnung erstellen? Es entsteht ein Entwurf mit negierten Positionen. ' +
+          'Erst beim Festschreiben des Stornos wird diese Rechnung auf „storniert" gesetzt.',
+      )
+    )
+      return
+    setBusy(true)
+    setActionMsg(null)
+    try {
+      const { document } = await api.stornoDocument(id)
+      onChanged()
+      if (onOpenDocument) onOpenDocument(document.id)
+      else setActionMsg(`Stornorechnungs-Entwurf erstellt (${document.title ?? 'Storno'}).`)
+    } catch (e) {
+      setActionMsg((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div className="doc-editor">
       <div className="doc-editor-head">
@@ -332,13 +380,37 @@ export function DocumentEditor({
             Per E-Mail senden
           </button>
         )}
+        {isFinalInvoice && doc.status !== 'storniert' && doc.corrects_document_id == null && (
+          <button
+            onClick={createStorno}
+            disabled={busy}
+            title="Stornorechnung (Korrekturrechnung) als Entwurf erstellen"
+          >
+            Stornieren
+          </button>
+        )}
       </div>
 
       {locked && (
         <div className="doc-locked">
           Festgeschrieben am {doc.issue_date ? fmtDate(doc.issue_date) : '—'} · Nr. {doc.number}.
           Ausgestellte Dokumente sind unveränderlich (GoBD). Für Änderungen{' '}
-          {isAngebot ? 'ein neues Angebot' : 'eine Storno-/Korrekturrechnung'} anlegen.
+          {isAngebot ? 'ein neues Angebot' : 'eine Storno-/Korrekturrechnung („Stornieren")'} anlegen.
+        </div>
+      )}
+
+      {doc.corrects_document_id != null && (
+        <div className="doc-locked">
+          Stornorechnung — korrigiert eine bestehende Rechnung.
+          {!doc.number && ' Beim Festschreiben wird die Originalrechnung auf „storniert" gesetzt.'}
+          {onOpenDocument && (
+            <>
+              {' '}
+              <button className="ghost" onClick={() => onOpenDocument(doc.corrects_document_id!)}>
+                Original öffnen
+              </button>
+            </>
+          )}
         </div>
       )}
 
@@ -419,7 +491,7 @@ export function DocumentEditor({
               ))}
             </select>
             <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-              Privatkunden schulden im Verzug keine €40-Pauschale (§288(5) BGB, nur B2B).
+              Einordnung des Empfängers (Geschäfts- oder Privatkunde) für deine Unterlagen.
             </div>
           </div>
         )}
@@ -429,13 +501,33 @@ export function DocumentEditor({
         <legend>Empfänger</legend>
         <CustomerPicker
           value={doc.customer_id}
-          disabled={locked}
+          linkOnly={locked}
           onSelect={(c: Customer | null) => {
+            // Finalised: link-only immediate PATCH — never rewrite client_* snapshot.
+            if (locked) {
+              void (async () => {
+                setBusy(true)
+                setActionMsg(null)
+                try {
+                  const { document } = await api.updateDocument(id, {
+                    customer_id: c?.id ?? null,
+                  })
+                  setDoc(document)
+                  setActionMsg(c ? `Mit Kunde „${c.name}" verknüpft.` : 'Kunden-Verknüpfung gelöst.')
+                  onChanged()
+                } catch (e) {
+                  setActionMsg(e instanceof Error ? e.message : 'Verknüpfung fehlgeschlagen.')
+                } finally {
+                  setBusy(false)
+                }
+              })()
+              return
+            }
             if (!c) {
               field('customer_id', null)
               return
             }
-            // Prefill from customer on select; later manual edits keep customer_id.
+            // Draft: prefill from customer; later manual edits keep customer_id.
             setDoc((d) =>
               d
                 ? {

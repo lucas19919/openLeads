@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../api'
+import { getActiveCustomers } from '../../customersCache'
 import { euro } from '../../money'
 import { fmtDate } from '../../util'
 import type { Config, Doc } from '../../types'
@@ -14,12 +15,15 @@ export function InvoicesView({
   config,
   intent,
   onIntentConsumed,
+  onIntent,
 }: {
   config: Config
   intent: DocIntent | null
   onIntentConsumed: () => void
+  onIntent: (intent: ModuleIntent) => void
 }) {
   const [docs, setDocs] = useState<Doc[]>([])
+  const [loaded, setLoaded] = useState(false)
   const [filter, setFilter] = useState<'all' | 'angebot' | 'rechnung'>('all')
   const [filterCustomerId, setFilterCustomerId] = useState<number | ''>('')
   const [customers, setCustomers] = useState<{ id: number; name: string }[]>([])
@@ -37,11 +41,11 @@ export function InvoicesView({
   }, [filterCustomerId])
 
   useEffect(() => {
-    refresh()
+    refresh().finally(() => setLoaded(true))
   }, [refresh])
 
   useEffect(() => {
-    api.listCustomers(true).then(({ customers: c }) => setCustomers(c)).catch(() => {})
+    getActiveCustomers().then(setCustomers).catch(() => {})
   }, [])
 
   // Handle open / create intents once (ref avoids React StrictMode double-create).
@@ -52,7 +56,11 @@ export function InvoicesView({
     : null
   const handledIntent = useRef<string | null>(null)
   useEffect(() => {
-    if (!intent || !intentKey) return
+    if (!intent || !intentKey) {
+      // Allow the same openId/create to fire again after the parent clears intent.
+      if (!intent) handledIntent.current = null
+      return
+    }
     if (handledIntent.current === intentKey) return
     handledIntent.current = intentKey
     let active = true
@@ -145,6 +153,11 @@ export function InvoicesView({
             refresh()
           }}
           onChanged={refresh}
+          onOpenDocument={(nextId) => {
+            refresh()
+            setOpenId(nextId)
+          }}
+          onIntent={onIntent}
         />
       </div>
     )
@@ -215,7 +228,9 @@ export function InvoicesView({
           {draftError && <div className="section-error">{draftError}</div>}
         </div>
 
-        {visible.length === 0 ? (
+        {!loaded ? (
+          <div className="center-muted">Lädt…</div>
+        ) : visible.length === 0 ? (
           <div className="center-muted">
             Noch keine Dokumente. Lege ein Angebot oder eine Rechnung an — oder starte aus einem Lead
             heraus („Angebot / Rechnung erstellen").

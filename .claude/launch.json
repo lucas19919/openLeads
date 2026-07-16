@@ -20,17 +20,10 @@
       "port": 5173
     },
     {
-      "name": "openleads-web-alt",
+      "name": "openleads-xyz",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "D:/Repos/openleads/web", "run", "dev", "--", "--port", "5175"],
-      "port": 5175,
-      "autoPort": false
-    },
-    {
-      "name": "openleads-web-redesign",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "D:/Repos/openleads/web", "run", "dev", "--", "--port", "5176", "--strictPort"],
-      "port": 5176,
+      "runtimeArgs": ["--prefix", "D:/Repos/openleads.xyz", "run", "dev", "--", "--port", "5181", "--strictPort"],
+      "port": 5181,
       "autoPort": false
     }
   ]

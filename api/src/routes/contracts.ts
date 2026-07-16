@@ -17,7 +17,6 @@ import { recurringFromContract } from '../recurring'
 import { renderContractPdf, contractPdfFilename } from '../contractPdf'
 import { getSettings } from '../documents'
 import { audit } from '../audit'
-import { emit } from '../events'
 import { SMTP } from '../mailer'
 import { deliverMail } from '../maildispatch'
 import { requireAuth, type Vars } from './middleware'
@@ -42,7 +41,6 @@ export function registerContractRoutes(app: Hono<{ Variables: Vars }>): void {
     try {
       const contract = createContract(b, c.get('user').username)
       audit({ actor: c.get('user').username, action: 'contract.create', entity: 'contract', entityId: contract.id, detail: { type: contract.type, client_name: contract.client_name } })
-      emit('contract.created', { id: contract.id, type: contract.type })
       return c.json({ contract }, 201)
     } catch (e) {
       return c.json({ error: (e as Error).message }, 400)
@@ -99,7 +97,6 @@ export function registerContractRoutes(app: Hono<{ Variables: Vars }>): void {
     if (!contract) return c.json({ error: 'not found' }, 404)
     if (!wasFinal) {
       audit({ actor: c.get('user').username, action: 'contract.finalize', entity: 'contract', entityId: id, detail: { number: contract.number, type: contract.type } })
-      emit('contract.finalized', { id, number: contract.number, type: contract.type })
     }
     return c.json({ contract })
   })
@@ -112,7 +109,6 @@ export function registerContractRoutes(app: Hono<{ Variables: Vars }>): void {
       const contract = signContract(id, b.signed_by ?? null, b.note ?? null, b.signed_at ?? null)
       if (!contract) return c.json({ error: 'not found' }, 404)
       audit({ actor: c.get('user').username, action: 'contract.sign', entity: 'contract', entityId: id, detail: { signed_by: contract.signed_by, signed_at: contract.signed_at, number: contract.number } })
-      emit('contract.signed', { id, number: contract.number, signed_by: contract.signed_by })
       return c.json({ contract })
     } catch (e) {
       return c.json({ error: (e as Error).message }, 400)

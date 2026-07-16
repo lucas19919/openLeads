@@ -34,7 +34,7 @@ export function listPayments(documentId: number): PaymentRow[] {
  * toggles between 'versendet' and 'bezahlt' — never overwrites a manual storno.
  * Returns the (possibly unchanged) document.
  */
-export function reconcileStatus(documentId: number): FullDocument | null {
+function reconcileStatus(documentId: number): FullDocument | null {
   const doc = getDocument(documentId)
   if (!doc) return null
   if (doc.kind !== 'rechnung' || !doc.number || doc.status === 'storniert') return doc

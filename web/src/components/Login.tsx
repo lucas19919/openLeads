@@ -31,7 +31,7 @@ export function Login({ onSuccess }: { onSuccess: (u: User) => void }) {
         <h1 className="brand">
           Open<i>Leads</i>
         </h1>
-        <div className="sub">isarwebsites · Interne Tools — Leads & Rechnungen</div>
+        <div className="sub">Leads, Rechnungen & Verträge — selbst gehostet</div>
         <div className="field">
           <label>Benutzer</label>
           <input

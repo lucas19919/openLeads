@@ -39,6 +39,32 @@ export function tx<T>(fn: () => T): T {
   }
 }
 
+/** Body keys a PATCH may write on a draft (the route maps them 1:1 to columns). */
+export const DOC_EDITABLE = new Set([
+  'client_name', 'client_address', 'client_zip', 'client_city', 'client_email',
+  'client_type', 'title', 'intro', 'notes', 'due_date', 'small_business', 'vat_rate',
+  'buyer_reference', 'client_vat_id', 'customer_id', 'lead_id',
+])
+
+// Once a document carries a number it is issued and GoBD-immutable. Only the
+// Stamm-links and post-issuance metadata may still change — never the content
+// the number was assigned to (recipient block, items, tax posture).
+const DOC_EDITABLE_FINAL = new Set([
+  'customer_id', 'lead_id', 'due_date', 'client_type', 'client_email',
+])
+
+/** Throws when a PATCH body would touch frozen content of an issued document. */
+export function assertDocumentPatchable(finalised: boolean, body: Record<string, unknown>): void {
+  if (!finalised) return
+  const offending = Object.keys(body).filter(
+    (k) => (k === 'items' || DOC_EDITABLE.has(k)) && !DOC_EDITABLE_FINAL.has(k),
+  )
+  if (offending.length)
+    throw new Error(
+      `Festgeschriebene Dokumente sind unveränderlich (GoBD); nicht änderbar: ${offending.join(', ')}.`,
+    )
+}
+
 /** Net/VAT/gross from line items. §19 (Kleinunternehmer) → no VAT line. */
 export function computeTotals(
   items: Pick<DocumentItemRow, 'quantity' | 'unit_price_cents'>[],
@@ -60,7 +86,7 @@ const DOC_COLUMNS =
   'id, kind, number, lead_id, customer_id, client_name, client_address, client_zip, ' +
   'client_city, client_email, title, intro, notes, status, issue_date, due_date, ' +
   'small_business, vat_rate, buyer_reference, client_type, client_vat_id, ' +
-  'include_payment_link, accounting_provider, accounting_external_id, accounting_pushed_at, ' +
+  'corrects_document_id, ' +
   'created_at, updated_at, signed_doc_name, signed_doc_mime, signed_doc_size, ' +
   '(signed_doc_data IS NOT NULL) AS has_signed_doc'
 
@@ -114,10 +140,16 @@ export function listDocuments(kind?: string, customerId?: number): FullDocument[
     .all(...params) as unknown as DocRowLite[]
   if (docs.length === 0) return []
 
+  // Only load items/payments for the returned docs (not the whole tables).
+  const ids = docs.map((d) => d.id)
+  const placeholders = ids.map(() => '?').join(',')
+
   const itemsByDoc = new Map<number, DocumentItemRow[]>()
   const allItems = db
-    .prepare('SELECT * FROM document_items ORDER BY document_id, sort, id')
-    .all() as unknown as DocumentItemRow[]
+    .prepare(
+      `SELECT * FROM document_items WHERE document_id IN (${placeholders}) ORDER BY document_id, sort, id`,
+    )
+    .all(...ids) as unknown as DocumentItemRow[]
   for (const it of allItems) {
     const bucket = itemsByDoc.get(it.document_id)
     if (bucket) bucket.push(it)
@@ -126,8 +158,12 @@ export function listDocuments(kind?: string, customerId?: number): FullDocument[
 
   const paidByDoc = new Map<number, number>()
   const paidRows = db
-    .prepare('SELECT document_id, COALESCE(SUM(amount_cents), 0) AS p FROM payments GROUP BY document_id')
-    .all() as unknown as { document_id: number; p: number }[]
+    .prepare(
+      `SELECT document_id, COALESCE(SUM(amount_cents), 0) AS p FROM payments
+        WHERE document_id IN (${placeholders})
+        GROUP BY document_id`,
+    )
+    .all(...ids) as unknown as { document_id: number; p: number }[]
   for (const r of paidRows) paidByDoc.set(r.document_id, r.p)
 
   return docs.map((d) => assemble(d, itemsByDoc.get(d.id) ?? [], paidByDoc.get(d.id) ?? 0))
@@ -169,8 +205,10 @@ export function replaceItems(documentId: number, items: DocItemInput[]): void {
 export function finalizeDraft(id: number): FullDocument | null {
   return tx(() => {
     const doc = db
-      .prepare('SELECT id, kind, number FROM documents WHERE id = ?')
-      .get(id) as unknown as Pick<DocumentRow, 'id' | 'kind' | 'number'> | undefined
+      .prepare('SELECT id, kind, number, corrects_document_id FROM documents WHERE id = ?')
+      .get(id) as unknown as
+      | Pick<DocumentRow, 'id' | 'kind' | 'number' | 'corrects_document_id'>
+      | undefined
     if (!doc) return null
     if (doc.number) return getDocument(id) // already finalised — no-op
     const s = getSettings()
@@ -188,8 +226,84 @@ export function finalizeDraft(id: number): FullDocument | null {
              status = 'versendet', updated_at = datetime('now')
        WHERE id = ?`,
     ).run(number, today, kind === 'rechnung' ? due : null, id)
+    // Finalising a Stornorechnung is the moment the cancellation becomes real:
+    // the corrected original flips to 'storniert' in the same transaction.
+    if (doc.corrects_document_id != null) {
+      db.prepare(
+        `UPDATE documents SET status = 'storniert', updated_at = datetime('now') WHERE id = ?`,
+      ).run(doc.corrects_document_id)
+    }
     return getDocument(id)
   })
+}
+
+/**
+ * Create a draft Stornorechnung (Korrekturrechnung) for a finalised Rechnung:
+ * the same recipient snapshot and items with negated unit prices, plus a
+ * reference to the original number (§14 UStG). The original is NOT touched yet
+ * — it flips to 'storniert' when the Storno is finalised (see finalizeDraft),
+ * so an abandoned draft leaves the books unchanged.
+ */
+export function stornoFromDocument(id: number): FullDocument {
+  const orig = getDocument(id)
+  if (!orig) throw new Error('Rechnung nicht gefunden.')
+  if (orig.kind !== 'rechnung' || !orig.number)
+    throw new Error('Nur festgeschriebene Rechnungen können storniert werden.')
+  if (orig.corrects_document_id != null)
+    throw new Error('Eine Stornorechnung kann nicht storniert werden.')
+  if (orig.status === 'storniert') throw new Error('Diese Rechnung ist bereits storniert.')
+  const existing = db
+    .prepare(
+      `SELECT id, number FROM documents
+        WHERE corrects_document_id = ? AND status != 'storniert'`,
+    )
+    .get(id) as unknown as { id: number; number: string | null } | undefined
+  if (existing)
+    throw new Error(
+      `Zu dieser Rechnung existiert bereits eine Stornorechnung (${existing.number ?? `Entwurf #${existing.id}`}).`,
+    )
+
+  const [y, m, d] = (orig.issue_date ?? '').split('-')
+  const issued = d && m && y ? `${d}.${m}.${y}` : orig.issue_date
+  const info = db
+    .prepare(
+      `INSERT INTO documents
+        (kind, lead_id, customer_id, corrects_document_id, client_name, client_address,
+         client_zip, client_city, client_email, client_vat_id, buyer_reference, client_type,
+         title, intro, small_business, vat_rate)
+       VALUES
+        ('rechnung', @lead_id, @customer_id, @corrects_document_id, @client_name, @client_address,
+         @client_zip, @client_city, @client_email, @client_vat_id, @buyer_reference, @client_type,
+         @title, @intro, @small_business, @vat_rate)`,
+    )
+    .run({
+      lead_id: orig.lead_id,
+      customer_id: orig.customer_id ?? null,
+      corrects_document_id: orig.id,
+      client_name: orig.client_name,
+      client_address: orig.client_address,
+      client_zip: orig.client_zip,
+      client_city: orig.client_city,
+      client_email: orig.client_email,
+      client_vat_id: orig.client_vat_id ?? null,
+      buyer_reference: orig.buyer_reference ?? null,
+      client_type: orig.client_type,
+      title: `Stornorechnung zu ${orig.number}`,
+      intro: `Storno zur Rechnung ${orig.number} vom ${issued}. Die Positionen werden vollständig gutgeschrieben.`,
+      small_business: orig.small_business,
+      vat_rate: orig.vat_rate,
+    })
+  const newId = Number(info.lastInsertRowid)
+  replaceItems(
+    newId,
+    orig.items.map((it) => ({
+      description: it.description,
+      quantity: it.quantity,
+      unit: it.unit,
+      unit_price_cents: -it.unit_price_cents,
+    })),
+  )
+  return getDocument(newId)!
 }
 
 // --- signed/returned-copy store (the signed Angebot/Rechnung the client returns) -

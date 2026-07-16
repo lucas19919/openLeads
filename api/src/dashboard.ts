@@ -102,7 +102,9 @@ export function buildDashboard(today: string = new Date().toISOString().slice(0,
     const outstanding = Math.max(0, gross - inv.paid_cents)
     grossTotal += gross
     paidTotal += inv.paid_cents
-    if (inv.status !== 'storniert') {
+    // Neither cancelled originals nor their Stornorechnungen are receivables or
+    // net revenue — the pair must cancel out, not count −X once.
+    if (inv.status !== 'storniert' && inv.corrects_document_id == null) {
       openTotal += outstanding
       netTotal += inv.totals.net_cents
     }

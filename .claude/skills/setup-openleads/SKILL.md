@@ -139,7 +139,7 @@ Then **verify rather than assuming** — don't just report "done":
 - Confirm Vite is serving on 5173.
 - Tell the user to open **http://localhost:5173** and log in with the credentials
   from Step 2. The UI is in German (it targets the DACH market) — mention that so
-  they're not surprised. A fresh database starts with the isarwebsites
+  they're not surprised. A fresh database starts with a starter
   Leistungskatalog (website packages, hosting/Pflege, SEO) prefilled.
 
 Report exactly what came up and what's still optional/disabled (e.g. "Chat is

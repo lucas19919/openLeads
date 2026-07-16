@@ -3,7 +3,17 @@ import { api } from '../../api'
 import { euro, centsToInput, inputToCents } from '../../money'
 import type { CatalogItem, Config, EuerReport, PublicUser, Settings, User } from '../../types'
 
-export function SettingsView({ user, config }: { user: User; config: Config }) {
+/** `firma` = company identity (Absender, Bank, AGB, Katalog). `admin` = KI, SMTP, Team, Backup. */
+export function SettingsView({
+  user,
+  config,
+  variant = 'admin',
+}: {
+  user: User
+  config: Config
+  variant?: 'firma' | 'admin'
+}) {
+  const isFirma = variant === 'firma'
   const [s, setS] = useState<Settings | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -59,7 +69,7 @@ export function SettingsView({ user, config }: { user: User; config: Config }) {
   return (
     <>
       <div className="toolbar">
-        <h1 className="page-title">Einstellungen</h1>
+        <h1 className="page-title">{isFirma ? 'Firma' : 'Einstellungen'}</h1>
         <div className="spacer" />
         {error && <span className="user-chip" style={{ color: 'var(--danger, #c0392b)' }}>{error}</span>}
         {saved && <span className="user-chip">Gespeichert</span>}
@@ -70,7 +80,7 @@ export function SettingsView({ user, config }: { user: User; config: Config }) {
 
       <div className="content">
         <div className="settings-form">
-          {s.settings_key_configured === false && (
+          {!isFirma && s.settings_key_configured === false && (
             <div className="settings-keywarn">
               <strong><code>SETTINGS_KEY</code> ist nicht gesetzt.</strong> Gespeicherte Zugangsdaten
               (KI-/SMTP-Schlüssel) werden sonst mit einem unsicheren Standardschlüssel verschlüsselt —
@@ -80,6 +90,14 @@ export function SettingsView({ user, config }: { user: User; config: Config }) {
             </div>
           )}
 
+          {isFirma && (
+            <p className="settings-hint" style={{ marginTop: 0 }}>
+              Stammdaten deines Unternehmens — erscheinen auf Rechnungen, Angeboten und Verträgen.
+            </p>
+          )}
+
+          {isFirma && (
+          <>
           <fieldset className="doc-block">
             <legend>Absender</legend>
             <div className="field">
@@ -228,7 +246,7 @@ export function SettingsView({ user, config }: { user: User; config: Config }) {
           </fieldset>
 
           <fieldset className="doc-block">
-            <legend>Verträge & AGB</legend>
+            <legend>Vertragsvorlagen & AGB</legend>
             <p className="settings-hint">
               Deine Allgemeinen Geschäftsbedingungen. Beim Festschreiben eines Vertrags wird dieser Text
               <strong> eingefroren</strong> und dem Vertrags-PDF angehängt — spätere Änderungen wirken nur auf
@@ -268,7 +286,11 @@ export function SettingsView({ user, config }: { user: User; config: Config }) {
           </fieldset>
 
           <CatalogSettings />
+          </>
+          )}
 
+          {!isFirma && (
+          <>
           <fieldset className="doc-block">
             <legend>KI-Anbindung</legend>
             <p className="settings-hint">
@@ -478,6 +500,8 @@ export function SettingsView({ user, config }: { user: User; config: Config }) {
           </fieldset>
 
           {user.role === 'admin' && <TeamSettings config={config} currentUserId={user.id} />}
+          </>
+          )}
         </div>
       </div>
     </>

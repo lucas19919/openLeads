@@ -9,6 +9,9 @@ import {
   setDocumentSignedDoc,
   getDocumentSignedDoc,
   deleteDocumentSignedDoc,
+  stornoFromDocument,
+  DOC_EDITABLE,
+  assertDocumentPatchable,
   type DocItemInput,
 } from '../documents'
 import { renderDocumentPdf, pdfFilename } from '../pdf'
@@ -17,17 +20,11 @@ import { listPayments, addPayment, deletePayment, paidCents } from '../payments'
 import { getCustomer } from '../customers'
 import { contractFromDocument } from '../contracts'
 import { audit } from '../audit'
-import { emit } from '../events'
 import { SMTP } from '../mailer'
 import { deliverMail } from '../maildispatch'
 import { requireAuth, type Vars } from './middleware'
 import { readUpload, inlineFile } from './helpers'
 
-const DOC_EDITABLE = new Set([
-  'client_name', 'client_address', 'client_zip', 'client_city', 'client_email',
-  'client_type', 'title', 'intro', 'notes', 'due_date', 'small_business', 'vat_rate',
-  'buyer_reference', 'client_vat_id', 'include_payment_link', 'customer_id', 'lead_id',
-])
 
 export function registerDocumentRoutes(app: Hono<{ Variables: Vars }>): void {
   // List documents (optionally filtered by kind / customer), newest first, with totals.
@@ -115,17 +112,24 @@ export function registerDocumentRoutes(app: Hono<{ Variables: Vars }>): void {
       })
     const id = Number(info.lastInsertRowid)
     if (Array.isArray(b.items)) replaceItems(id, b.items as DocItemInput[])
-    emit('document.created', { id, kind })
     return c.json({ document: getDocument(id) }, 201)
   })
 
   app.patch('/api/documents/:id', requireAuth, async (c) => {
     const id = Number(c.req.param('id'))
-    const doc = db.prepare('SELECT id, kind, status FROM documents WHERE id = ?').get(id) as unknown as
-      | Pick<DocumentRow, 'id' | 'kind' | 'status'>
+    const doc = db.prepare('SELECT id, kind, number, status FROM documents WHERE id = ?').get(id) as unknown as
+      | Pick<DocumentRow, 'id' | 'kind' | 'number' | 'status'>
       | undefined
     if (!doc) return c.json({ error: 'not found' }, 404)
     const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+
+    // Issued (numbered) documents are immutable — reject content edits instead
+    // of silently ignoring them, so callers learn the rule.
+    try {
+      assertDocumentPatchable(!!doc.number, b)
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400)
+    }
 
     // Status change, validated against the kind's allowed statuses.
     if (typeof b.status === 'string' && b.status !== doc.status) {
@@ -174,7 +178,6 @@ export function registerDocumentRoutes(app: Hono<{ Variables: Vars }>): void {
     // Audit the issuance (who finalised which number, when) — but not a re-finalise no-op.
     if (!wasFinal) {
       audit({ actor: c.get('user').username, action: 'document.finalize', entity: 'document', entityId: id, detail: { number: doc.number, kind: doc.kind } })
-      emit('document.finalized', { id, number: doc.number, kind: doc.kind })
     }
     return c.json({ document: doc })
   })
@@ -212,7 +215,6 @@ export function registerDocumentRoutes(app: Hono<{ Variables: Vars }>): void {
         actor: c.get('user').username,
       })
       audit({ actor: c.get('user').username, action: 'invoice.send', entity: 'document', entityId: doc.id, detail: { to: email.to, messageId, via } })
-      emit('invoice.sent', { id: doc.id, number: doc.number, kind: doc.kind, to: email.to })
       return c.json({ ok: true, messageId, to: email.to })
     } catch (e) {
       return c.json({ error: (e as Error).message }, 502)
@@ -252,7 +254,6 @@ export function registerDocumentRoutes(app: Hono<{ Variables: Vars }>): void {
       note: (b.note as string) ?? null,
     })
     audit({ actor: c.get('user').username, action: 'invoice.payment', entity: 'document', entityId: doc.id, detail: { amount_cents: amount, paid_total_cents: paidCents(doc.id) } })
-    emit('payment.recorded', { document_id: doc.id, amount_cents: amount, paid_total_cents: paidCents(doc.id), source: 'manual' })
     return c.json({ payment, document: getDocument(doc.id) }, 201)
   })
 
@@ -262,7 +263,6 @@ export function registerDocumentRoutes(app: Hono<{ Variables: Vars }>): void {
     const docId = deletePayment(pid)
     if (docId === null) return c.json({ error: 'not found' }, 404)
     audit({ actor: c.get('user').username, action: 'invoice.payment.delete', entity: 'document', entityId: docId, detail: { payment_id: pid } })
-    emit('payment.deleted', { document_id: docId, payment_id: pid })
     return c.json({ document: getDocument(docId) })
   })
 
@@ -307,6 +307,27 @@ export function registerDocumentRoutes(app: Hono<{ Variables: Vars }>): void {
     return c.json({ document: getDocument(newId) }, 201)
   })
 
+  // Create a draft Stornorechnung for a finalised Rechnung (negated items,
+  // reference to the original). The original flips to 'storniert' only when the
+  // Storno is finalised.
+  app.post('/api/documents/:id/storno', requireAuth, (c) => {
+    const id = Number(c.req.param('id'))
+    if (!getDocument(id)) return c.json({ error: 'not found' }, 404)
+    try {
+      const doc = stornoFromDocument(id)
+      audit({
+        actor: c.get('user').username,
+        action: 'document.storno',
+        entity: 'document',
+        entityId: doc.id,
+        detail: { corrects_document_id: id },
+      })
+      return c.json({ document: doc }, 201)
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400)
+    }
+  })
+
   // Turn a document (typically an accepted Angebot) into a draft Vertrag, carrying
   // the client block, customer/lead links, net value and a Leistungsbeschreibung.
   app.post('/api/documents/:id/to-contract', requireAuth, (c) => {
@@ -314,7 +335,6 @@ export function registerDocumentRoutes(app: Hono<{ Variables: Vars }>): void {
     const contract = contractFromDocument(id, c.get('user').username)
     if (!contract) return c.json({ error: 'not found' }, 404)
     audit({ actor: c.get('user').username, action: 'contract.from_document', entity: 'contract', entityId: contract.id, detail: { document_id: id } })
-    emit('contract.created', { id: contract.id, type: contract.type, from_document: id })
     return c.json({ contract }, 201)
   })
 

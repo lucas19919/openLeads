@@ -1,10 +1,11 @@
 import { db } from './db'
 
-// One-time defaults for a fresh isarwebsites instance. The business sells
-// websites (plus hosting, Pflege and lokales Online-Marketing) to small local
-// businesses, so a new install starts with a ready-to-use Leistungskatalog
-// instead of an empty picker. Everything here is a starting point the operator
-// edits in the UI — prices are net cents, 19 % USt.
+// One-time starter defaults for a fresh install. OpenLeads is tuned for a web
+// agency selling websites (plus Hosting, Pflege and lokales Online-Marketing)
+// to small local businesses, so a new database starts with a ready-to-use
+// Leistungskatalog instead of an empty picker. Everything here is a starting
+// point the operator edits in the UI — prices are net cents, 19 % USt. The
+// business name/profile is the operator's own and is set under Firma.
 //
 // Idempotent: runs once per database (settings.defaults_seeded), and never
 // touches a catalog the operator has already filled.
@@ -123,18 +124,12 @@ const CATALOG_SEED: SeedItem[] = [
   },
 ]
 
-/** Apply the one-time isarwebsites defaults to a fresh database. */
+/** Apply the one-time starter defaults to a fresh database. */
 export function seedDefaults(): void {
   const s = db
-    .prepare('SELECT defaults_seeded, business_name FROM settings WHERE id = 1')
-    .get() as unknown as { defaults_seeded: number; business_name: string | null } | undefined
+    .prepare('SELECT defaults_seeded FROM settings WHERE id = 1')
+    .get() as unknown as { defaults_seeded: number } | undefined
   if (!s) return
-
-  // A fresh profile starts under the isarwebsites name; never overwrite one the
-  // operator has set.
-  if (!s.business_name) {
-    db.prepare("UPDATE settings SET business_name = 'isarwebsites' WHERE id = 1").run()
-  }
 
   if (s.defaults_seeded) return
   const count = Number(
@@ -146,7 +141,7 @@ export function seedDefaults(): void {
        VALUES (@name, @description, @unit, @unit_price_cents, 19, @category, @sort)`,
     )
     for (const item of CATALOG_SEED) ins.run({ ...item })
-    console.log(`seed: Leistungskatalog mit ${CATALOG_SEED.length} isarwebsites-Positionen vorbefüllt`)
+    console.log(`seed: Leistungskatalog mit ${CATALOG_SEED.length} Starter-Positionen vorbefüllt`)
   }
   db.prepare('UPDATE settings SET defaults_seeded = 1 WHERE id = 1').run()
 }

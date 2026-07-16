@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../api'
+import { getActiveCustomers } from '../../customersCache'
 import { euro, centsToInput, inputToCents, lineTotalCents } from '../../money'
 import { fmtDate, todayISO } from '../../util'
 import { CatalogPicker, catalogItemToLine } from './CatalogPicker'
@@ -39,7 +40,6 @@ function blankDraft(config: Config): Draft {
     small_business: 1,
     vat_rate: 19,
     active: 1,
-    include_payment_link: 1,
     itemList: [{ ...EMPTY_ITEM }],
   }
 }
@@ -50,12 +50,16 @@ export function RecurringView({
   config,
   intent,
   onIntentConsumed,
+  onIntent,
 }: {
   config: Config
   intent?: RecurringIntent | null
   onIntentConsumed?: () => void
+  /** Cross-module jumps (open the linked Vertrag). */
+  onIntent?: (intent: ModuleIntent) => void
 }) {
   const [rows, setRows] = useState<RecurringInvoice[]>([])
+  const [loaded, setLoaded] = useState(false)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
@@ -70,11 +74,11 @@ export function RecurringView({
   }, [filterCustomerId])
 
   useEffect(() => {
-    refresh()
+    refresh().finally(() => setLoaded(true))
   }, [refresh])
 
   useEffect(() => {
-    api.listCustomers(true).then(({ customers: c }) => setCustomers(c)).catch(() => {})
+    getActiveCustomers().then(setCustomers).catch(() => {})
   }, [])
 
   const intentKey = intent
@@ -84,7 +88,10 @@ export function RecurringView({
     : null
   const handledIntent = useRef<string | null>(null)
   useEffect(() => {
-    if (!intent || !intentKey) return
+    if (!intent || !intentKey) {
+      if (!intent) handledIntent.current = null
+      return
+    }
     if (handledIntent.current === intentKey) return
     handledIntent.current = intentKey
     let active = true
@@ -172,7 +179,6 @@ export function RecurringView({
         small_business: draft.small_business,
         vat_rate: draft.vat_rate,
         active: draft.active,
-        include_payment_link: draft.include_payment_link,
         items,
       }
       if (draft.id) await api.updateRecurring(draft.id, body)
@@ -198,9 +204,30 @@ export function RecurringView({
           <div className="doc-editor-head">
             <button className="ghost" onClick={() => setDraft(null)}>Zurück</button>
             <strong>{d.id ? 'Serie bearbeiten' : 'Neue Serie'}</strong>
-            {d.contract_id != null && (
-              <span className="user-chip">Vertrag #{d.contract_id}</span>
-            )}
+            {d.contract_id != null &&
+              (onIntent ? (
+                <button
+                  type="button"
+                  className="ghost"
+                  title="Verknüpften Vertrag öffnen"
+                  onClick={() =>
+                    onIntent({
+                      type: 'open',
+                      module: 'contracts',
+                      openId: d.contract_id!,
+                      back: {
+                        label: `Serie ${d.title ?? ''}`.trim(),
+                        module: 'recurring',
+                        openId: d.id ?? undefined,
+                      },
+                    })
+                  }
+                >
+                  Vertrag #{d.contract_id} öffnen
+                </button>
+              ) : (
+                <span className="user-chip">Vertrag #{d.contract_id}</span>
+              ))}
             <div className="spacer" />
             <button className="primary" onClick={saveDraft} disabled={busy}>
               {busy ? '…' : 'Speichern'}
@@ -384,7 +411,9 @@ export function RecurringView({
         </div>
         {msg && <div className="section-info">{msg}</div>}
 
-        {rows.length === 0 ? (
+        {!loaded ? (
+          <div className="center-muted">Lädt…</div>
+        ) : rows.length === 0 ? (
           <div className="center-muted">
             Noch keine Serienrechnungen. Lege eine an, z.&nbsp;B. für eine monatliche Wartungspauschale —
             oder starte vom Vertrag aus („Serie anlegen“).

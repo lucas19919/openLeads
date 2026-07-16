@@ -140,10 +140,7 @@ export interface Doc {
   buyer_reference?: string | null
   client_type: string
   client_vat_id?: string | null
-  include_payment_link?: number
-  accounting_provider?: string | null
-  accounting_external_id?: string | null
-  accounting_pushed_at?: string | null
+  corrects_document_id?: number | null
   created_at: string
   updated_at: string
   items: DocItem[]
@@ -260,7 +257,6 @@ export interface RecurringInvoice {
   cadence: string
   next_run: string
   active: number
-  include_payment_link: number
   last_run: string | null
   created_at: string
   updated_at: string

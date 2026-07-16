@@ -2,6 +2,7 @@ import type { Hono } from 'hono'
 import {
   listCustomers,
   getCustomer,
+  getCustomerByLeadId,
   createCustomer,
   updateCustomer,
   deleteCustomer,
@@ -13,6 +14,11 @@ import { requireAuth, type Vars } from './middleware'
 export function registerCustomerRoutes(app: Hono<{ Variables: Vars }>): void {
   app.get('/api/customers', requireAuth, (c) => {
     const activeOnly = c.req.query('active') === '1'
+    const leadId = c.req.query('lead_id')
+    if (leadId != null && leadId !== '') {
+      const customer = getCustomerByLeadId(Number(leadId))
+      return c.json({ customers: customer ? [customer] : [] })
+    }
     return c.json({ customers: listCustomers(activeOnly) })
   })
 

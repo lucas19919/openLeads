@@ -4,7 +4,70 @@ A running log of what's landed, so picking the work back up is easy. Newest firs
 
 ## Latest
 
-- **Rewrite: reorganised, hardened, scraper removed, tailored to isarwebsites.**
+- **Storno, globale Suche, PWA.** Three round-outs on top of the navigation
+  spine. **Stornorechnung:** „Stornieren" on a finalised Rechnung creates a
+  linked draft (`corrects_document_id`, migration) with negated positions and a
+  §14-reference intro; the original flips to `storniert` only when the Storno
+  is *festgeschrieben* (same transaction as the numbering), so an abandoned
+  draft changes nothing. Storno pairs net to **zero** in every aggregate
+  (dashboard net/open, EÜR revenue, customer KPIs — originals excluded by
+  status, corrections by link) while both papers stay visible in lists; rules
+  enforced in `stornoFromDocument` (only finalised Rechnungen, no doubles, no
+  storno-of-storno) + `POST /api/documents/:id/storno`, audited. Editor shows a
+  correction banner with „Original öffnen". **3 tests** (negation+link, rules,
+  finalise-flip + zero-sum across all three aggregates) → **138 API tests
+  green**. **Globale Suche:** Strg/Cmd+K (oder „Suche" in der Sidebar) öffnet
+  eine Jump-Palette über Kunden/Belege/Verträge/Serien/Leads (client-side
+  index, gruppiert, Pfeiltasten+Enter) — springt per Open-Intent, wie ein
+  Sidebar-Klick ohne Back-Trail. **PWA:** `manifest.webmanifest` + Favicon
+  (SVG) + generierte Icons (192/512/maskable/apple-touch, teal „O") +
+  theme-color — die App ist am Handy installierbar; kein Service Worker
+  (bewusst: keine Offline-Schicht vor einer Auth-App). Dazu: der veraltete
+  §288-Pauschale-Hinweis am Kundentyp (Mahnwesen existiert nicht mehr) ist
+  neutral umformuliert. Web typecheck + build clean; Storno-Zyklus, Suche und
+  Manifest live im Browser verifiziert (Paar summiert auf 0 im Dashboard).
+
+- **Navigation spine + GoBD-Lock + Entrümpelung.** Cross-module jumps now have a
+  way back: every intent can carry a `back` target (App keeps a small stack,
+  mirrored into browser history so the hardware back button works too), rendered
+  as a "← Zurück zu …"-bar above the content. Wired everywhere: Übersicht-KPIs
+  drill into the real Rechnungen/Verträge lists again (redirect-to-Kunden
+  removed), Kunde ⇄ Beleg/Vertrag/Serie round-trips reopen the origin, Lead ⇄
+  Kunde reopens the drawer, Serie ⇄ Vertrag both directions, Angebot→Rechnung/
+  →Vertrag conversions open the created draft instead of `alert()`.
+  **Immutability now server-side:** PATCH on numbered documents/contracts rejects
+  content edits (recipient block, items, tax posture) with a German 400 — only
+  Stamm-links (customer_id/lead_id) + post-issuance metadata (due_date,
+  client_type, client_email, status) stay writable, so the "link-only" promise
+  holds at the API, not just in the UI (2 new tests → **135 green**). Contract
+  delivery e-mail is now editable after Festschreiben (like documents).
+  **Kunden-Verknüpfung vollendet:** per-row „Lösen" in the Kunde overview tables,
+  lead chip → „Lead öffnen"/„Lösen", CustomerPicker shows a linked-but-inactive
+  customer (fetched on demand, "(inaktiv)" suffix) instead of pretending no link.
+  **Polish:** Esc closes every modal + the lead drawer (`useEscapeKey`); entry
+  transitions for content/modals/drawer (reduced-motion aware); list views show
+  „Lädt…" instead of flashing their empty state; filter dropdowns share the
+  customers cache. **Entrümpelt:** dead `include_payment_link` + `accounting_*`
+  columns dropped by migration and stripped end-to-end, no-op `emit()`/events.ts
+  removed (15 call sites), orphaned routes (`GET /api/expenses/:id`,
+  `GET /api/subscriptions/:id`) and dead client wrappers (`getExpense`,
+  `dsgvoAudit`) removed, four needlessly exported helpers made private, stale
+  launch.json entries pruned. api + web typecheck clean; web builds; full loop
+  smoke-tested live in the browser.
+
+- **Kunden UX + Lead→Kunde IA.** Fix and simplify how billing attaches to people.
+  **Link existing Belege:** finalised Rechnungen/Verträge can set `customer_id`
+  (link-only, snapshot untouched) via CustomerPicker; Kunden hub has
+  „Bestehende verknüpfen“ multi-select modals for docs/contracts/series.
+  **Lead spine:** Lead drawer „Als Kunde anlegen / öffnen“ creates or opens the
+  registry row (`lead_id`); `GET /api/customers?lead_id=`. **Nav collapse:**
+  top-level Rechnungen / Serienrechnungen / Verträge tabs removed (modules still
+  open via intents); new admin **Firma** tab holds Absender/Bank/Steuer/AGB/
+  Katalog; **Einstellungen** is KI/SMTP/Team/Backup/Export. Session restores
+  last open Kunde; document list only loads items/payments for returned ids.
+  **133 API tests green**; web typecheck + build clean.
+
+- **Rewrite: reorganised, hardened, scraper removed, tailored to the web-agency workflow.**
   **Structure:** the 1,500-line `api/src/index.ts` is now a slim composition root;
   every endpoint moved into `api/src/routes/*` (one module per domain) with shared
   `middleware.ts` (auth gates, proxy-aware client IP) and `helpers.ts` (one upload
@@ -22,10 +85,10 @@ A running log of what's landed, so picking the work back up is easy. Newest firs
   columns (dropped by migration), the Scraper tab/view/types, `SERVICE_TOKEN`
   (the xlsx CLI now writes via `insertLead` directly), the stale `mcp/` workspace
   (targeted the removed `/api/v1`), and `docs/INTEGRATIONS.md` (documented removed
-  subsystems). **isarwebsites:** fresh installs seed an 11-item Leistungskatalog
-  (Website Starter/Business/Premium, Relaunch, Hosting & Pflege, SEO, Google
-  Business Profil, …) + default business name; copilot/analyst/outreach prompts
-  now sell websites for isarwebsites; UI rebranded (nav, login, title); README/
+  subsystems). **Webagentur-Zuschnitt:** fresh installs seed an 11-item
+  Leistungskatalog (Website Starter/Business/Premium, Relaunch, Hosting &
+  Pflege, SEO, Google Business Profil, …); copilot/analyst/outreach prompts
+  now sell websites; UI reworked (nav, login, title); README/
   ROADMAP/DEPLOY/setup-skill rewritten. **125 API tests green**, api + web
   typecheck clean, web builds; verified live in the browser (login, tabs, seeded
   catalog under Einstellungen, draft invoice, dashboards) and via curl (401 gating,

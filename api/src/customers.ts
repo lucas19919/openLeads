@@ -27,13 +27,6 @@ function bool(v: unknown, dflt: number): number {
   return v ? 1 : 0
 }
 
-/** Resolve a non-null customer id or throw a German error (HTTP 400). */
-export function requireCustomer(id: number): CustomerRow {
-  const c = getCustomer(id)
-  if (!c) throw new Error('Kunde nicht gefunden.')
-  return c
-}
-
 export function listCustomers(activeOnly = false): CustomerRow[] {
   const where = activeOnly ? 'WHERE active = 1' : ''
   return db
@@ -45,6 +38,15 @@ export function getCustomer(id: number): CustomerRow | null {
   return (
     (db.prepare('SELECT * FROM customers WHERE id = ?').get(id) as unknown as CustomerRow | undefined) ??
     null
+  )
+}
+
+/** First customer linked to a pipeline lead (if any). */
+export function getCustomerByLeadId(leadId: number): CustomerRow | null {
+  return (
+    (db
+      .prepare('SELECT * FROM customers WHERE lead_id = ? ORDER BY id LIMIT 1')
+      .get(leadId) as unknown as CustomerRow | undefined) ?? null
   )
 }
 
@@ -249,11 +251,14 @@ export function customerOverview(id: number): CustomerOverview | null {
   if (!customer) return null
 
   // --- KPI aggregates (no LIMIT) ---
+  // Storno pairs net to zero: cancelled originals and their Stornorechnungen
+  // are both excluded from the money KPIs (the lists below still show them).
   const invoices = db
     .prepare(
       `SELECT id, small_business, vat_rate FROM documents
         WHERE customer_id = ? AND kind = 'rechnung'
-          AND number IS NOT NULL AND status != 'storniert'`,
+          AND number IS NOT NULL AND status != 'storniert'
+          AND corrects_document_id IS NULL`,
     )
     .all(id) as unknown as { id: number; small_business: number; vat_rate: number }[]
   const invoiceIds = invoices.map((d) => d.id)

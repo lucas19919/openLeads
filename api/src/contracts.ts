@@ -172,8 +172,23 @@ const EDITABLE_COLS = new Set([
   'small_business', 'vat_rate', 'payment_terms', 'start_date', 'end_date', 'notice_period', 'notes',
 ])
 
+// Finalised (numbered) contracts froze their content with the AGB snapshot.
+// Only the Stamm-links and the delivery e-mail may still change.
+const EDITABLE_COLS_FINAL = new Set(['customer_id', 'lead_id', 'document_id', 'client_email'])
+
 export function updateContract(id: number, patch: ContractInput): FullContract | null {
-  if (!getContract(id)) return null
+  const existing = getContract(id)
+  if (!existing) return null
+  // Reject content edits on finalised contracts instead of silently ignoring them.
+  if (existing.number) {
+    const offending = Object.keys(patch).filter(
+      (k) => EDITABLE_COLS.has(k) && !EDITABLE_COLS_FINAL.has(k),
+    )
+    if (offending.length)
+      throw new Error(
+        `Festgeschriebene Verträge sind unveränderlich; nicht änderbar: ${offending.join(', ')}.`,
+      )
+  }
   // Link-only: customer_id may change; client_* snapshots are never auto-copied on PATCH.
   if (patch.customer_id !== undefined && patch.customer_id !== null) {
     if (!getCustomer(Number(patch.customer_id))) throw new Error('Kunde nicht gefunden.')

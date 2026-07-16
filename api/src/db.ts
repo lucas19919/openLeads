@@ -611,19 +611,14 @@ try {
   // column already exists
 }
 
-// Record of an accounting-system push (lexoffice/sevDesk). Once external_id is
-// set, a re-push is refused so the same invoice is never double-booked. Combined
-// with the adapter's idempotency key (lexoffice), this also covers the
-// timeout-but-actually-succeeded case.
-for (const col of [
-  'accounting_provider TEXT',
-  'accounting_external_id TEXT',
-  'accounting_pushed_at TEXT',
-]) {
+// The accounting-push integration (lexoffice/sevDesk) was removed with the
+// integrations subsystem — drop its tracking columns from databases that still
+// carry them. Fails harmlessly on fresh databases.
+for (const col of ['accounting_provider', 'accounting_external_id', 'accounting_pushed_at']) {
   try {
-    db.exec(`ALTER TABLE documents ADD COLUMN ${col}`)
+    db.exec(`ALTER TABLE documents DROP COLUMN ${col}`)
   } catch {
-    // column already exists
+    // column already gone
   }
 }
 
@@ -642,19 +637,26 @@ try {
   // column already exists
 }
 
-// Opt-in for attaching a hosted payment link (Stripe/GoCardless) when the
-// invoice is e-mailed. Lives on both the document (per-invoice override) and the
-// recurring template (carried onto each generated draft). Default 1 = offer the
-// link, matching the prior behaviour where every invoice e-mail carried one when
-// a payment provider was active.
+// Stornorechnung link: a correction document points at the invoice it negates.
+// Set once at creation; the original flips to 'storniert' when the correction
+// is finalised. Plain reference (no FK) — documents are never hard-deleted
+// once numbered.
+try {
+  db.exec('ALTER TABLE documents ADD COLUMN corrects_document_id INTEGER')
+} catch {
+  // column already exists
+}
+
+// The hosted-payment-link option (Stripe/GoCardless) left with the payment
+// integrations — drop the opt-in columns from databases that still carry them.
 for (const stmt of [
-  'ALTER TABLE documents ADD COLUMN include_payment_link INTEGER NOT NULL DEFAULT 1',
-  'ALTER TABLE recurring_invoices ADD COLUMN include_payment_link INTEGER NOT NULL DEFAULT 1',
+  'ALTER TABLE documents DROP COLUMN include_payment_link',
+  'ALTER TABLE recurring_invoices DROP COLUMN include_payment_link',
 ]) {
   try {
     db.exec(stmt)
   } catch {
-    // column already exists
+    // column already gone
   }
 }
 
@@ -674,8 +676,8 @@ try {
   // column already gone
 }
 
-// One-time seeding marker (see seed.ts): whether the isarwebsites defaults
-// (Leistungskatalog etc.) were already offered to this database.
+// One-time seeding marker (see seed.ts): whether the starter defaults
+// (Leistungskatalog) were already offered to this database.
 try {
   db.exec('ALTER TABLE settings ADD COLUMN defaults_seeded INTEGER NOT NULL DEFAULT 0')
 } catch {
@@ -833,10 +835,7 @@ export interface DocumentRow {
   buyer_reference: string | null
   client_type: string
   client_vat_id: string | null
-  include_payment_link: number
-  accounting_provider: string | null
-  accounting_external_id: string | null
-  accounting_pushed_at: string | null
+  corrects_document_id: number | null
   created_at: string
   updated_at: string
   // Signed/returned-copy store. The BLOB never leaves the server raw — getDocument
@@ -957,7 +956,6 @@ export interface RecurringInvoiceRow {
   cadence: string
   next_run: string
   active: number
-  include_payment_link: number
   last_run: string | null
   created_at: string
   updated_at: string

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../api'
+import { getActiveCustomers } from '../../customersCache'
 import { euro, centsToInput, inputToCents } from '../../money'
 import { fmtDate, todayISO } from '../../util'
 import type { Config, Contract, Customer } from '../../types'
-import type { ModuleIntent } from '../SuiteNav'
+import type { BackTarget, ModuleIntent } from '../SuiteNav'
 import { CustomerPicker } from '../CustomerPicker'
 
 const CLIENT_TYPE_LABEL: Record<string, string> = { geschaeft: 'Geschäft (B2B)', privat: 'Privat (B2C)' }
@@ -42,15 +43,16 @@ export function ContractsView({
   config,
   intent,
   onIntentConsumed,
-  onNavigateRecurring,
+  onIntent,
 }: {
   config: Config
   intent?: ContractIntent | null
   onIntentConsumed?: () => void
-  /** Jump to Serienrechnungen with open intent after creating a series from a contract. */
-  onNavigateRecurring?: (recurringId: number) => void
+  /** Cross-module jumps (open a linked Serienrechnung, …). */
+  onIntent?: (intent: ModuleIntent) => void
 }) {
   const [rows, setRows] = useState<Contract[]>([])
+  const [loaded, setLoaded] = useState(false)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
@@ -69,11 +71,11 @@ export function ContractsView({
   }, [filterCustomerId])
 
   useEffect(() => {
-    refresh()
+    refresh().finally(() => setLoaded(true))
   }, [refresh])
 
   useEffect(() => {
-    api.listCustomers(true).then(({ customers: c }) => setCustomers(c)).catch(() => {})
+    getActiveCustomers().then(setCustomers).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -102,7 +104,10 @@ export function ContractsView({
     : null
   const handledIntent = useRef<string | null>(null)
   useEffect(() => {
-    if (!intent || !intentKey) return
+    if (!intent || !intentKey) {
+      if (!intent) handledIntent.current = null
+      return
+    }
     if (handledIntent.current === intentKey) return
     handledIntent.current = intentKey
     let active = true
@@ -273,6 +278,15 @@ export function ContractsView({
     }
   }
 
+  /** Return target for jumps out of the open contract editor. */
+  function backToContract(d: Draft): BackTarget {
+    return {
+      label: d.number ? `Vertrag ${d.number}` : `Vertrag ${d.title ?? ''}`.trim(),
+      module: 'contracts',
+      openId: d.id ?? undefined,
+    }
+  }
+
   async function createSeriesFromContract() {
     if (!draft?.id) return
     setBusy(true)
@@ -282,11 +296,26 @@ export function ContractsView({
       flash('Serienrechnung angelegt.')
       const { recurring: list } = await api.listRecurring({ contract_id: draft.id })
       setLinkedSeries(list.map((r) => ({ id: r.id, title: r.title, cadence: r.cadence, active: r.active })))
-      if (onNavigateRecurring) onNavigateRecurring(recurring.id)
+      onIntent?.({ type: 'open', module: 'recurring', openId: recurring.id, back: backToContract(draft) })
     } catch (e) {
       fail(e)
     } finally {
       setBusy(false)
+    }
+  }
+
+  // Delivery e-mail stays editable after finalise (the contract is sent then);
+  // persisted immediately when locked since there is no Save button anymore.
+  async function changeClientEmail(email: string) {
+    const v = email || null
+    setDraft((cur) => (cur ? { ...cur, client_email: v } : cur))
+    if (draft?.id && draft.number) {
+      try {
+        const { contract } = await api.updateContract(draft.id, { client_email: v })
+        setDraft(contract)
+      } catch (e) {
+        fail(e)
+      }
     }
   }
 
@@ -369,8 +398,27 @@ export function ContractsView({
             <legend>Auftraggeber</legend>
             <CustomerPicker
               value={d.customer_id}
-              disabled={locked}
+              linkOnly={locked}
               onSelect={(c: Customer | null) => {
+                // Finalised: link-only immediate PATCH — never rewrite client_* snapshot.
+                if (locked && d.id != null) {
+                  void (async () => {
+                    setBusy(true)
+                    try {
+                      const { contract } = await api.updateContract(d.id!, {
+                        customer_id: c?.id ?? null,
+                      })
+                      setDraft(contract)
+                      flash(c ? `Mit Kunde „${c.name}" verknüpft.` : 'Kunden-Verknüpfung gelöst.')
+                      await refresh()
+                    } catch (e) {
+                      fail(e)
+                    } finally {
+                      setBusy(false)
+                    }
+                  })()
+                  return
+                }
                 if (!c) {
                   setD({ customer_id: null })
                   return
@@ -416,7 +464,10 @@ export function ContractsView({
             </div>
             <div className="field">
               <label>E-Mail</label>
-              <input value={d.client_email ?? ''} disabled={locked} onChange={(e) => setD({ client_email: e.target.value })} />
+              <input value={d.client_email ?? ''} onChange={(e) => changeClientEmail(e.target.value)} />
+              <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                Adresse für „Senden". Kann auch nach dem Festschreiben hinterlegt werden.
+              </div>
             </div>
           </fieldset>
 
@@ -489,10 +540,16 @@ export function ContractsView({
                 {linkedSeries.map((s) => (
                   <li key={s.id}>
                     {s.title ?? `Serie #${s.id}`} · {s.cadence} · {s.active ? 'aktiv' : 'pausiert'}
-                    {onNavigateRecurring && (
+                    {onIntent && (
                       <>
                         {' '}
-                        <button className="ghost" type="button" onClick={() => onNavigateRecurring(s.id)}>
+                        <button
+                          className="ghost"
+                          type="button"
+                          onClick={() =>
+                            onIntent({ type: 'open', module: 'recurring', openId: s.id, back: backToContract(d) })
+                          }
+                        >
                           Öffnen
                         </button>
                       </>
@@ -583,7 +640,9 @@ export function ContractsView({
         {error && <div className="section-error">{error}</div>}
         {msg && <div className="section-info">{msg}</div>}
 
-        {rows.length === 0 ? (
+        {!loaded ? (
+          <div className="center-muted">Lädt…</div>
+        ) : rows.length === 0 ? (
           <div className="center-muted">Noch keine Verträge. Lege einen an, z. B. einen Wartungsvertrag für eine Website.</div>
         ) : (
           <div className="table-wrap">

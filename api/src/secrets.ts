@@ -75,7 +75,7 @@ export function encryptSecret(plain: string): string {
  * a wrong/rotated key — callers treat null as "no DB secret" and fall back to
  * the corresponding .env var, so a key mismatch degrades instead of crashing.
  */
-export function decryptSecret(stored: string | null | undefined): string | null {
+function decryptSecret(stored: string | null | undefined): string | null {
   if (!stored) return null
   const parts = stored.split('.')
   if (parts.length !== 5 || parts[0] !== 'v1') return null

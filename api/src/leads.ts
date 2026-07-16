@@ -1,9 +1,7 @@
 import { db, STAGES, PRIORITIES, normalizeDomain, type LeadRow } from './db'
-import { emit } from './events'
 
-// Shared lead create/update logic, extracted from index.ts so the routes reuse
-// one implementation and domain events are emitted from a single place. emit()
-// is a non-throwing no-op now (the webhook subsystem was removed).
+// Shared lead create/update logic, extracted from index.ts so the routes and
+// the xlsx import CLI reuse one implementation.
 
 // Fields a client may set on a lead (besides stage, handled separately).
 export const EDITABLE = new Set([
@@ -101,15 +99,13 @@ export function insertLead(
      VALUES (?, ?, 'created', 'neu', ?)`,
   ).run(id, actor, `Quelle: ${(b.source as string) ?? 'manual'}`)
   const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(id) as unknown as LeadRow
-  emit('lead.created', { id, lead })
   return { id }
 }
 
 /**
  * Apply an edit to a lead. Returns the (possibly unchanged) lead, or null if the
  * id is unknown. Throws Error('invalid stage') for an unknown stage so callers
- * can map it to a 400. Mirrors the original PATCH /api/leads/:id behaviour
- * exactly, plus emits 'lead.stage_changed' on a stage move.
+ * can map it to a 400. Mirrors the original PATCH /api/leads/:id behaviour exactly.
  */
 export function applyLeadUpdate(
   id: number,
@@ -162,7 +158,6 @@ export function applyLeadUpdate(
       `INSERT INTO lead_events (lead_id, actor, type, from_stage, to_stage)
        VALUES (?, ?, 'stage_change', ?, ?)`,
     ).run(id, actor, lead.stage, b.stage as string)
-    emit('lead.stage_changed', { id, from: lead.stage, to: b.stage })
   }
   if (typeof b.notes === 'string' && b.notes !== (lead.notes ?? '')) {
     db.prepare(

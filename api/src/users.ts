@@ -18,7 +18,7 @@ export function listUsers(): PublicUser[] {
     .all() as unknown as PublicUser[]
 }
 
-export function countAdmins(): number {
+function countAdmins(): number {
   return Number(
     (db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin'").get() as { n: number }).n,
   )

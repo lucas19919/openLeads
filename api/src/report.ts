@@ -36,8 +36,11 @@ export interface EuerReport {
 }
 
 export function buildEuer(from?: string, to?: string): EuerReport {
-  // Revenue: finalised invoices in range, excluding storniert.
-  const invoices = finalisedInvoices(from, to).filter((d) => d.status !== 'storniert')
+  // Revenue: finalised invoices in range. Cancelled originals AND their
+  // Stornorechnungen are both excluded so a storno pair nets to zero.
+  const invoices = finalisedInvoices(from, to).filter(
+    (d) => d.status !== 'storniert' && d.corrects_document_id == null,
+  )
   let rNet = 0
   let rVat = 0
   let rGross = 0

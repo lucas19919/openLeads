@@ -16,12 +16,6 @@ export function registerSubscriptionRoutes(app: Hono<{ Variables: Vars }>): void
     return c.json({ subscriptions: listSubscriptions(activeOnly), summary: subscriptionSummary() })
   })
 
-  app.get('/api/subscriptions/:id', requireAuth, (c) => {
-    const sub = getSubscription(Number(c.req.param('id')))
-    if (!sub) return c.json({ error: 'not found' }, 404)
-    return c.json({ subscription: sub })
-  })
-
   app.post('/api/subscriptions', requireAuth, async (c) => {
     const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
     const amount = Math.round(Number(b.amount_cents))

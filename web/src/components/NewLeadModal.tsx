@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { api } from '../api'
+import { useEscapeKey } from '../util'
 import type { NewLead } from '../types'
 
 export function NewLeadModal({
@@ -14,6 +15,7 @@ export function NewLeadModal({
   const [f, setF] = useState<NewLead>({ priority: 'mittel' })
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
+  useEscapeKey(onClose)
 
   function set<K extends keyof NewLead>(k: K, v: NewLead[K]) {
     setF((s) => ({ ...s, [k]: v }))

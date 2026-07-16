@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { api, ApiError } from '../../api'
 import { euro, centsToInput, inputToCents } from '../../money'
+import { useEscapeKey } from '../../util'
 import type { Config, Subscription } from '../../types'
 
 const VAT_RATES = [19, 7, 0]
@@ -68,6 +69,7 @@ export function SubscriptionModal({
   const [f, setF] = useState<Form>(() => (subscription ? formFrom(subscription) : emptyForm(config)))
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  useEscapeKey(onClose)
 
   function set<K extends keyof Form>(k: K, v: Form[K]) {
     setF((s) => ({ ...s, [k]: v }))

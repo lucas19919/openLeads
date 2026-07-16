@@ -1,3 +1,16 @@
+import { useEffect } from 'react'
+
+/** Close a modal/drawer on Escape. Pass a stable-enough handler; re-binds on change. */
+export function useEscapeKey(onEscape: () => void): void {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onEscape()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onEscape])
+}
+
 // Local-date helpers (not UTC) so "today" matches the user's timezone.
 function iso(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(

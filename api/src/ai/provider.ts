@@ -171,7 +171,7 @@ export async function chatJSON<T = unknown>(
 }
 
 /** Extract a JSON value from model output that may include fences or commentary. */
-export function parseJsonLoose<T = unknown>(raw: string): T {
+function parseJsonLoose<T = unknown>(raw: string): T {
   const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)
   const candidate = fence ? fence[1] : raw
   try {

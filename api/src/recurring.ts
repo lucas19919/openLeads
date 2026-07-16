@@ -158,11 +158,11 @@ export function createRecurring(input: RecurringInput): RecurringInvoiceRow {
       `INSERT INTO recurring_invoices
         (client_name, client_address, client_zip, client_city, client_email, client_type,
          lead_id, customer_id, contract_id, title, intro, notes, items, small_business, vat_rate,
-         cadence, next_run, active, include_payment_link)
+         cadence, next_run, active)
        VALUES
         (@client_name, @client_address, @client_zip, @client_city, @client_email, @client_type,
          @lead_id, @customer_id, @contract_id, @title, @intro, @notes, @items, @small_business, @vat_rate,
-         @cadence, @next_run, @active, @include_payment_link)`,
+         @cadence, @next_run, @active)`,
     )
     .run({
       client_name: name,
@@ -186,7 +186,6 @@ export function createRecurring(input: RecurringInput): RecurringInvoiceRow {
       cadence: input.cadence && input.cadence in MONTHS_PER_CADENCE ? input.cadence : 'monatlich',
       next_run,
       active: bool(input.active, 1),
-      include_payment_link: bool(input.include_payment_link, 1),
     })
   return getRecurring(Number(info.lastInsertRowid))!
 }
@@ -220,14 +219,13 @@ export function recurringFromContract(
     next_run: input.next_run ?? k.start_date ?? new Date().toISOString().slice(0, 10),
     items: input.items !== undefined ? input.items : defaultItemsFromContract(k),
     active: input.active,
-    include_payment_link: input.include_payment_link,
   })
 }
 
 const EDITABLE_COLS = new Set([
   'client_name', 'client_address', 'client_zip', 'client_city', 'client_email', 'client_type',
   'lead_id', 'customer_id', 'contract_id', 'title', 'intro', 'notes', 'small_business', 'vat_rate',
-  'cadence', 'next_run', 'active', 'include_payment_link',
+  'cadence', 'next_run', 'active',
 ])
 
 export function updateRecurring(id: number, patch: RecurringInput): RecurringInvoiceRow | null {
@@ -249,7 +247,7 @@ export function updateRecurring(id: number, patch: RecurringInput): RecurringInv
     }
     if (!EDITABLE_COLS.has(key)) continue
     let v: string | number | null
-    if (key === 'small_business' || key === 'active' || key === 'include_payment_link') v = value ? 1 : 0
+    if (key === 'small_business' || key === 'active') v = value ? 1 : 0
     else if (key === 'customer_id' || key === 'lead_id' || key === 'contract_id') {
       v = value == null || value === '' ? null : Number(value)
     } else v = (value as string | number | null) ?? null
@@ -280,10 +278,10 @@ export function runRecurring(id: number, today: string = new Date().toISOString(
     .prepare(
       `INSERT INTO documents
         (kind, lead_id, customer_id, client_name, client_address, client_zip, client_city, client_email,
-         client_type, title, intro, notes, small_business, vat_rate, include_payment_link)
+         client_type, title, intro, notes, small_business, vat_rate)
        VALUES
         ('rechnung', @lead_id, @customer_id, @client_name, @client_address, @client_zip, @client_city, @client_email,
-         @client_type, @title, @intro, @notes, @small_business, @vat_rate, @include_payment_link)`,
+         @client_type, @title, @intro, @notes, @small_business, @vat_rate)`,
     )
     .run({
       lead_id: tmpl.lead_id,
@@ -299,7 +297,6 @@ export function runRecurring(id: number, today: string = new Date().toISOString(
       notes: tmpl.notes,
       small_business: tmpl.small_business,
       vat_rate: tmpl.vat_rate,
-      include_payment_link: tmpl.include_payment_link,
     })
   const docId = Number(info.lastInsertRowid)
   let items: DocItemInput[] = []

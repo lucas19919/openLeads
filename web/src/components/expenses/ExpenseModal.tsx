@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { api, ApiError } from '../../api'
 import { euro, centsToInput, inputToCents } from '../../money'
-import { todayISO } from '../../util'
+import { todayISO, useEscapeKey } from '../../util'
 import type { Config, Expense } from '../../types'
 
 // VAT rates an expense can carry. 0 = no Vorsteuer (e.g. a §19 supplier or a
@@ -72,6 +72,7 @@ export function ExpenseModal({
   const [receiptName, setReceiptName] = useState(expense?.receipt_name ?? null)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  useEscapeKey(onClose)
 
   function set<K extends keyof Form>(k: K, v: Form[K]) {
     setF((s) => ({ ...s, [k]: v }))

@@ -27,8 +27,7 @@ function invoice(over: Partial<FullDocument> = {}): FullDocument {
     client_address: 'Dorfstr. 2', client_zip: '85435', client_city: 'Erding', client_email: null,
     title: 'Rechnung', intro: null, notes: null, status: 'versendet', issue_date: '2026-06-19',
     due_date: '2026-07-03', small_business: small ? 1 : 0, vat_rate: vatRate, buyer_reference: null,
-    client_type: 'geschaeft', client_vat_id: null, include_payment_link: 1,
-    accounting_provider: null, accounting_external_id: null, accounting_pushed_at: null,
+    client_type: 'geschaeft', client_vat_id: null, corrects_document_id: null,
     created_at: '', updated_at: '', items,
     totals: computeTotals(items, small, vatRate), paid_cents: 0, has_signed_doc: false, ...over,
   }
