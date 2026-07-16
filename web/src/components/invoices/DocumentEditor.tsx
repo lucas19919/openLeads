@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../api'
 import { euro, centsToInput, inputToCents, lineTotalCents } from '../../money'
 import { fmtDate, todayISO } from '../../util'
@@ -43,6 +43,9 @@ export function DocumentEditor({
   // E-mail send + signed-doc upload + link-only customer PATCH share one busy flag.
   const [busy, setBusy] = useState(false)
   const [actionMsg, setActionMsg] = useState<string | null>(null)
+  // Debounce for the locked-document e-mail PATCH (must sit before the early
+  // return below — hooks are unconditional).
+  const emailTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const isFinalInvoice = !!doc && doc.kind === 'rechnung' && !!doc.number
 
@@ -185,11 +188,16 @@ export function DocumentEditor({
     alert(`Vertragsentwurf erstellt (${contract.title ?? 'Vertrag'}). Du findest ihn unter „Verträge".`)
   }
 
+  // On drafts the status rides along with Speichern — PATCHing here and
+  // adopting the server document would clobber unsaved field edits. Locked
+  // documents have no unsaved edits, so persist immediately there.
   async function changeStatus(status: string) {
     field('status', status)
-    const { document } = await api.updateDocument(id, { status })
-    setDoc(document)
-    onChanged()
+    if (locked) {
+      const { document } = await api.updateDocument(id, { status })
+      setDoc(document)
+      onChanged()
+    }
   }
 
   // Payment due date drives the overdue marker. Editable even after finalisation
@@ -200,7 +208,7 @@ export function DocumentEditor({
     field('due_date', v)
     if (locked) {
       const { document } = await api.updateDocument(id, { due_date: v })
-      setDoc(document)
+      setDoc((cur) => (cur ? { ...cur, due_date: document.due_date } : cur))
       onChanged()
     }
   }
@@ -211,21 +219,25 @@ export function DocumentEditor({
     field('client_type', ct)
     if (locked) {
       const { document } = await api.updateDocument(id, { client_type: ct })
-      setDoc(document)
+      setDoc((cur) => (cur ? { ...cur, client_type: document.client_type } : cur))
       onChanged()
     }
   }
 
   // Recipient e-mail for "Per E-Mail senden". Editable even after finalisation
-  // (the invoice is sent after festschreiben); persisted immediately when locked
-  // since there is no Save button then.
-  async function changeClientEmail(email: string) {
+  // (the invoice is sent after festschreiben); persisted when locked since there
+  // is no Save button then — debounced so fast typing doesn't race PATCHes, and
+  // only the e-mail is merged back so no other local state gets clobbered.
+  function changeClientEmail(email: string) {
     const v = email || null
     field('client_email', v)
     if (locked) {
-      const { document } = await api.updateDocument(id, { client_email: v })
-      setDoc(document)
-      onChanged()
+      if (emailTimer.current) clearTimeout(emailTimer.current)
+      emailTimer.current = setTimeout(async () => {
+        const { document } = await api.updateDocument(id, { client_email: v })
+        setDoc((cur) => (cur ? { ...cur, client_email: document.client_email } : cur))
+        onChanged()
+      }, 500)
     }
   }
 
@@ -619,8 +631,11 @@ export function DocumentEditor({
             </tr>
           </thead>
           <tbody>
+            {/* Key by document id too: the editor instance survives doc switches
+                (Storno → Original, Konvertieren), and index-keyed rows would let
+                the uncontrolled price inputs show the previous document's values. */}
             {items.map((it, i) => (
-              <tr key={i}>
+              <tr key={`${doc.id}:${i}`}>
                 <td data-label="Beschreibung">
                   <input
                     value={it.description ?? ''}
@@ -695,7 +710,9 @@ export function DocumentEditor({
         )}
       </div>
 
-      {isFinalInvoice && paySummary && (
+      {/* No payment tracking on Stornorechnungen — the pair nets to zero; money
+          flows are recorded on real invoices only. */}
+      {isFinalInvoice && doc.corrects_document_id == null && paySummary && (
         <fieldset className="doc-block">
           <legend>Zahlungen</legend>
           <div className="pay-summary">

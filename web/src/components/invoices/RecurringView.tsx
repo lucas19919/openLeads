@@ -81,6 +81,8 @@ export function RecurringView({
     getActiveCustomers().then(setCustomers).catch(() => {})
   }, [])
 
+  // Ref-only idempotency guard — see InvoicesView: an `active`-cancel here would
+  // make StrictMode swallow the intent (and orphan the created series).
   const intentKey = intent
     ? intent.type === 'open'
       ? `open-${intent.openId}`
@@ -94,28 +96,23 @@ export function RecurringView({
     }
     if (handledIntent.current === intentKey) return
     handledIntent.current = intentKey
-    let active = true
     ;(async () => {
       try {
         if (intent.type === 'open') {
           const { recurring } = await api.listRecurring()
           const row = recurring.find((r) => r.id === intent.openId)
-          if (active && row) setDraft(toDraft(row))
+          if (row) setDraft(toDraft(row))
           return
         }
         const { recurring: created } = await api.createRecurring({ customer_id: intent.customer_id })
-        if (!active) return
         await refresh()
         setDraft(toDraft(created))
       } catch (e) {
-        if (active) setMsg(e instanceof Error ? e.message : 'Aktion fehlgeschlagen.')
+        setMsg(e instanceof Error ? e.message : 'Aktion fehlgeschlagen.')
       } finally {
-        if (active) onIntentConsumed?.()
+        onIntentConsumed?.()
       }
     })()
-    return () => {
-      active = false
-    }
   }, [intent, intentKey, refresh, onIntentConsumed])
 
   async function runDue() {
@@ -322,8 +319,11 @@ export function RecurringView({
                   </tr>
                 </thead>
                 <tbody>
+                  {/* Key by series id too — the editor survives draft switches
+                      (quick-search jumps), and index keys would leave stale
+                      uncontrolled price inputs. */}
                   {d.itemList.map((it, i) => (
-                    <tr key={i}>
+                    <tr key={`${d.id ?? 'neu'}:${i}`}>
                       <td data-label="Beschreibung"><input value={it.description ?? ''} placeholder="Leistung…" onChange={(e) => setItem(i, { description: e.target.value })} /></td>
                       <td data-label="Menge" className="num"><input type="number" step="0.5" value={it.quantity} onChange={(e) => setItem(i, { quantity: Number(e.target.value) })} /></td>
                       <td data-label="Einheit"><input value={it.unit ?? ''} onChange={(e) => setItem(i, { unit: e.target.value })} /></td>
@@ -443,7 +443,8 @@ export function RecurringView({
                     <td data-label="Nächster Lauf">{fmtDate(r.next_run)}</td>
                     <td data-label="Letzter Lauf">{r.last_run ? fmtDate(r.last_run) : '—'}</td>
                     <td data-label="Status">
-                      <span className={`doc-status doc-status-${r.active ? 'versendet' : 'storniert'}`}>
+                      {/* Paused is a neutral state — never the storno/danger red. */}
+                      <span className={`doc-status doc-status-${r.active ? 'versendet' : 'entwurf'}`}>
                         {r.active ? 'aktiv' : 'pausiert'}
                       </span>
                     </td>

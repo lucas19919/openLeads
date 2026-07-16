@@ -63,6 +63,9 @@
   --side-w: 246px;           /* sidebar width */
   --top-h: 66px;             /* top bar height */
   --content-pad: 26px 30px 44px;
+  /* Single-value top component: --content-pad is a 3-value shorthand and is
+     INVALID in longhands like padding-top (the declaration gets dropped). */
+  --content-pad-top: 26px;
   --content-gap: 24px;
   --card-pad: 18px 19px 17px;
   --panel-pad: 20px 22px;

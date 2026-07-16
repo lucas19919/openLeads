@@ -46,7 +46,10 @@ The modules, behind one login:
   term and notice. Your AGB are *frozen onto* a contract when it's finalised.
   Gapless numbering, a print-ready multi-page PDF with signature block, e-mail
   to the client for signature, and an acceptance record. The countersigned copy
-  can be uploaded and stored with the contract.
+  can be uploaded and stored with the contract. Existing/external contracts
+  skip the builder entirely: **"PDF ablegen"** files the document, links a
+  Kunde and the term, and marks it aktiv — no contract number consumed, and the
+  Übersicht reminds you 60 days before Fristende.
 - **Ausgaben** — the cost side: record a receipt (Beleg) with vendor, category,
   date and gross amount; net + Vorsteuer are split out for you. Receipt scans
   are stored with the booking, German expense categories carry SKR03 accounts,
@@ -58,11 +61,11 @@ The modules, behind one login:
   Pflege, SEO, Google Business Profil, …), customer registry, users, AI + SMTP
   connections, Steuerberater exports, backup/restore and the DSGVO toolkit.
 
-Billing papers hang off the **Kunden** hub and the Übersicht drill-downs rather
-than their own tabs; every cross-module jump leaves a "Zurück zu …" trail (the
-browser back button works too), and **Strg/Cmd+K** opens a global search over
-Kunden, Belege, Verträge, Serien and Leads. The app is mobile-friendly and
-installable as a PWA.
+Every cross-module jump (Kunde → Rechnung, Übersicht → Verträge, …) leaves a
+"Zurück zu …" trail — the browser back button works too — and **Strg/Cmd+K**
+opens a global search over Kunden, Belege, Verträge, Serien and Leads.
+Serienrechnungen are managed from their Vertrag or Kunde rather than a tab of
+their own. The app is mobile-friendly and installable as a PWA.
 
 The UI is German and the invoicing follows German tax rules (§19 UStG,
 ZUGFeRD). On the compliance side: it's self-hosted, AI inference can stay

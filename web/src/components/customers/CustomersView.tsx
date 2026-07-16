@@ -44,8 +44,6 @@ function blankDraft(config: Config): Draft {
   }
 }
 
-const LAST_CUSTOMER_KEY = 'openleads.lastCustomerId'
-
 export function CustomersView({
   config,
   onIntent,
@@ -88,30 +86,6 @@ export function CustomersView({
       .catch((e) => setError(e instanceof Error ? e.message : 'Laden fehlgeschlagen.'))
       .finally(() => setLoaded(true))
   }, [refresh])
-
-  // Restore last open customer when returning to the tab (no cold empty list).
-  useEffect(() => {
-    if (intent) return
-    if (draft) return
-    const raw = sessionStorage.getItem(LAST_CUSTOMER_KEY)
-    if (!raw) return
-    const id = Number(raw)
-    if (!Number.isFinite(id)) return
-    let alive = true
-    api
-      .getCustomer(id)
-      .then(({ customer }) => {
-        if (alive) void openCustomer(customer)
-      })
-      .catch(() => {
-        sessionStorage.removeItem(LAST_CUSTOMER_KEY)
-      })
-    return () => {
-      alive = false
-    }
-    // Only on mount — openCustomer is stable enough for this restore path.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
   // Open customer from Lead → Kunde intent.
   useEffect(() => {
@@ -161,11 +135,6 @@ export function CustomersView({
     setError(null)
     setMsg(null)
     setDraft({ ...c })
-    try {
-      sessionStorage.setItem(LAST_CUSTOMER_KEY, String(c.id))
-    } catch {
-      /* ignore */
-    }
     // Keep previous overview visible while reloading when re-opening same id.
     if (overview?.customer.id !== c.id) setOverview(null)
     await loadOverview(c.id)
@@ -348,6 +317,7 @@ export function CustomersView({
       openId: d.id ?? undefined,
     })
     return (
+      <>
       <div className="content">
         <div className="doc-editor">
           <div className="doc-editor-head">
@@ -358,11 +328,6 @@ export function CustomersView({
                 setOverview(null)
                 setMsg(null)
                 setError(null)
-                try {
-                  sessionStorage.removeItem(LAST_CUSTOMER_KEY)
-                } catch {
-                  /* ignore */
-                }
               }}
             >
               Zurück
@@ -477,7 +442,7 @@ export function CustomersView({
 
           {d.id != null && (
             <>
-              <div className="doc-editor-head" style={{ marginTop: 8 }}>
+              <div className="doc-subhead" style={{ marginTop: 8 }}>
                 <strong>Schnell anlegen</strong>
                 <div className="spacer" />
                 <button
@@ -656,31 +621,34 @@ export function CustomersView({
                 </div>
               )}
 
-              {attachKind && (
-                <AttachModal
-                  kind={attachKind}
-                  loading={attachLoading}
-                  busy={attachBusy}
-                  candidates={attachCandidates}
-                  selected={attachSelected}
-                  query={attachQ}
-                  onQuery={setAttachQ}
-                  onToggle={(id) => {
-                    setAttachSelected((prev) => {
-                      const next = new Set(prev)
-                      if (next.has(id)) next.delete(id)
-                      else next.add(id)
-                      return next
-                    })
-                  }}
-                  onClose={() => setAttachKind(null)}
-                  onConfirm={confirmAttach}
-                />
-              )}
             </>
           )}
         </div>
       </div>
+      {/* Fixed-position modal outside .content: the view-in animation transforms
+          the scroller, which would re-anchor (and clip) position:fixed children. */}
+      {attachKind && (
+        <AttachModal
+          kind={attachKind}
+          loading={attachLoading}
+          busy={attachBusy}
+          candidates={attachCandidates}
+          selected={attachSelected}
+          query={attachQ}
+          onQuery={setAttachQ}
+          onToggle={(id) => {
+            setAttachSelected((prev) => {
+              const next = new Set(prev)
+              if (next.has(id)) next.delete(id)
+              else next.add(id)
+              return next
+            })
+          }}
+          onClose={() => setAttachKind(null)}
+          onConfirm={confirmAttach}
+        />
+      )}
+      </>
     )
   }
 

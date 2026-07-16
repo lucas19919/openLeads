@@ -312,9 +312,17 @@ input[type='checkbox'] { width: auto; accent-color: var(--accent); }
 .badge.niedrig { background: var(--neutral-soft); color: var(--neutral-ink); }
 
 /* ---- data tables ---- */
+/* The rounded frame lives on the scroll wrap, NOT the table: overflow:hidden
+   on the table would re-anchor the sticky header row to the table itself
+   (which never scrolls) and silently kill it. The wrap is the vertical
+   scroller, so `th { position: sticky }` pins to its top edge. */
+.table-wrap:has(> table.leads) {
+  border: 1px solid var(--line-card);
+  border-radius: var(--radius-table);
+  background: var(--surface-card);
+}
 table.leads {
   width: 100%; border-collapse: collapse; background: var(--surface-card);
-  border: 1px solid var(--line-card); border-radius: var(--radius-table); overflow: hidden;
 }
 table.leads th {
   text-align: left; padding: 12px 16px;
@@ -475,13 +483,29 @@ table.leads td.num, table.leads th.num { text-align: right; font-variant-numeric
 .doc-status-beendet { background: var(--neutral-soft); color: var(--neutral-ink); }
 .catalog-picker { width: auto; max-width: 280px; }
 
-.doc-editor { max-width: 860px; margin: 0 auto; width: 100%; display: flex; flex-direction: column; gap: 16px; }
+/* Sticky editor heads must pin flush to the visible top. The scroller's own
+   padding-top does NOT scroll away — it stays as a see-through strip that the
+   stuck bar sits below, with fields peeking through above it (sticky offsets
+   resolve against the scrollport's padding box). So on editor screens the
+   scroller drops its top padding and the editor carries it instead — as part
+   of the scrolled content it disappears on scroll and the head pins at 0. */
+.content:has(> .doc-editor) { padding-top: 0; }
+.doc-editor {
+  max-width: 860px; margin: 0 auto; width: 100%; display: flex; flex-direction: column; gap: 16px;
+  padding-top: var(--content-pad-top);
+}
 .doc-editor-head {
   display: flex; align-items: center; gap: 8px; position: sticky; top: 0;
   background: var(--surface-app); padding: 4px 0 10px; z-index: 5;
   border-bottom: 1px solid var(--line);
 }
 .doc-editor-head .spacer { flex: 1; }
+/* Section row inside an editor ("Schnell anlegen", …) — same look, never sticky. */
+.doc-subhead {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 4px 0 10px; border-bottom: 1px solid var(--line);
+}
+.doc-subhead .spacer { flex: 1; }
 .doc-locked {
   background: var(--warn-soft); color: var(--warn-ink); border: 1px solid var(--warn-soft-border);
   border-radius: var(--radius-input); padding: 10px 12px; font-size: 13px;
@@ -625,6 +649,8 @@ table.leads td.num, table.leads th.num { text-align: right; font-variant-numeric
      Each <td> carries a data-label that becomes the field name on the left. */
   table.leads, table.leads tbody, table.leads tr, table.leads td { display: block; }
   table.leads { min-width: 0; border: none; background: transparent; border-radius: 0; overflow: visible; }
+  /* Cards carry their own frames — the wrap frame is desktop-only. */
+  .table-wrap:has(> table.leads) { border: none; border-radius: 0; background: transparent; }
   table.leads thead { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); border: 0; }
   table.leads tbody { display: flex; flex-direction: column; gap: 10px; }
   table.leads tr {

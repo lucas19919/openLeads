@@ -4,6 +4,64 @@ A running log of what's landed, so picking the work back up is easy. Newest firs
 
 ## Latest
 
+- **Bug-Klassen-Audit (statisch + iterativ im Browser).** Systematic sweep for
+  the bug classes behind the last feedback round; every fix re-verified live.
+  **Intents verschluckt (der „Kunden-Tab ist buggy"-Kern):** all async
+  open/create intent effects (InvoicesView create, ContractsView open+create,
+  RecurringView open+create) silently no-oped under React StrictMode — mount →
+  cleanup set `active=false` → remount blocked by the `handledIntent` ref → the
+  resolved promise skipped commit AND `onIntentConsumed`; „+ Rechnung" vom
+  Kunden legte den Entwurf serverseitig an, öffnete aber nie den Editor
+  (Orphan-Drafts). Fix: ref-only idempotency (late setState is a benign no-op),
+  `consumeIntent` als stabiler useCallback in App. Reproduced live before,
+  green after. **Tote Sticky-Header:** `table.leads { overflow: hidden }`
+  re-anchored the sticky `th` to the never-scrolling table — headers scrolled
+  away on every list since forever. Frame moved to `.table-wrap` (`:has`),
+  which IS the bounded scroller: headers now pin flush (measured), mobile cards
+  unaffected. **Ungültiges Token:** `--content-pad` (3-Werte-Shorthand) in
+  `padding-top` → declaration dropped → editors flush am oberen Rand; neues
+  `--content-pad-top: 26px`. **Stale Preise:** index-keyed uncontrolled price
+  inputs showed the PREVIOUS document's values after in-editor switches (Storno
+  → „Original öffnen" zeigte −899 am Original!) — rows now keyed by record id
+  in DocumentEditor/RecurringView/ContractsView. **Status-Wechsel-Clobber:**
+  changeStatus PATCHte sofort und übernahm das Server-Dokument → ungespeicherte
+  Feld-Edits weg; jetzt wie due_date/client_type nur bei festgeschriebenen
+  sofort, sonst mit Speichern (ContractsView merged nur `status`).
+  **E-Mail-Tipp-Race:** per-keystroke PATCH auf festgeschriebenen Belegen
+  debounced (500 ms) + merge-only. **Abgelegte Verträge:** kein
+  „Festschreiben"-Button mehr (externe Verträge kriegen nie eine Nummer),
+  Status-Select auch ohne Nummer, Kopf zeigt Titel statt „Vertragsentwurf",
+  Lösch-Confirm sagt nicht mehr „Entwurf". **Kleineres:** Storno-Editor ohne
+  Zahlungen-Block (Paar saldiert; Geld nur auf echten Rechnungen), „pausiert"
+  neutral statt Storno-rot, AttachModal aus dem animierten Scroller gehoben
+  (fixed-Position-Falle), fehlendes await. **Tab-Semantik:** ein Klick auf
+  einen Sidebar-Tab führt immer zur Basis-Ansicht des Moduls — die
+  sessionStorage-Wiederherstellung des zuletzt offenen Kunden ist raus (die
+  Zurück-Leiste deckt den Rückweg explizit ab), und ein erneuter Klick auf den
+  aktiven Tab schließt offene Editoren/Drawer (View-Remount per Epoch-Key,
+  gilt einheitlich für alle Tabs). 138 API-Tests grün; web typecheck + build
+  clean.
+
+- **Feedback-Runde: Sticky-Fix, Tabs zurück, Vertrag-PDF-Ablage.** Three fixes
+  from real use. **Sticky-Head-Bug:** the editor head bar pinned mid-form with
+  fields peeking through above it — root cause: sticky offsets resolve against
+  the scroller's padding box, and `.content`'s padding-top stays as a
+  see-through strip. Editor screens now drop the scroller padding
+  (`.content:has(> .doc-editor)`) and the editor carries it as scrolled
+  content, so the bar pins flush; the „Schnell anlegen" row got its own
+  non-sticky `.doc-subhead` class (it fought the main bar for the same pin).
+  **Tabs:** Rechnungen and Verträge are top-level tabs again — the plain
+  "here are my Angebote/Rechnungen" list was effectively unreachable; only
+  Serienrechnungen stays nested (reached via Vertrag/Kunde). **Vertrag-PDF
+  ablegen:** existing/external contracts skip the builder — one modal (Datei,
+  Titel, optional Kunde/Wert/Laufzeit/Kündigungsfrist) creates a minimal
+  record, stores the PDF and sets it aktiv; no Vertragsnummer consumed,
+  half-filed records are cleaned up on failure, „Datei" in the list opens the
+  stored PDF, and an Ende-Datum feeds the 60-Tage-Fristende reminder. List no
+  longer tags unnumbered non-drafts as „Entwurf". Web typecheck + build clean;
+  sticky pin measured flush in-browser; filing sequence + Datei round-trip +
+  Fristende pickup verified live.
+
 - **Storno, globale Suche, PWA.** Three round-outs on top of the navigation
   spine. **Stornorechnung:** „Stornieren" on a finalised Rechnung creates a
   linked draft (`corrects_document_id`, migration) with negated positions and a

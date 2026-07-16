@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { api } from './api'
 import { invalidateCustomersCache } from './customersCache'
 import type { Config, Lead, User } from './types'
@@ -23,6 +23,9 @@ export default function App() {
   // Origins of cross-module jumps; the bar above the content pops the top.
   const [backStack, setBackStack] = useState<BackTarget[]>([])
   const [searchOpen, setSearchOpen] = useState(false)
+  // Bumped when the ACTIVE tab is clicked again: keys the view region, so the
+  // module remounts and drops any open editor/drawer — tab click = base view.
+  const [viewEpoch, setViewEpoch] = useState(0)
 
   useEffect(() => {
     api
@@ -52,7 +55,10 @@ export default function App() {
   function switchModule(m: Module) {
     setIntent(null)
     setBackStack([])
-    setModule(m)
+    // Re-clicking the active tab returns to that module's base view instead of
+    // silently doing nothing on top of an open editor.
+    if (m === module) setViewEpoch((e) => e + 1)
+    else setModule(m)
   }
 
   function navigateWithIntent(next: ModuleIntent) {
@@ -71,6 +77,10 @@ export default function App() {
     setIntent(null)
     setModule(m)
   }
+
+  // Stable identity: this is an effect dependency in the intent-consuming
+  // views — a fresh closure per render would re-run those effects constantly.
+  const consumeIntent = useCallback(() => setIntent(null), [])
 
   const goBack = useCallback(() => {
     setBackStack((s) => {
@@ -189,6 +199,7 @@ export default function App() {
             </button>
           </div>
         )}
+        <Fragment key={viewEpoch}>
         {module === 'dashboard' && (
           <DashboardView
             config={config!}
@@ -200,7 +211,7 @@ export default function App() {
           <LeadsView
             config={config!}
             intent={leadsIntent}
-            onIntentConsumed={() => setIntent(null)}
+            onIntentConsumed={consumeIntent}
             onCreateInvoice={(lead) => {
               navigateWithIntent({
                 type: 'create',
@@ -218,15 +229,14 @@ export default function App() {
             config={config!}
             onIntent={navigateWithIntent}
             intent={customersIntent}
-            onIntentConsumed={() => setIntent(null)}
+            onIntentConsumed={consumeIntent}
           />
         )}
-        {/* Paper modules: no nav tab — reached via Kunden, Übersicht or lead intents. */}
         {module === 'documents' && (
           <InvoicesView
             config={config!}
             intent={documentsIntent}
-            onIntentConsumed={() => setIntent(null)}
+            onIntentConsumed={consumeIntent}
             onIntent={navigateWithIntent}
           />
         )}
@@ -234,7 +244,7 @@ export default function App() {
           <RecurringView
             config={config!}
             intent={recurringIntent}
-            onIntentConsumed={() => setIntent(null)}
+            onIntentConsumed={consumeIntent}
             onIntent={navigateWithIntent}
           />
         )}
@@ -242,13 +252,14 @@ export default function App() {
           <ContractsView
             config={config!}
             intent={contractsIntent}
-            onIntentConsumed={() => setIntent(null)}
+            onIntentConsumed={consumeIntent}
             onIntent={navigateWithIntent}
           />
         )}
         {module === 'expenses' && <ExpensesModule config={config!} />}
         {module === 'firma' && <SettingsView user={user} config={config!} variant="firma" />}
         {module === 'settings' && <SettingsView user={user} config={config!} variant="admin" />}
+        </Fragment>
       </div>
       {searchOpen && <QuickSearch onClose={() => setSearchOpen(false)} onJump={jumpTo} />}
     </div>

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../api'
 import { getActiveCustomers } from '../../customersCache'
 import { euro, centsToInput, inputToCents } from '../../money'
-import { fmtDate, todayISO } from '../../util'
+import { fmtDate, todayISO, useEscapeKey } from '../../util'
 import type { Config, Contract, Customer } from '../../types'
 import type { BackTarget, ModuleIntent } from '../SuiteNav'
 import { CustomerPicker } from '../CustomerPicker'
@@ -53,6 +53,7 @@ export function ContractsView({
 }) {
   const [rows, setRows] = useState<Contract[]>([])
   const [loaded, setLoaded] = useState(false)
+  const [showUpload, setShowUpload] = useState(false)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
@@ -97,6 +98,8 @@ export function ContractsView({
     }
   }, [draft?.id])
 
+  // Ref-only idempotency guard — see InvoicesView: an `active`-cancel here would
+  // make StrictMode swallow the intent (and orphan the created draft).
   const intentKey = intent
     ? intent.type === 'open'
       ? `open-${intent.openId}`
@@ -110,27 +113,22 @@ export function ContractsView({
     }
     if (handledIntent.current === intentKey) return
     handledIntent.current = intentKey
-    let active = true
     ;(async () => {
       try {
         if (intent.type === 'open') {
           const { contract } = await api.getContract(intent.openId)
-          if (active) setDraft(contract)
+          setDraft(contract)
           return
         }
         const { contract } = await api.createContract({ customer_id: intent.customer_id })
-        if (!active) return
         await refresh()
         setDraft(contract)
       } catch (e) {
-        if (active) setError(e instanceof Error ? e.message : 'Aktion fehlgeschlagen.')
+        setError(e instanceof Error ? e.message : 'Aktion fehlgeschlagen.')
       } finally {
-        if (active) onIntentConsumed?.()
+        onIntentConsumed?.()
       }
     })()
-    return () => {
-      active = false
-    }
   }, [intent, intentKey, refresh, onIntentConsumed])
 
   function flash(m: string) {
@@ -142,7 +140,10 @@ export function ContractsView({
   }
 
   async function remove(id: number) {
-    if (!confirm('Vertragsentwurf löschen?')) return
+    // Unnumbered ≠ Entwurf: filed external contracts are deletable too.
+    const k = rows.find((r) => r.id === id)
+    const label = k && k.status !== 'entwurf' ? 'Abgelegten Vertrag' : 'Vertragsentwurf'
+    if (!confirm(`${label} löschen?${k?.has_signed_doc ? ' Das gespeicherte Dokument wird mit entfernt.' : ''}`)) return
     try {
       await api.deleteContract(id)
       await refresh()
@@ -271,7 +272,9 @@ export function ContractsView({
     if (!draft?.id) return
     try {
       const { contract } = await api.updateContract(draft.id, { status })
-      setDraft(contract)
+      // Merge only the transition result — adopting the whole server row would
+      // clobber unsaved edits on an unlocked (e.g. filed) contract.
+      setDraft((cur) => (cur ? { ...cur, status: contract.status } : cur))
       await refresh()
     } catch (e) {
       fail(e)
@@ -305,17 +308,23 @@ export function ContractsView({
   }
 
   // Delivery e-mail stays editable after finalise (the contract is sent then);
-  // persisted immediately when locked since there is no Save button anymore.
-  async function changeClientEmail(email: string) {
+  // persisted when locked since there is no Save button anymore — debounced so
+  // fast typing doesn't race PATCHes, and only the e-mail is merged back.
+  const emailTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  function changeClientEmail(email: string) {
     const v = email || null
     setDraft((cur) => (cur ? { ...cur, client_email: v } : cur))
     if (draft?.id && draft.number) {
-      try {
-        const { contract } = await api.updateContract(draft.id, { client_email: v })
-        setDraft(contract)
-      } catch (e) {
-        fail(e)
-      }
+      const id = draft.id
+      if (emailTimer.current) clearTimeout(emailTimer.current)
+      emailTimer.current = setTimeout(async () => {
+        try {
+          const { contract } = await api.updateContract(id, { client_email: v })
+          setDraft((cur) => (cur ? { ...cur, client_email: contract.client_email } : cur))
+        } catch (e) {
+          fail(e)
+        }
+      }, 500)
     }
   }
 
@@ -331,7 +340,13 @@ export function ContractsView({
         <div className="doc-editor">
           <div className="doc-editor-head">
             <button className="ghost" onClick={() => { setDraft(null); setMsg(null); setError(null) }}>Zurück</button>
-            <strong>{d.id ? (d.number ?? 'Vertragsentwurf') : 'Neuer Vertrag'}</strong>
+            <strong>
+              {d.id
+                ? (d.number ??
+                  // Unnumbered but not a draft = filed external contract.
+                  (d.status === 'entwurf' ? 'Vertragsentwurf' : (d.title ?? 'Vertrag')))
+                : 'Neuer Vertrag'}
+            </strong>
             {d.status && <span className={`doc-status doc-status-${d.status}`}>{STATUS_LABEL[d.status] ?? d.status}</span>}
             <div className="spacer" />
             {error && <span className="user-chip" style={{ color: 'var(--danger)' }}>{error}</span>}
@@ -346,7 +361,8 @@ export function ContractsView({
                 <button className="ghost">PDF</button>
               </a>
             )}
-            {d.id && !d.number && (
+            {/* Only real drafts get numbered — never externally filed contracts. */}
+            {d.id && !d.number && d.status === 'entwurf' && (
               <button onClick={finalize} disabled={busy}>Festschreiben</button>
             )}
             {d.id && (
@@ -382,7 +398,9 @@ export function ContractsView({
               <label>Titel</label>
               <input value={d.title ?? ''} disabled={locked} onChange={(e) => setD({ title: e.target.value })} />
             </div>
-            {d.number && (
+            {/* Any non-draft can change status — incl. filed contracts without a
+                number (mark them beendet when they run out). */}
+            {(d.number || (d.status && d.status !== 'entwurf')) && (
               <div className="field">
                 <label>Status</label>
                 <select value={d.status} onChange={(e) => changeStatus(e.target.value)}>
@@ -488,7 +506,7 @@ export function ContractsView({
             <div className="row2">
               <div className="field">
                 <label>Auftragswert (netto)</label>
-                <input defaultValue={centsToInput(d.value_cents ?? 0)} disabled={locked} onBlur={(e) => setD({ value_cents: inputToCents(e.target.value) })} />
+                <input key={`wert-${d.id ?? 'neu'}`} defaultValue={centsToInput(d.value_cents ?? 0)} disabled={locked} onBlur={(e) => setD({ value_cents: inputToCents(e.target.value) })} />
               </div>
               <div className="field">
                 <label>Brutto</label>
@@ -628,12 +646,16 @@ export function ContractsView({
         </select>
         <span className="user-chip">{rows.length} Verträge</span>
         <div className="spacer" />
+        <button onClick={() => { setShowUpload(true); setMsg(null); setError(null) }} title="Bestehenden Vertrag als PDF/Scan ablegen">
+          PDF ablegen
+        </button>
         <button className="primary" onClick={() => { setDraft(blankDraft(config)); setMsg(null); setError(null) }}>+ Neuer Vertrag</button>
       </div>
 
       <div className="content">
         <div className="hint">
-          Erstelle Dienst-, Werk- oder Wartungsverträge mit deinen <strong>AGB</strong>. Beim Festschreiben wird eine
+          Erstelle Dienst-, Werk- oder Wartungsverträge mit deinen <strong>AGB</strong> — oder lege einen bestehenden
+          Vertrag einfach als <strong>PDF ab</strong> („PDF ablegen"). Beim Festschreiben eigener Verträge wird eine
           Vertragsnummer vergeben und die AGB eingefroren; nichts wird automatisch versendet. AGB pflegst du unter
           <strong> Einstellungen → Verträge & AGB</strong>.
         </div>
@@ -662,7 +684,9 @@ export function ContractsView({
                 {rows.map((r) => (
                   <tr key={r.id} onClick={() => { setDraft(r); setMsg(null); setError(null) }}>
                     <td data-label="Nr. / Titel" className="cell-primary">
-                      {r.number ? <strong>{r.number}</strong> : <em>Entwurf</em>} · {r.title ?? '—'}
+                      {/* No number + not a draft = filed external contract — no "Entwurf" tag. */}
+                      {r.number ? <>{<strong>{r.number}</strong>} · </> : r.status === 'entwurf' ? <><em>Entwurf</em> · </> : null}
+                      {r.title ?? '—'}
                     </td>
                     <td data-label="Kunde">{r.client_name ?? '—'}</td>
                     <td data-label="Art">{typeLabel(r.type)}</td>
@@ -679,7 +703,12 @@ export function ContractsView({
                         '—'
                       )}
                     </td>
-                    <td data-label="" onClick={(e) => e.stopPropagation()}>
+                    <td data-label="" className="row-actions" onClick={(e) => e.stopPropagation()}>
+                      {r.has_signed_doc && (
+                        <a href={api.signedContractUrl(r.id)} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>
+                          <button className="ghost" title={r.signed_doc_name ?? 'Abgelegtes Dokument öffnen'}>Datei</button>
+                        </a>
+                      )}
                       <a href={api.contractPdfUrl(r.id)} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>
                         <button className="ghost">PDF</button>
                       </a>
@@ -692,6 +721,160 @@ export function ContractsView({
           </div>
         )}
       </div>
+
+      {showUpload && (
+        <FileContractModal
+          onClose={() => setShowUpload(false)}
+          onDone={async (title) => {
+            setShowUpload(false)
+            flash(`Vertrag „${title}" abgelegt.`)
+            await refresh()
+          }}
+        />
+      )}
     </>
+  )
+}
+
+/**
+ * "PDF ablegen": file an existing (external/signed) contract without the
+ * builder — pick the file, name it, optionally link a Kunde and the term.
+ * Creates a minimal record, stores the PDF with it and marks it aktiv; no
+ * contract number is consumed (numbering is for contracts OpenLeads issues).
+ */
+function FileContractModal({
+  onClose,
+  onDone,
+}: {
+  onClose: () => void
+  onDone: (title: string) => void | Promise<void>
+}) {
+  const [file, setFile] = useState<File | null>(null)
+  const [title, setTitle] = useState('')
+  const [customer, setCustomer] = useState<Customer | null>(null)
+  const [clientName, setClientName] = useState('')
+  const [valueInput, setValueInput] = useState('')
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
+  const [noticePeriod, setNoticePeriod] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  useEscapeKey(() => {
+    if (!busy) onClose()
+  })
+
+  function pickFile(f: File | null) {
+    setFile(f)
+    if (f && !title.trim()) setTitle(f.name.replace(/\.[^.]+$/, ''))
+  }
+
+  async function submit() {
+    if (!file) return
+    setBusy(true)
+    setErr(null)
+    let createdId: number | null = null
+    try {
+      const { contract } = await api.createContract({
+        type: 'sonstiges',
+        title: title.trim() || file.name.replace(/\.[^.]+$/, ''),
+        customer_id: customer?.id ?? null,
+        client_name: clientName.trim() || customer?.name || null,
+        value_cents: valueInput.trim() ? inputToCents(valueInput) : 0,
+        start_date: startDate || null,
+        end_date: endDate || null,
+        notice_period: noticePeriod.trim() || null,
+      })
+      createdId = contract.id
+      await api.uploadSignedContract(contract.id, file)
+      await api.updateContract(contract.id, { status: 'aktiv' })
+      await onDone(contract.title ?? 'Vertrag')
+    } catch (e) {
+      // Don't leave a half-filed record behind if the upload/activation failed.
+      if (createdId != null) await api.deleteContract(createdId).catch(() => {})
+      setErr(e instanceof Error ? e.message : 'Ablegen fehlgeschlagen.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div
+      className="modal"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Vertrag als PDF ablegen"
+      onClick={() => {
+        if (!busy) onClose()
+      }}
+    >
+      <div className="modal-card modal-card-wide" onClick={(e) => e.stopPropagation()}>
+        <h2>Vertrag als PDF ablegen</h2>
+        <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+          Für Verträge, die es schon gibt (unterschrieben oder extern erstellt): Datei hochladen,
+          fertig. Der Vertrag erscheint als <strong>aktiv</strong> in der Liste — ohne eigene
+          Vertragsnummer, ohne Formular.
+        </p>
+        <div className="field">
+          <label>PDF oder Scan</label>
+          <input
+            type="file"
+            accept=".pdf,application/pdf,image/png,image/jpeg,image/webp,image/heic,image/heif,image/tiff"
+            disabled={busy}
+            onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
+          />
+        </div>
+        <div className="field">
+          <label>Titel</label>
+          <input
+            value={title}
+            placeholder="z. B. Wartungsvertrag Müller GmbH 2026"
+            onChange={(e) => setTitle(e.target.value)}
+          />
+        </div>
+        <CustomerPicker
+          value={customer?.id ?? null}
+          onSelect={(c) => {
+            setCustomer(c)
+            if (c && !clientName.trim()) setClientName(c.name)
+          }}
+        />
+        <div className="field">
+          <label>Vertragspartner (falls kein Kunde gewählt)</label>
+          <input value={clientName} onChange={(e) => setClientName(e.target.value)} />
+        </div>
+        <div className="row2">
+          <div className="field">
+            <label>Wert netto (optional)</label>
+            <input value={valueInput} placeholder="z. B. 1.200,00" onChange={(e) => setValueInput(e.target.value)} />
+          </div>
+          <div className="field">
+            <label>Kündigungsfrist (optional)</label>
+            <input value={noticePeriod} placeholder="z. B. 3 Monate zum Jahresende" onChange={(e) => setNoticePeriod(e.target.value)} />
+          </div>
+        </div>
+        <div className="row2">
+          <div className="field">
+            <label>Beginn (optional)</label>
+            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+          </div>
+          <div className="field">
+            <label>Ende (optional)</label>
+            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+            <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+              Mit Ende-Datum erinnert die Übersicht 60 Tage vor Fristende.
+            </div>
+          </div>
+        </div>
+        {err && <div className="section-error">{err}</div>}
+        <div className="modal-actions">
+          <button type="button" className="ghost" onClick={onClose} disabled={busy}>
+            Abbrechen
+          </button>
+          <button className="primary" type="button" onClick={submit} disabled={busy || !file}>
+            {busy ? '…' : 'Ablegen'}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }

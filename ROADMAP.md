@@ -66,6 +66,10 @@ is the one box that does the whole flow on-prem, tailored to selling websites.
   and the pair nets to zero in dashboard, EÜR and customer KPIs.
 - Global search (Strg/Cmd+K) over Kunden, Belege, Verträge, Serien and Leads;
   installable as a PWA (manifest + icons).
+- Vertrag-PDF-Ablage: file an existing/external contract as a PDF in one step
+  (optional Kunde, Wert, Laufzeit) — stored with the record, no number
+  consumed, Fristende feeds the 60-day reminder; "Datei" opens it from the
+  list. Rechnungen and Verträge are top-level tabs again.
 
 ## Open
 

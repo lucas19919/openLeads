@@ -48,7 +48,12 @@ export function InvoicesView({
     getActiveCustomers().then(setCustomers).catch(() => {})
   }, [])
 
-  // Handle open / create intents once (ref avoids React StrictMode double-create).
+  // Handle open / create intents once. The ref is the ONLY guard: it prevents a
+  // StrictMode double-create, while the async commit runs to completion even
+  // through StrictMode's mount→cleanup→remount (an `active`-flag would cancel
+  // the commit on cleanup and the ref would block the second run — the intent
+  // would silently no-op, leaving an orphan draft). Late setState after a real
+  // unmount is a benign no-op in React 18.
   const intentKey = intent
     ? intent.type === 'open'
       ? `open-${intent.openId}`
@@ -63,11 +68,10 @@ export function InvoicesView({
     }
     if (handledIntent.current === intentKey) return
     handledIntent.current = intentKey
-    let active = true
     ;(async () => {
       try {
         if (intent.type === 'open') {
-          if (active) setOpenId(intent.openId)
+          setOpenId(intent.openId)
           return
         }
         const body: {
@@ -91,18 +95,14 @@ export function InvoicesView({
           }
         }
         const { document } = await api.createDocument(body)
-        if (!active) return
         await refresh()
         setOpenId(document.id)
       } catch (e) {
-        if (active) alert(e instanceof Error ? e.message : 'Aktion fehlgeschlagen.')
+        alert(e instanceof Error ? e.message : 'Aktion fehlgeschlagen.')
       } finally {
-        if (active) onIntentConsumed()
+        onIntentConsumed()
       }
     })()
-    return () => {
-      active = false
-    }
   }, [intent, intentKey, refresh, onIntentConsumed])
 
   async function createNew(kind: 'angebot' | 'rechnung') {
@@ -136,7 +136,7 @@ export function InvoicesView({
     if (!confirm('Entwurf löschen?')) return
     try {
       await api.deleteDocument(id)
-      refresh()
+      await refresh()
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Löschen fehlgeschlagen.')
     }

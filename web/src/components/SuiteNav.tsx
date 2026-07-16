@@ -40,14 +40,16 @@ export type ModuleIntent =
   | { type: 'create'; module: 'recurring'; customer_id: number; back?: BackTarget }
   | null
 
-// Paper modules (documents/contracts/recurring) stay reachable via intents/deep-links
-// but are no longer top-level tabs — work happens from Leads → Kunden.
-// `adminOnly` tabs are hidden for members (the backend also gates the routes).
+// Serienrechnungen has no tab of its own — series are reached from their
+// Vertrag or Kunde. `adminOnly` tabs are hidden for members (the backend also
+// gates the routes).
 const TABS: { id: Module; label: string; adminOnly?: boolean }[] = [
   { id: 'dashboard', label: 'Übersicht' },
   { id: 'copilot', label: 'Chat' },
   { id: 'leads', label: 'Leads' },
   { id: 'customers', label: 'Kunden' },
+  { id: 'documents', label: 'Rechnungen' },
+  { id: 'contracts', label: 'Verträge' },
   { id: 'expenses', label: 'Ausgaben' },
   { id: 'firma', label: 'Firma', adminOnly: true },
   { id: 'settings', label: 'Einstellungen', adminOnly: true },
