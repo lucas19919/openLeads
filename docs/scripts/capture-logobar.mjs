@@ -1,59 +1,108 @@
 /**
- * Capture a wide logo-bar / banner strip for the README header.
+ * Render the OpenLeads wordmark (same as the top-left .brand) as a full-width
+ * README banner.
  *
- *   OPENLEADS_USER=… OPENLEADS_PASS=… node docs/scripts/capture-logobar.mjs
+ *   node docs/scripts/capture-logobar.mjs
+ *
+ * Needs playwright + Chromium (and the Spectral font files from web/).
  */
 import { chromium } from 'playwright'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const OUT = path.resolve(__dirname, '../images')
-const BASE = process.env.OPENLEADS_URL || 'http://localhost:5173'
-const USER = process.env.OPENLEADS_USER
-const PASS = process.env.OPENLEADS_PASS
+const ROOT = path.resolve(__dirname, '../..')
+const OUT = path.resolve(__dirname, '../images/logobar.png')
 
-if (!USER || !PASS) {
-  console.error('Set OPENLEADS_USER and OPENLEADS_PASS to a seeded login.')
-  process.exit(1)
-}
+// Match web/src/styles.css .brand + tokens
+const INK = '#211e1a'
+const ACCENT = '#1f7a8c'
+const CHROME = '#fbf9f4'
+
+// Wide banner so GitHub README shows it full content-width
+const WIDTH = 1600
+const HEIGHT = 220
 
 async function main() {
-  await mkdir(OUT, { recursive: true })
+  await mkdir(path.dirname(OUT), { recursive: true })
+
+  const fontNormal = pathToFileURL(
+    path.join(ROOT, 'web/node_modules/@fontsource/spectral/files/spectral-latin-600-normal.woff2'),
+  ).href
+  const fontItalic = pathToFileURL(
+    path.join(ROOT, 'web/node_modules/@fontsource/spectral/files/spectral-latin-600-italic.woff2'),
+  ).href
+
+  const html = `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  @font-face {
+    font-family: 'Spectral';
+    font-style: normal;
+    font-weight: 600;
+    src: url('${fontNormal}') format('woff2');
+  }
+  @font-face {
+    font-family: 'Spectral';
+    font-style: italic;
+    font-weight: 600;
+    src: url('${fontItalic}') format('woff2');
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: ${WIDTH}px;
+    height: ${HEIGHT}px;
+    background: ${CHROME};
+    overflow: hidden;
+  }
+  .bar {
+    width: ${WIDTH}px;
+    height: ${HEIGHT}px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: ${CHROME};
+  }
+  /* Same recipe as .brand in styles.css, scaled up for a README banner */
+  .brand {
+    font-family: 'Spectral', Georgia, serif;
+    font-weight: 600;
+    font-size: 72px;
+    letter-spacing: -0.015em;
+    color: ${INK};
+    white-space: nowrap;
+    line-height: 1;
+  }
+  .brand i {
+    font-style: italic;
+    color: ${ACCENT};
+  }
+</style>
+</head>
+<body>
+  <div class="bar">
+    <div class="brand">Open<i>Leads</i></div>
+  </div>
+</body>
+</html>`
+
   const browser = await chromium.launch({ headless: true })
   const page = await browser.newPage({
-    viewport: { width: 1440, height: 900 },
+    viewport: { width: WIDTH, height: HEIGHT },
     deviceScaleFactor: 2,
   })
-
-  await page.goto(BASE, { waitUntil: 'networkidle' })
-  const userInput = page
-    .locator('input[name="username"], input[autocomplete="username"], form input[type="text"]')
-    .first()
-  const passInput = page.locator('input[type="password"]').first()
-  await userInput.fill(USER)
-  await passInput.fill(PASS)
-  await page.locator('button[type="submit"], form button').first().click()
-  await page.waitForSelector('.brand', { timeout: 15000 })
-  await page.waitForTimeout(1000)
-
-  // Prefer Übersicht so the strip shows brand + live dashboard chrome
-  const overview = page.locator('.nav-item', { hasText: 'Übersicht' }).first()
-  if (await overview.count()) {
-    await overview.click()
-    await page.waitForTimeout(700)
-  }
-
-  // Logo bar: full width, brand + top content header + first KPI row
-  const logobar = path.join(OUT, 'logobar.png')
-  await page.screenshot({
-    path: logobar,
-    clip: { x: 0, y: 0, width: 1440, height: 300 },
+  await page.setContent(html, { waitUntil: 'networkidle' })
+  // Wait for webfonts
+  await page.evaluate(async () => {
+    await document.fonts.ready
   })
-  console.log('wrote', path.relative(process.cwd(), logobar))
-
+  await page.waitForTimeout(200)
+  await page.screenshot({ path: OUT, type: 'png' })
   await browser.close()
+  console.log('wrote', path.relative(ROOT, OUT), `(${WIDTH}×${HEIGHT} @2x)`)
 }
 
 main().catch((err) => {

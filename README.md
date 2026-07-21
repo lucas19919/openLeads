@@ -1,7 +1,9 @@
+<p align="center">
+  <img src="docs/images/logobar.png" alt="OpenLeads" width="100%" />
+</p>
+
 # OpenLeads
 ### Self-hosted sales and billing for web agencies — from lead to German e-invoice.
-
-![](docs/images/logobar.png)
 
 ---
 
