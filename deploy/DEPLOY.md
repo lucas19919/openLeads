@@ -1,9 +1,11 @@
-# Deploying OpenLeads (Docker Compose + nginx)
+# Deploying OpenLeads
+### Docker Compose + nginx on a small VPS
 
-OpenLeads ships as **one Docker image** that holds the built web app and the API
-that serves it. The simplest production setup is Docker Compose on a small VPS
-behind nginx (TLS). The SQLite DB lives in a named volume so it survives image
-rebuilds.
+OpenLeads ships as **one Docker image**: built web app + API that serves it.
+The usual production shape is Compose behind host nginx (TLS). The SQLite DB
+lives in a named volume so it survives image rebuilds.
+
+For local development, use the root [README](../README.md) and [docs/SETUP.md](../docs/SETUP.md) instead.
 
 ```
  host nginx (TLS) ── crm.example.com ──▶ 127.0.0.1:8787  api container

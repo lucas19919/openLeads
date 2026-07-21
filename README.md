@@ -1,165 +1,154 @@
 # OpenLeads
+### Self-hosted sales and billing for web agencies — from lead to German e-invoice.
 
-A self-hosted sales and billing suite for a web agency selling websites,
-hosting/Pflege and local online marketing to small businesses. It covers the
-whole path from a prospect with an outdated website to a proper German invoice,
-and the AI can actually drive it — read and update the pipeline, draft
-outreach, turn a sentence into an invoice — rather than sitting in a chat box
-off to the side.
+![](docs/images/logobar.png)
 
-It runs on open models you host yourself (a local Ollama by default), so
-customer data doesn't leave your machine.
+---
 
-The modules, behind one login:
+## A quick look
 
-- **Übersicht** — a dashboard of live KPIs: open and overdue amounts, paid
-  totals, a 12-month revenue chart, the pipeline by stage and lead conversion,
-  active contracts and their value, and a reminder list of contracts whose term
-  ends within 60 days.
-- **Chat (KI)** — a copilot that operates the rest of the suite through the same
-  audited tools the UI uses: qualify leads, move pipeline stages, draft
-  outreach, build invoices, manage the service catalog and customer registry,
-  and draft/finalise contracts — all in German, tuned to a web agency's
-  offering (Website-Pakete, Relaunch, Hosting & Pflege, SEO). Point it at a URL
-  and it reads the site and creates a qualified lead.
-- **Leads** — the CRM pipeline (kanban + table, stages, tags, notes), built for
-  website prospects: each lead carries the state of their current site
-  (mobile-friendly?, tech, staleness signal, score). Leads come in by `.xlsx`
-  import, manual entry, or the Chat; dedupe is by domain.
-- **Rechnungen** — Angebote and Rechnungen with line items and a print-ready
-  PDF. A finalised invoice is a ZUGFeRD / Factur-X e-invoice (PDF/A-3 with
-  embedded EN 16931 XML), Kleinunternehmer (§19 UStG) aware, with gapless
-  numbering and a built-in EN 16931 validator. Record payments (partial
-  supported); upload the signed/final copy to keep it with the record. Issued
-  documents are immutable (GoBD, enforced server-side) — corrections go through
-  a one-click **Stornorechnung**: a linked draft with negated positions that
-  flips the original to `storniert` when finalised, with the pair netting to
-  zero in every report.
-- **Serienrechnungen** — recurring invoices for Hosting- und Wartungsverträge: a
-  template + cadence (monthly / quarterly / yearly) produces a draft Rechnung
-  each period for you to review and finalise. Link a Serie to a Vertrag from the
-  contract editor. Nothing is auto-sent.
-- **Kunden** — central client registry with overview (KPIs, linked documents,
-  contracts, series); prefills recipient data into invoices, contracts and series.
-- **Verträge** — contracts (Dienst-, Werk-, Wartungsvertrag,
-  Auftragsbestätigung, Rahmenvertrag, AVV …) with parties, scope, remuneration,
-  term and notice. Your AGB are *frozen onto* a contract when it's finalised.
-  Gapless numbering, a print-ready multi-page PDF with signature block, e-mail
-  to the client for signature, and an acceptance record. The countersigned copy
-  can be uploaded and stored with the contract. Existing/external contracts
-  skip the builder entirely: **"PDF ablegen"** files the document, links a
-  Kunde and the term, and marks it aktiv — no contract number consumed, and the
-  Übersicht reminds you 60 days before Fristende.
-- **Ausgaben** — the cost side: record a receipt (Beleg) with vendor, category,
-  date and gross amount; net + Vorsteuer are split out for you. Receipt scans
-  are stored with the booking, German expense categories carry SKR03 accounts,
-  and there's a journal + DATEV expense export for the Steuerberater. Plus
-  laufende Abos (your own SaaS/hosting costs) with renewal reminders.
-- **Einstellungen** (admin) — business profile, numbering, AGB, the
-  **Leistungskatalog** (a fresh install is prefilled with a starter catalog of
-  web-agency packages: Website Starter/Business/Premium, Relaunch, Hosting &
-  Pflege, SEO, Google Business Profil, …), customer registry, users, AI + SMTP
-  connections, Steuerberater exports, backup/restore and the DSGVO toolkit.
+#### Übersicht
+![](docs/images/overview.png)
 
-Every cross-module jump (Kunde → Rechnung, Übersicht → Verträge, …) leaves a
-"Zurück zu …" trail — the browser back button works too — and **Strg/Cmd+K**
-opens a global search over Kunden, Belege, Verträge, Serien and Leads.
-Serienrechnungen are managed from their Vertrag or Kunde rather than a tab of
-their own. The app is mobile-friendly and installable as a PWA.
+#### Lead pipeline
+![](docs/images/leads-board.png)
 
-The UI is German and the invoicing follows German tax rules (§19 UStG,
-ZUGFeRD). On the compliance side: it's self-hosted, AI inference can stay
-local, there's an append-only audit log, one-click data export (Art. 15/20) and
-erasure (Art. 17), a consent ledger, and an Art. 30 processing record. The AI
-never sends anything on its own — a human approves every outgoing message.
+#### Rechnungen & Angebote
+![](docs/images/invoices.png)
+
+---
+
+## Overview
+
+OpenLeads is a small, self-hosted suite for people who sell **websites**, **Hosting & Pflege**, and **local online marketing** to small businesses. It covers the path from “this shop still has a 2016 WordPress site” to a proper **ZUGFeRD / Factur-X** invoice — and the AI can actually *drive* the product, not just sit in a chat box on the side.
+
+It runs on open models you host yourself (local [Ollama](https://ollama.com) by default). Customer data does not need to leave your machine.
+
+### What you get
+
+- **Übersicht** — live KPIs: open and overdue amounts, paid totals, a 12-month revenue chart, pipeline by stage, active contracts, and a reminder list for contracts ending within 60 days
+- **Chat (KI)** — a copilot that uses the same audited tools as the UI: qualify leads, move stages, draft outreach, build invoices, manage catalog and customers, draft contracts. Point it at a URL and it can create a qualified lead
+- **Leads** — CRM pipeline (kanban + table), stages, tags, notes; website-state fields (mobile-friendly?, tech, staleness, score). Import via `.xlsx`, manual entry, or Chat. Dedupe by domain
+- **Kunden** — central client registry; prefills recipient data into invoices, contracts, and series
+- **Rechnungen** — Angebote and Rechnungen with line items and print-ready PDF. Finalised invoices are ZUGFeRD / Factur-X (PDF/A-3 + EN 16931 XML), §19 UStG aware, gapless numbering. Payments (partial OK), Stornorechnung for corrections. Issued documents are immutable (GoBD)
+- **Serienrechnungen** — recurring drafts for Hosting-/Wartungsverträge (monthly / quarterly / yearly). Nothing auto-sends
+- **Verträge** — Dienst-, Werk-, Wartungsvertrag, Auftragsbestätigung, Rahmenvertrag, AVV… AGB frozen at finalise. Or skip the builder and **PDF ablegen** for existing contracts
+- **Ausgaben** — receipts with SKR03 categories, net + Vorsteuer split, DATEV export, plus your own SaaS/hosting Abos with renewal reminders
+- **Einstellungen** — business profile, numbering, AGB, Leistungskatalog (prefilled for a web agency), users, AI + SMTP, Steuerberater exports, backup, DSGVO toolkit
+
+Cross-module jumps leave a **„Zurück zu …“** trail (browser back works too). **Strg/Cmd+K** opens global search. The UI is German; the app is installable as a PWA.
+
+> **Note:** The AI never sends mail on its own. A human approves every outgoing message.
+
+---
 
 ## Stack
 
-Deliberately dependency-light: Node's built-in SQLite (no native build step), a
-small Hono API, a Vite/React app, and pure-JS PDF generation.
+Deliberately light: Node’s built-in SQLite, a small Hono API, Vite/React, pure-JS PDFs.
 
-| Part    | Tech                                                              |
-|---------|-------------------------------------------------------------------|
-| `api/`  | [Hono](https://hono.dev) + Node built-in SQLite (`node:sqlite`)   |
-| `web/`  | React 19 + Vite (vanilla CSS)                                     |
-| AI core | OpenAI-compatible (`fetch`) → Ollama / vLLM, open models, on-prem |
-| PDF     | `pdfkit` → PDF/A-3 + Factur-X (no native deps)                    |
-| Auth    | scrypt password hash + server-side DB sessions (no deps)          |
-
-### API layout
+| Part | Tech |
+|------|------|
+| `api/` | [Hono](https://hono.dev) + Node `node:sqlite` |
+| `web/` | React 19 + Vite (vanilla CSS, “Kanzlei” theme) |
+| AI | OpenAI-compatible `fetch` → Ollama / vLLM, open models |
+| PDF | `pdfkit` → PDF/A-3 + Factur-X |
+| Auth | scrypt + server-side DB sessions |
 
 ```
 api/src/
-  index.ts        # composition root: middleware, routes, static, scheduler
-  routes/         # one HTTP module per domain (leads, documents, contracts, …)
-  ai/             # provider, agent loop, tools, prompts (web-agency voice)
-  <domain>.ts     # domain logic + SQL, one module per table-ish concern
+  index.ts        # composition root
+  routes/         # one HTTP module per domain
+  ai/             # provider, agent loop, tools, prompts
+  <domain>.ts     # domain logic + SQL
   <domain>.test.ts
 ```
 
-Security posture: server-side sessions (revocable — logout and password resets
-kill sessions immediately; only token hashes are stored), CSRF origin checks on
-every mutating request, hardening headers + CSP, request-size limits,
-login/AI rate limiting, secrets encrypted at rest (AES-256-GCM under
-`SETTINGS_KEY`), settings/user/backup admin-gated, and an append-only audit
-trail with source IPs on logins.
+---
 
-## Quick start (development)
+## Getting started
 
-Needs Node 22.5+ (for `node:sqlite`); Node 24 recommended.
-
-If you use Claude Code, there's a bundled setup skill — open the project and ask
-it to *"set up OpenLeads"* (or invoke `setup-openleads`). The steps below are
-the same thing by hand.
+Needs **Node 22.5+** (for `node:sqlite`); Node 24 recommended.
 
 ```bash
-# 1) API  (http://127.0.0.1:8787)
+# 1) API  → http://127.0.0.1:8787
 cd api
 npm install
-cp .env.example .env          # set SETTINGS_KEY
-npm run seed -- <user> <pw>   # create the login
+cp .env.example .env          # set SETTINGS_KEY (see below)
+npm run seed -- <user> <pw>   # create the login (no public signup)
 npm run dev
 
-# 2) Web  (http://localhost:5173, proxies /api to the API)
+# 2) Web  → http://localhost:5173  (proxies /api to the API)
 cd ../web
 npm install
 npm run dev
 ```
 
-`node:sqlite` prints an `ExperimentalWarning` on boot. That's expected; ignore
-it. A fresh database starts with a starter Leistungskatalog prefilled — edit it
-under Einstellungen.
+Open **http://localhost:5173** and sign in. A fresh database already has a starter **Leistungskatalog** (Website-Pakete, Relaunch, Hosting & Pflege, SEO, …).
 
-## Configuration
+`node:sqlite` prints an `ExperimentalWarning` on boot — expected, ignore it.
 
-| Variable       | Where | Purpose                                                  |
-|----------------|-------|-----------------------------------------------------------|
-| `SETTINGS_KEY` | api   | encrypts credentials saved via the Settings UI (required in production) |
-| `DB_PATH`      | api   | SQLite file location (default `./data/leads.db`)          |
-| `WEB_ORIGIN`   | api   | allowed browser origin (CORS + CSRF check)                |
-| `TRUST_PROXY`  | api   | set `1` behind your own reverse proxy (nginx) only        |
-| `AI_BASE_URL` / `AI_MODEL` / `AI_API_KEY` | api | AI endpoint (default: local Ollama); also settable in the UI |
-| `SMTP_*`       | api   | outgoing mail (optional); also settable in the UI         |
+If you use Claude Code, ask it to *“set up OpenLeads”* (skill `setup-openleads`) — same steps, driven for you.
 
-There is no session secret: sessions live server-side in the database, so
-logout and password resets revoke them for real.
+### Configuration
+
+| Variable | Where | Purpose |
+|----------|-------|---------|
+| `SETTINGS_KEY` | api | Encrypts credentials saved in Settings (required in production) |
+| `DB_PATH` | api | SQLite path (default `./data/leads.db`) |
+| `WEB_ORIGIN` | api | Allowed browser origin (CORS + CSRF) |
+| `TRUST_PROXY` | api | Set `1` only behind *your* reverse proxy |
+| `AI_*` | api / UI | AI endpoint (default: local Ollama) |
+| `SMTP_*` | api / UI | Outgoing mail (optional) |
+
+Generate a key:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+There is no session secret: sessions live in the database, so logout and password resets revoke them for real.
+
+---
+
+## Documentation
+
+| Doc | What it covers |
+|-----|----------------|
+| [docs/SETUP.md](docs/SETUP.md) | Dev setup, AI, common pitfalls |
+| [docs/MODULES.md](docs/MODULES.md) | Tour of every module (with screenshots) |
+| [docs/USAGE.md](docs/USAGE.md) | Day-to-day workflow, shortcuts, imports |
+| [docs/AI.md](docs/AI.md) | Copilot, tools, human-in-the-loop |
+| [docs/COMPLIANCE.md](docs/COMPLIANCE.md) | ZUGFeRD, GoBD, DSGVO notes |
+| [docs/templates/](docs/templates/) | Lead import spreadsheet templates |
+| [deploy/DEPLOY.md](deploy/DEPLOY.md) | Docker Compose + nginx production |
+
+---
 
 ## Deployment
 
-One Docker image holds the built web app and the API that serves it.
-[deploy/DEPLOY.md](deploy/DEPLOY.md) walks through an nginx + Docker Compose
-setup. The SQLite DB lives in a named volume so it survives image updates.
+One Docker image holds the built web app and the API. The SQLite DB sits in a named volume so it survives image updates. Walkthrough: **[deploy/DEPLOY.md](deploy/DEPLOY.md)**.
+
+---
 
 ## e-Invoices (ZUGFeRD / Factur-X)
 
-A finalised Rechnung embeds the structured EN 16931 Cross Industry Invoice XML
-(`factur-x.xml`) into a PDF/A-3, so tools like lexoffice / sevDesk / DATEV pick
-up the line items and totals on their own. Kleinunternehmer invoices use tax
-category `E` (§19); everything else is category `S` at the configured rate.
+A finalised Rechnung embeds EN 16931 Cross Industry Invoice XML (`factur-x.xml`) into a PDF/A-3, so lexoffice / sevDesk / DATEV can pick up line items on their own. Kleinunternehmer invoices use tax category `E` (§19); otherwise category `S` at your configured rate.
 
-One caveat worth taking seriously: validate the output with the official
-ZUGFeRD validator / Mustang / veraPDF before you rely on it for tax purposes.
-The target profile is EN 16931.
+> Validate output with the official ZUGFeRD validator / Mustang / veraPDF before relying on it for tax purposes. Target profile: EN 16931.
+
+---
+
+## Roadmap
+
+What is done and what is still open lives in [ROADMAP.md](ROADMAP.md). Short version of the principles:
+
+1. The AI operates the product; it isn’t a plugin.
+2. Open weights, self-hostable, on-prem first.
+3. A human is in the loop for anything that leaves the building.
+4. Compliance is part of the build, not a checklist for the operator.
+5. Stay dependency-light.
+
+---
 
 ## License
 
@@ -167,5 +156,4 @@ The target profile is EN 16931.
 
 ## Disclaimer
 
-OpenLeads is provided as-is. It is not tax or legal advice — check invoice
-output and your bookkeeping obligations with your Steuerberater.
+OpenLeads is provided as-is. It is **not** tax or legal advice — check invoice output and your bookkeeping obligations with your Steuerberater.
