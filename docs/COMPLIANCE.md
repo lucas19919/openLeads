@@ -18,7 +18,7 @@ When you finalise a **Rechnung**, the API produces a PDF/A-3 with embedded EN 16
 
 > Before you rely on output for tax purposes, validate samples with the official ZUGFeRD tooling / Mustang / veraPDF.
 
-XRechnung-only (pure XML) and full Schematron BR-DE hard-fails are still roadmap items; today some BR-DE checks are warnings.
+Some BR-DE checks are warnings today rather than hard failures.
 
 ---
 

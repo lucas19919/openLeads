@@ -140,18 +140,6 @@ A finalised Rechnung embeds EN 16931 Cross Industry Invoice XML (`factur-x.xml`)
 
 ---
 
-## Roadmap
-
-What is done and what is still open lives in [ROADMAP.md](ROADMAP.md). Short version of the principles:
-
-1. The AI operates the product; it isn’t a plugin.
-2. Open weights, self-hostable, on-prem first.
-3. A human is in the loop for anything that leaves the building.
-4. Compliance is part of the build, not a checklist for the operator.
-5. Stay dependency-light.
-
----
-
 ## License
 
 [MIT](LICENSE) — © 2026 Lucas Reimers.

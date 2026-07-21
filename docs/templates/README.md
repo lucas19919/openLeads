@@ -56,16 +56,3 @@ What *is* pre-seeded on a fresh database:
 Edit prices and names under **Einstellungen → Leistungskatalog**. Lines are copied by value onto each Beleg, so catalog edits never rewrite old invoices.
 
 For recurring Hosting, create a **Serienrechnung** on the Vertrag or Kunde rather than duplicating drafts by hand.
-
----
-
-## Regenerating screenshots
-
-Not a content template, but operators documenting forks often want fresh images:
-
-```bash
-# with api + web running and a login available
-OPENLEADS_USER=… OPENLEADS_PASS=… node docs/scripts/capture-screenshots.mjs
-```
-
-Script: [../scripts/capture-screenshots.mjs](../scripts/capture-screenshots.mjs). Output lands in `docs/images/`.

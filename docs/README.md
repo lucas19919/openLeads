@@ -16,25 +16,3 @@ Guides for running and using OpenLeads. The product UI is German (DACH market); 
 | [COMPLIANCE.md](COMPLIANCE.md) | E-invoices, immutability, DSGVO toolkit |
 | [templates/](templates/) | Ready-made import files |
 | [../deploy/DEPLOY.md](../deploy/DEPLOY.md) | Production (Docker + nginx) |
-
----
-
-## Screenshots
-
-Captured from a running instance. To refresh them:
-
-```bash
-# API on :8787, web on :5173, then:
-node docs/scripts/capture-screenshots.mjs
-```
-
-Set `OPENLEADS_URL`, `OPENLEADS_USER`, and `OPENLEADS_PASS` if your setup differs from the script defaults.
-
----
-
-## Contributing notes
-
-- User-facing product text stays German.
-- Domain logic lives in `api/src/<domain>.ts`; HTTP in `api/src/routes/`.
-- Design tokens: `web/src/tokens.css` (“Kanzlei” theme). Don’t invent raw hex in components.
-- Keep docs short and human — prefer one clear paragraph over a wall of bullet points.

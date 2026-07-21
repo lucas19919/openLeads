@@ -9,3 +9,7 @@ data
 .env.local
 *.local
 .DS_Store
+
+# Accidental root installs (e.g. playwright for one-off screenshots)
+/package.json
+/package-lock.json
