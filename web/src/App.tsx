@@ -36,7 +36,19 @@ export default function App() {
   }, [])
 
   async function onLogout() {
-    await api.logout().catch(() => {})
+    const res = await api.logout().catch(() => null)
+    const url = res?.logoutUrl ?? config?.proxyLogoutUrl ?? null
+    if (url) {
+      // Proxy mode with a configured IdP sign-out URL: end the upstream session too.
+      window.location.href = url
+      return
+    }
+    // Proxy mode without a sign-out URL: the proxy still holds the session, so
+    // clearing local state is meaningless — reload and let it re-authenticate.
+    if (config?.authMode === 'proxy') {
+      window.location.reload()
+      return
+    }
     setUser(null)
   }
 
@@ -168,7 +180,21 @@ export default function App() {
         Lädt…
       </div>
     )
-  if (user === null) return <Login onSuccess={setUser} />
+  if (user === null) {
+    // Proxy mode should have supplied an identity; reaching here means the proxy
+    // passed no authenticated session (misconfiguration or direct access). Show a
+    // notice, not a password form that cannot work in this mode.
+    if (config?.authMode === 'proxy')
+      return (
+        <div className="center-muted" style={{ paddingTop: 80 }}>
+          <p>Keine authentifizierte Sitzung vom Proxy erhalten.</p>
+          <button onClick={() => window.location.reload()} style={{ marginTop: 12 }}>
+            Neu laden
+          </button>
+        </div>
+      )
+    return <Login onSuccess={setUser} />
+  }
 
   const leadsIntent = intent && intent.module === 'leads' ? intent : null
   const customersIntent =

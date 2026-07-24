@@ -67,7 +67,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ username, password }),
     }),
-  logout: () => req<{ ok: true }>('/logout', { method: 'POST' }),
+  logout: () => req<{ ok: true; logoutUrl?: string | null }>('/logout', { method: 'POST' }),
   config: () => req<Config>('/config'),
   listLeads: (params: { stage?: string; q?: string } = {}) => {
     const qs = new URLSearchParams()

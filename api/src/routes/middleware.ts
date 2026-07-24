@@ -3,6 +3,7 @@ import { getCookie } from 'hono/cookie'
 import { getConnInfo } from '@hono/node-server/conninfo'
 import type { UserRow } from '../db'
 import { sessionUser } from '../auth'
+import { isProxyAuth, resolveProxyUser } from '../proxyAuth'
 
 // Shared HTTP plumbing for every route module: the request-scoped user variable,
 // the session cookie, and the auth gates. Routes import from here so the whole
@@ -13,17 +14,25 @@ export type AppContext = Context<{ Variables: Vars }>
 
 export const COOKIE = 'sid'
 
-/** Gate: any valid session. Resolves cookie → session → user in one query. */
+// The current identity for a request. In password mode this is the cookie
+// session; in proxy mode (AUTH_MODE=proxy) it is the upstream proxy's asserted
+// identity, re-read from trusted headers on every request. Both gates below go
+// through here so "logged in" has exactly one meaning per mode.
+function currentUser(c: AppContext) {
+  return isProxyAuth ? resolveProxyUser(c) : sessionUser(getCookie(c, COOKIE))
+}
+
+/** Gate: any authenticated user (cookie session, or proxy-asserted identity). */
 export async function requireAuth(c: AppContext, next: Next) {
-  const user = sessionUser(getCookie(c, COOKIE))
+  const user = currentUser(c)
   if (!user) return c.json({ error: 'unauthorized' }, 401)
   c.set('user', user)
   await next()
 }
 
-/** Gate: a valid session whose role is admin (user management, settings, backups). */
+/** Gate: an authenticated user whose role is admin (user mgmt, settings, backups). */
 export async function requireAdmin(c: AppContext, next: Next) {
-  const user = sessionUser(getCookie(c, COOKIE))
+  const user = currentUser(c)
   if (!user) return c.json({ error: 'unauthorized' }, 401)
   if (user.role !== 'admin') return c.json({ error: 'Nur für Administratoren.' }, 403)
   c.set('user', user)
