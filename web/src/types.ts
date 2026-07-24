@@ -56,6 +56,11 @@ export interface Config {
   paymentMethods: string[]
   contractTypes: ContractTypeDef[]
   contractStatuses: string[]
+  // 'password' → show the login form. 'proxy' → an upstream reverse proxy
+  // authenticates (AUTH_MODE=proxy on the server); the login form is skipped.
+  authMode: 'password' | 'proxy'
+  // IdP/proxy sign-out URL to send the user to on logout (proxy mode only).
+  proxyLogoutUrl: string | null
 }
 
 export interface Settings {
