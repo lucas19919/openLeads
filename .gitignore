@@ -10,6 +10,15 @@ data
 *.local
 .DS_Store
 
+# Any *.env file — a plain ".env" rule does not cover names like "api.env",
+# which is one `git add -A` away from publishing a SETTINGS_KEY.
+# api/.env.example is the tracked template and does not match this.
+*.env
+
+# Local dev-harness config: machine-specific absolute paths, and nothing a
+# clone can use. Keep your own copy, just don't publish it.
+.claude/launch.json
+
 # Accidental root installs (e.g. playwright for one-off screenshots)
 /package.json
 /package-lock.json
