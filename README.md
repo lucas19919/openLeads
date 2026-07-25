@@ -52,6 +52,7 @@ Deliberately light: Node’s built-in SQLite, a small Hono API, Vite/React, pure
 |------|------|
 | `api/` | [Hono](https://hono.dev) + Node `node:sqlite` |
 | `web/` | React 19 + Vite (vanilla CSS, “Kanzlei” theme) |
+| `cli/` | `openleads` command line + MCP server (zero runtime deps) |
 | AI | OpenAI-compatible `fetch` → Ollama / vLLM, open models |
 | PDF | `pdfkit` → PDF/A-3 + Factur-X |
 | Auth | scrypt + server-side DB sessions |
@@ -120,9 +121,30 @@ There is no session secret: sessions live in the database, so logout and passwor
 | [docs/MODULES.md](docs/MODULES.md) | Tour of every module (with screenshots) |
 | [docs/USAGE.md](docs/USAGE.md) | Day-to-day workflow, shortcuts, imports |
 | [docs/AI.md](docs/AI.md) | Copilot, tools, human-in-the-loop |
+| [docs/CLI.md](docs/CLI.md) | `openleads` command line, API tokens, MCP server |
 | [docs/COMPLIANCE.md](docs/COMPLIANCE.md) | ZUGFeRD, GoBD, DSGVO notes |
 | [docs/templates/](docs/templates/) | Lead import spreadsheet templates |
 | [deploy/DEPLOY.md](deploy/DEPLOY.md) | Docker Compose + nginx production |
+
+---
+
+## Automation — CLI and MCP
+
+Everything the UI does is also a command, and the same binary doubles as an
+**MCP server** so an agent host can drive OpenLeads alongside your other tools.
+
+```bash
+cd cli && npm install && npm link
+openleads login --token ol_…            # token from Einstellungen → API-Tokens
+openleads docs list --overdue --json    # JSON automatically when piped
+openleads backup -o ./sicherungen/
+openleads mcp                           # stdio MCP server
+```
+
+API tokens are named, revocable and can be **read-only**. The MCP server exposes
+reads and reversible writes by default; issuing an invoice, sending mail and
+correcting with a Stornorechnung stay off unless you pass
+`--allow-irreversible`. Full guide: **[docs/CLI.md](docs/CLI.md)**.
 
 ---
 

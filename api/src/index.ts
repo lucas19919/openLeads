@@ -23,6 +23,7 @@ import { registerExpenseRoutes } from './routes/expenses'
 import { registerSubscriptionRoutes } from './routes/subscriptions'
 import { registerRecurringRoutes } from './routes/recurring'
 import { registerUserRoutes } from './routes/users'
+import { registerTokenRoutes } from './routes/tokens'
 import { registerExportRoutes } from './routes/exports'
 import { registerAdminRoutes } from './routes/admin'
 import { registerAiRoutes } from './ai/router'
@@ -64,11 +65,16 @@ app.use('/api/*', cors({ origin: WEB_ORIGIN, credentials: true }))
 // CSRF guard: mutating requests must come from our own origin (the Vite dev
 // origin, or same-origin in production). Cookie-authenticated form posts from a
 // foreign site are rejected regardless of SameSite behaviour.
-app.use(
-  '/api/*',
-  csrf({
-    origin: (origin, c) => origin === WEB_ORIGIN || origin === new URL(c.req.url).origin,
-  }),
+//
+// Bearer-authenticated requests skip it: CSRF only exists because browsers
+// attach cookies ambiently. An API token has to be set deliberately by the
+// caller, so a foreign page cannot make the victim's browser send one — and the
+// CLI's multipart uploads would otherwise trip the form-content-type check.
+const csrfGuard = csrf({
+  origin: (origin, c) => origin === WEB_ORIGIN || origin === new URL(c.req.url).origin,
+})
+app.use('/api/*', (c, next) =>
+  c.req.header('authorization')?.toLowerCase().startsWith('bearer ') ? next() : csrfGuard(c, next),
 )
 
 // Request-size caps: JSON bodies stay small; the upload endpoints allow the
@@ -95,6 +101,7 @@ registerExpenseRoutes(app)
 registerSubscriptionRoutes(app)
 registerRecurringRoutes(app)
 registerUserRoutes(app)
+registerTokenRoutes(app)
 registerExportRoutes(app)
 registerAdminRoutes(app)
 registerAiRoutes(app, requireAuth)

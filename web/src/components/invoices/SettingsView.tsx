@@ -1,7 +1,17 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../api'
 import { euro, centsToInput, inputToCents } from '../../money'
-import type { CatalogItem, Config, EuerReport, PublicUser, Settings, User } from '../../types'
+import { fmtDate } from '../../util'
+import type {
+  ApiToken,
+  CatalogItem,
+  Config,
+  EuerReport,
+  PublicUser,
+  Settings,
+  TokenScope,
+  User,
+} from '../../types'
 
 /** `firma` = company identity (Absender, Bank, AGB, Katalog). `admin` = KI, SMTP, Team, Backup. */
 export function SettingsView({
@@ -500,6 +510,8 @@ export function SettingsView({
           </fieldset>
 
           {user.role === 'admin' && <TeamSettings config={config} currentUserId={user.id} />}
+
+          <ApiTokenSettings />
           </>
           )}
         </div>
@@ -917,6 +929,158 @@ function TeamSettings({ config, currentUserId }: { config: Config; currentUserId
         <div className="field" style={{ alignSelf: 'end' }}>
           <button className="primary" onClick={addUser} disabled={!newName.trim() || newPass.length < 8}>
             Benutzer anlegen
+          </button>
+        </div>
+      </div>
+    </fieldset>
+  )
+}
+
+// API tokens for the CLI, its MCP server and cron jobs. A token acts as *you*,
+// so everyone manages their own — and the secret is shown exactly once, here,
+// because the server only ever keeps its hash.
+function ApiTokenSettings() {
+  const [tokens, setTokens] = useState<ApiToken[]>([])
+  const [name, setName] = useState('')
+  const [scope, setScope] = useState<TokenScope>('write')
+  const [expiresDays, setExpiresDays] = useState('')
+  const [fresh, setFresh] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  function refresh() {
+    api.listTokens().then(({ tokens }) => setTokens(tokens)).catch(() => {})
+  }
+  useEffect(refresh, [])
+
+  async function create() {
+    setError(null)
+    setCopied(false)
+    try {
+      const { token } = await api.createToken({
+        name: name.trim(),
+        scope,
+        expires_days: expiresDays ? Number(expiresDays) : null,
+      })
+      setFresh(token)
+      setName('')
+      setExpiresDays('')
+      refresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Anlegen fehlgeschlagen.')
+    }
+  }
+
+  async function revoke(t: ApiToken) {
+    if (!confirm(`Token „${t.name}“ widerrufen? Laufende Automationen brechen sofort ab.`)) return
+    setError(null)
+    try {
+      await api.revokeToken(t.id)
+      refresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Widerrufen fehlgeschlagen.')
+    }
+  }
+
+  return (
+    <fieldset className="doc-block">
+      <legend>API-Tokens (CLI &amp; MCP)</legend>
+      <p className="settings-hint">
+        Für das Kommandozeilen-Werkzeug <code>openleads</code>, dessen MCP-Server und geplante Jobs.
+        Ein Token handelt mit deinen Rechten — „Nur lesen“ beschränkt es auf Abfragen und Exporte.
+        Widerrufen wirkt sofort.
+      </p>
+      {error && <div className="section-error">{error}</div>}
+
+      {fresh && (
+        <div className="doc-block" style={{ marginBottom: 12 }}>
+          <p className="settings-hint" style={{ marginTop: 0 }}>
+            Einmalige Anzeige — jetzt kopieren und sicher ablegen. Danach ist der Wert nicht mehr
+            abrufbar (der Server speichert nur seinen Hash).
+          </p>
+          <code style={{ display: 'block', wordBreak: 'break-all', padding: '8px 10px', background: 'var(--surface-2, rgba(0,0,0,.05))', borderRadius: 4 }}>
+            {fresh}
+          </code>
+          <div style={{ marginTop: 8 }}>
+            <button
+              onClick={() => {
+                navigator.clipboard?.writeText(fresh).then(
+                  () => setCopied(true),
+                  () => setCopied(false),
+                )
+              }}
+            >
+              {copied ? 'Kopiert' : 'Kopieren'}
+            </button>
+            <button className="ghost" onClick={() => { setFresh(null); setCopied(false) }}>
+              Ausblenden
+            </button>
+          </div>
+        </div>
+      )}
+
+      {tokens.length > 0 && (
+        <div className="table-wrap">
+          <table className="items-table">
+            <thead>
+              <tr><th>Name</th><th>Präfix</th><th>Rechte</th><th>Zuletzt benutzt</th><th /></tr>
+            </thead>
+            <tbody>
+              {tokens.map((t) => (
+                <tr key={t.id}>
+                  <td data-label="Name" className="cell-primary">
+                    {t.name}
+                    {t.expires_at && new Date(t.expires_at).getTime() <= Date.now() && (
+                      <span className="user-chip" style={{ marginLeft: 6 }}>abgelaufen</span>
+                    )}
+                  </td>
+                  <td data-label="Präfix"><code>{t.prefix}…</code></td>
+                  <td data-label="Rechte">{t.scope === 'read' ? 'nur lesen' : 'lesen & schreiben'}</td>
+                  <td data-label="Zuletzt benutzt" className="muted">
+                    {t.last_used_at ? fmtDate(t.last_used_at.slice(0, 10)) : 'nie'}
+                  </td>
+                  <td data-label="">
+                    <button className="ghost danger-text" onClick={() => revoke(t)}>Widerrufen</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="row2" style={{ marginTop: 10 }}>
+        <div className="field">
+          <label>Name (wofür?)</label>
+          <input
+            value={name}
+            autoComplete="off"
+            placeholder="z. B. Morgen-Briefing"
+            onChange={(e) => setName(e.target.value)}
+          />
+        </div>
+        <div className="field">
+          <label>Rechte</label>
+          <select value={scope} onChange={(e) => setScope(e.target.value as TokenScope)}>
+            <option value="write">lesen &amp; schreiben</option>
+            <option value="read">nur lesen</option>
+          </select>
+        </div>
+      </div>
+      <div className="row2">
+        <div className="field">
+          <label>Laufzeit in Tagen (leer = unbegrenzt)</label>
+          <input
+            type="number"
+            min={1}
+            max={3650}
+            value={expiresDays}
+            onChange={(e) => setExpiresDays(e.target.value)}
+          />
+        </div>
+        <div className="field" style={{ alignSelf: 'end' }}>
+          <button className="primary" onClick={create} disabled={!name.trim()}>
+            Token erzeugen
           </button>
         </div>
       </div>

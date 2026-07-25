@@ -1,0 +1,29 @@
+{
+  "name": "@openleads/cli",
+  "version": "0.1.0",
+  "description": "Command-line client and MCP server for OpenLeads",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "openleads": "./dist/main.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22.5"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/main.ts",
+    "typecheck": "tsc --noEmit",
+    "prepare": "npm run build",
+    "test": "node --import tsx --test --test-concurrency=1 src/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

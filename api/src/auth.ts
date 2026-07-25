@@ -5,7 +5,7 @@ import {
   timingSafeEqual,
   createHash,
 } from 'node:crypto'
-import { db } from './db'
+import { db, type ApiTokenRow, type TokenScope } from './db'
 
 // --- Password hashing (scrypt, no native deps beyond Node's crypto) ---
 
@@ -99,4 +99,102 @@ export function destroyUserSessions(uid: number): void {
 /** Drop expired rows so the table can't grow unbounded. Called on login. */
 export function sweepExpiredSessions(): void {
   db.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(new Date().toISOString())
+}
+
+// --- API tokens (headless callers: CLI, MCP server, cron) --------------------
+//
+// Same shape as a session — a random secret whose SHA-256 is all the DB keeps —
+// but named, long-lived, and optionally read-only. A browser never sends one:
+// they travel as `Authorization: Bearer`, so they carry no ambient authority and
+// need no CSRF protection. The `ol_` prefix makes them greppable in leaked logs
+// and lets secret scanners recognise them.
+
+export const TOKEN_PREFIX = 'ol_'
+
+export interface ApiTokenIdentity {
+  user: SessionUser
+  token: { id: number; name: string; scope: TokenScope }
+}
+
+/** Mint a token for the user. The plaintext is returned once and never stored. */
+export function createApiToken(
+  uid: number,
+  name: string,
+  scope: TokenScope = 'write',
+  expiresAt: string | null = null,
+): { id: number; token: string; prefix: string } {
+  const secret = randomBytes(32).toString('base64url')
+  const token = `${TOKEN_PREFIX}${secret}`
+  // Enough to tell two rows apart in the UI, far too little to guess the rest.
+  const prefix = token.slice(0, TOKEN_PREFIX.length + 6)
+  const info = db
+    .prepare(
+      'INSERT INTO api_tokens (name, token_hash, prefix, user_id, scope, expires_at) VALUES (?, ?, ?, ?, ?, ?)',
+    )
+    .run(name, tokenHash(token), prefix, uid, scope, expiresAt)
+  return { id: Number(info.lastInsertRowid), token, prefix }
+}
+
+// last_used_at only has to answer "is this token still in use?", so it is
+// written at most once a minute. Otherwise every authenticated read would take
+// a write lock — and a busy MCP session or cron run is nearly all reads.
+const LAST_USED_RESOLUTION_MS = 60_000
+
+/**
+ * Resolve a bearer token to its user + scope, or null if unknown/expired.
+ * Touches last_used_at so a stale token is visible as such in the UI.
+ */
+export function readApiToken(token: string | undefined): ApiTokenIdentity | null {
+  if (!token || !token.startsWith(TOKEN_PREFIX)) return null
+  const row = db
+    .prepare(
+      `SELECT t.id, t.name, t.scope, t.expires_at, t.last_used_at,
+              u.id AS user_id, u.username, u.role
+         FROM api_tokens t JOIN users u ON u.id = t.user_id
+        WHERE t.token_hash = ?`,
+    )
+    .get(tokenHash(token)) as unknown as
+    | {
+        id: number
+        name: string
+        scope: TokenScope
+        expires_at: string | null
+        last_used_at: string | null
+        user_id: number
+        username: string
+        role: string
+      }
+    | undefined
+  if (!row) return null
+  const now = Date.now()
+  if (row.expires_at && new Date(row.expires_at).getTime() <= now) return null
+  const lastUsed = row.last_used_at ? new Date(row.last_used_at).getTime() : 0
+  if (now - lastUsed >= LAST_USED_RESOLUTION_MS) {
+    db.prepare('UPDATE api_tokens SET last_used_at = ? WHERE id = ?').run(
+      new Date(now).toISOString(),
+      row.id,
+    )
+  }
+  return {
+    user: { id: row.user_id, username: row.username, role: row.role },
+    token: { id: row.id, name: row.name, scope: row.scope },
+  }
+}
+
+export type PublicApiToken = Omit<ApiTokenRow, 'token_hash' | 'user_id'>
+
+/** Tokens belonging to one user — never the hash, never a replayable secret. */
+export function listApiTokens(uid: number): PublicApiToken[] {
+  return db
+    .prepare(
+      `SELECT id, name, prefix, scope, created_at, last_used_at, expires_at
+         FROM api_tokens WHERE user_id = ? ORDER BY created_at DESC`,
+    )
+    .all(uid) as unknown as PublicApiToken[]
+}
+
+/** Revoke one of the user's tokens. Returns false if it isn't theirs. */
+export function revokeApiToken(uid: number, id: number): boolean {
+  const info = db.prepare('DELETE FROM api_tokens WHERE id = ? AND user_id = ?').run(id, uid)
+  return info.changes > 0
 }

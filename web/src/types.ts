@@ -417,6 +417,19 @@ export interface PublicUser {
   created_at: string
 }
 
+export type TokenScope = 'read' | 'write'
+
+/** An API token as the server is willing to describe it — never the secret. */
+export interface ApiToken {
+  id: number
+  name: string
+  prefix: string
+  scope: TokenScope
+  created_at: string
+  last_used_at: string | null
+  expires_at: string | null
+}
+
 export interface MonthRevenue {
   month: string
   net_cents: number

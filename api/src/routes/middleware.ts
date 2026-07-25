@@ -1,32 +1,70 @@
 import type { Context, Next } from 'hono'
 import { getCookie } from 'hono/cookie'
 import { getConnInfo } from '@hono/node-server/conninfo'
-import type { UserRow } from '../db'
-import { sessionUser } from '../auth'
+import type { TokenScope, UserRow } from '../db'
+import { sessionUser, readApiToken } from '../auth'
 
 // Shared HTTP plumbing for every route module: the request-scoped user variable,
 // the session cookie, and the auth gates. Routes import from here so the whole
 // API keeps exactly one definition of "logged in" and "admin".
 
-export type Vars = { user: Pick<UserRow, 'id' | 'username' | 'role'> }
+export type Vars = {
+  user: Pick<UserRow, 'id' | 'username' | 'role'>
+  /** Set only when the caller authenticated with an API token, not a cookie. */
+  token?: { id: number; name: string; scope: TokenScope }
+}
 export type AppContext = Context<{ Variables: Vars }>
 
 export const COOKIE = 'sid'
 
-/** Gate: any valid session. Resolves cookie → session → user in one query. */
-export async function requireAuth(c: AppContext, next: Next) {
+/** Requests a read-only token may make: everything that cannot change state. */
+const SAFE_METHODS = /^(GET|HEAD)$/
+
+/** Extract the `Authorization: Bearer <token>` value, if the header is present. */
+function bearer(c: AppContext): string | undefined {
+  const header = c.req.header('authorization')
+  if (!header) return undefined
+  const [scheme, value] = header.split(' ')
+  return scheme?.toLowerCase() === 'bearer' && value ? value : undefined
+}
+
+/**
+ * Resolve the caller: an API token (headless — CLI, MCP, cron) if one is
+ * presented, otherwise the browser's session cookie. Two credential kinds, one
+ * identity, so every route below sees the same `user` variable either way.
+ */
+function identify(c: AppContext): Vars | null {
+  const raw = bearer(c)
+  if (raw) {
+    const id = readApiToken(raw)
+    return id ? { user: id.user, token: id.token } : null
+  }
   const user = sessionUser(getCookie(c, COOKIE))
-  if (!user) return c.json({ error: 'unauthorized' }, 401)
-  c.set('user', user)
+  return user ? { user } : null
+}
+
+/** Gate: any valid credential. Read-only tokens are held to safe methods. */
+export async function requireAuth(c: AppContext, next: Next) {
+  const id = identify(c)
+  if (!id) return c.json({ error: 'unauthorized' }, 401)
+  if (id.token?.scope === 'read' && !SAFE_METHODS.test(c.req.method)) {
+    return c.json({ error: 'Dieses API-Token darf nur lesen.' }, 403)
+  }
+  c.set('user', id.user)
+  if (id.token) c.set('token', id.token)
   await next()
 }
 
-/** Gate: a valid session whose role is admin (user management, settings, backups). */
+/** Gate: a valid credential whose role is admin (user management, settings, backups). */
 export async function requireAdmin(c: AppContext, next: Next) {
-  const user = sessionUser(getCookie(c, COOKIE))
-  if (!user) return c.json({ error: 'unauthorized' }, 401)
-  if (user.role !== 'admin') return c.json({ error: 'Nur für Administratoren.' }, 403)
-  c.set('user', user)
+  const id = identify(c)
+  if (!id) return c.json({ error: 'unauthorized' }, 401)
+  if (id.user.role !== 'admin') return c.json({ error: 'Nur für Administratoren.' }, 403)
+  if (id.token?.scope === 'read' && !SAFE_METHODS.test(c.req.method)) {
+    return c.json({ error: 'Dieses API-Token darf nur lesen.' }, 403)
+  }
+  c.set('user', id.user)
+  if (id.token) c.set('token', id.token)
   await next()
 }
 

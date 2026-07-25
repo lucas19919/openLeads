@@ -22,6 +22,8 @@ import type {
   Outreach,
   Payment,
   PaymentSummary,
+  ApiToken,
+  TokenScope,
   PublicUser,
   RecurringInvoice,
   Settings,
@@ -378,6 +380,16 @@ export const api = {
   updateUser: (id: number, patch: { role?: string; password?: string }) =>
     req<{ user: PublicUser }>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteUser: (id: number) => req<{ ok: true }>(`/users/${id}`, { method: 'DELETE' }),
+
+  // --- API tokens (CLI / MCP / cron) ---
+  // createToken returns the plaintext exactly once; it is never readable again.
+  listTokens: () => req<{ tokens: ApiToken[] }>('/tokens'),
+  createToken: (body: { name: string; scope: TokenScope; expires_days?: number | null }) =>
+    req<{ token: string; id: number; prefix: string }>('/tokens', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  revokeToken: (id: number) => req<{ ok: true }>(`/tokens/${id}`, { method: 'DELETE' }),
 
   // --- exports ---
   exportLeadsUrl: (params: { stage?: string; q?: string } = {}) => {

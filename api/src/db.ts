@@ -131,6 +131,23 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 
+-- Long-lived API tokens for headless callers (CLI, MCP server, cron). Same
+-- hash-only storage as sessions, but named, individually revocable, and
+-- optionally read-only — so an unattended workflow gets exactly the reach it
+-- needs and shows up in the audit trail under its own name.
+CREATE TABLE IF NOT EXISTS api_tokens (
+  id           INTEGER PRIMARY KEY,
+  name         TEXT NOT NULL,
+  token_hash   TEXT NOT NULL UNIQUE,
+  prefix       TEXT NOT NULL,           -- leading chars, shown so a row is identifiable
+  user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  scope        TEXT NOT NULL DEFAULT 'write',  -- 'read' (GET only) | 'write'
+  created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  last_used_at TEXT,
+  expires_at   TEXT                     -- ISO-8601 UTC, NULL = no expiry
+);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);
+
 CREATE TABLE IF NOT EXISTS leads (
   id               INTEGER PRIMARY KEY,
   domain           TEXT UNIQUE,            -- registrable domain, used for dedupe
@@ -732,6 +749,21 @@ export interface UserRow {
   password_hash: string
   role: string
   created_at: string
+}
+
+export const TOKEN_SCOPES = ['read', 'write'] as const
+export type TokenScope = (typeof TOKEN_SCOPES)[number]
+
+export interface ApiTokenRow {
+  id: number
+  name: string
+  token_hash: string
+  prefix: string
+  user_id: number
+  scope: TokenScope
+  created_at: string
+  last_used_at: string | null
+  expires_at: string | null
 }
 
 export interface LeadRow {
