@@ -7,7 +7,9 @@ Morgen um 9 die Pipeline durchgehen, überfällige Rechnungen melden, Sicherung 
 die Cloud legen" ist ein Skript oder ein Agenten-Auftrag, kein Klickweg.
 
 Beides spricht dieselbe REST-API wie die Oberfläche, mit demselben Token und
-demselben Audit-Trail. Es gibt keinen zweiten Zugangsweg zu den Daten.
+demselben Audit-Trail. Einen versteckten Zweitzugang zu den Daten gibt es
+nicht — auch die schmale [Maschinen-API](#maschinen-api-apimachine) unten
+schreibt in denselben Verlauf, nur unter eigenem Akteur.
 
 ---
 
@@ -317,6 +319,43 @@ ausweiten, egal was in einer Mail steht, die er dabei liest.
 
 Der MCP-Server schreibt seinen Status beim Start nach stderr; die Hosts zeigen
 das in ihren Logs.
+
+---
+
+## Maschinen-API (`/api/machine/*`)
+
+Manche Agenten-Plattformen und Automationen werden nicht mit einem persönlichen
+API-Token eingerichtet, sondern mit **einem gemeinsamen Maschinen-Geheimnis**,
+das der Betreiber per Umgebungsvariable setzt. Für sie gibt es eine bewusst
+schmale, stabile Fläche: nur die Lead-Pipeline — keine Rechnungen, kein Admin,
+nichts Unumkehrbares. Wer die volle API will, nimmt weiterhin die CLI/MCP-Tokens
+oben.
+
+| Methode | Pfad | Zweck |
+|---------|------|-------|
+| GET | `/api/machine/health` | Erreichbarkeitsprobe: `{ ok, service }` — ohne Auth, ohne Daten |
+| GET | `/api/machine/leads?stage=&q=` | Leads filtern, gleiche Semantik wie in der Oberfläche |
+| GET | `/api/machine/leads/:id` | Lead mit den letzten Ereignissen |
+| POST | `/api/machine/leads` | Lead anlegen — Dedupe nach Domain, `source` standardmäßig `machine` |
+| PATCH | `/api/machine/leads/:id` | Stage, Notizen, Tags, … ändern |
+
+Authentifizierung: `Authorization: Bearer <CRM_MACHINE_TOKEN>`. Ist die
+Variable nicht gesetzt, ist die gesamte Fläche abgeschaltet — jede Anfrage
+endet in 401 (fail closed). Der Vergleich läuft in konstanter Zeit, das Token
+wird nirgends geloggt.
+
+Schreibvorgänge erscheinen im Lead-Verlauf als Akteur `machine:mcp` (änderbar
+über `CRM_MACHINE_PRINCIPAL`). Automatisierung ist damit im Verlauf immer von
+Menschen unterscheidbar — eine Maschine gibt sich nie als Benutzerkonto aus.
+
+```bash
+# Betreiber: Token erzeugen und in api/.env setzen
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+
+# Client: Pipeline lesen
+curl -H "Authorization: Bearer $CRM_MACHINE_TOKEN" \
+  https://openleads.example.de/api/machine/leads?stage=neu
+```
 
 ---
 

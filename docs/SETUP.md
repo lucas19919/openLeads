@@ -98,6 +98,8 @@ Without AI, the rest of the suite still works — only Chat stays quiet.
 | `WEB_ORIGIN` | Allowed origin for CORS + CSRF (`http://localhost:5173` in dev) |
 | `TRUST_PROXY` | `1` only behind *your* reverse proxy |
 | `NODE_ENV` | `development` or `production` |
+| `CRM_MACHINE_TOKEN` | Static bearer token that enables the `/api/machine/*` surface (unset = disabled) |
+| `CRM_MACHINE_PRINCIPAL` | Audit actor for machine-API writes (default `machine:mcp`) |
 | `AI_*` | Model endpoint (overridable in UI) |
 | `SMTP_*` | Mail (overridable in UI; optional) |
 
