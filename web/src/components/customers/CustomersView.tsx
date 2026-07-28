@@ -511,12 +511,12 @@ export function CustomersView({
                     columns={['Art', 'Nr.', 'Status', 'Brutto', 'Offen', '']}
                     render={(doc) => (
                       <tr key={doc.id}>
-                        <td>{KIND_LABEL[doc.kind] ?? doc.kind}</td>
-                        <td>{doc.number ?? '—'}</td>
-                        <td>{STATUS_LABEL[doc.status] ?? doc.status}</td>
-                        <td className="num">{euro(doc.gross_cents)}</td>
-                        <td className="num">{euro(doc.open_cents)}</td>
-                        <td className="row-actions">
+                        <td data-label="Art">{KIND_LABEL[doc.kind] ?? doc.kind}</td>
+                        <td data-label="Nr.">{doc.number ?? '—'}</td>
+                        <td data-label="Status">{STATUS_LABEL[doc.status] ?? doc.status}</td>
+                        <td className="num" data-label="Brutto">{euro(doc.gross_cents)}</td>
+                        <td className="num" data-label="Offen">{euro(doc.open_cents)}</td>
+                        <td className="row-actions" data-label="">
                           <button
                             className="ghost"
                             onClick={() => onIntent({ type: 'open', module: 'documents', openId: doc.id, back: backHere() })}
@@ -546,11 +546,11 @@ export function CustomersView({
                     columns={['Nr.', 'Titel', 'Status', 'Wert', 'Unterschrift', '']}
                     render={(krow) => (
                       <tr key={krow.id}>
-                        <td>{krow.number ?? '—'}</td>
-                        <td>{krow.title ?? '—'}</td>
-                        <td>{STATUS_LABEL[krow.status] ?? krow.status}</td>
-                        <td className="num">{euro(krow.value_cents)}</td>
-                        <td>
+                        <td data-label="Nr.">{krow.number ?? '—'}</td>
+                        <td data-label="Titel">{krow.title ?? '—'}</td>
+                        <td data-label="Status">{STATUS_LABEL[krow.status] ?? krow.status}</td>
+                        <td className="num" data-label="Wert">{euro(krow.value_cents)}</td>
+                        <td data-label="Unterschrift">
                           {krow.has_signed_doc ? (
                             <span className="user-chip" title={krow.signed_doc_name ?? undefined}>
                               Unterschrift liegt vor
@@ -559,7 +559,7 @@ export function CustomersView({
                             '—'
                           )}
                         </td>
-                        <td className="row-actions">
+                        <td className="row-actions" data-label="">
                           <button
                             className="ghost"
                             onClick={() => onIntent({ type: 'open', module: 'contracts', openId: krow.id, back: backHere() })}
@@ -589,18 +589,18 @@ export function CustomersView({
                     columns={['Titel', 'Vertrag', 'Turnus', 'Nächster Lauf', 'Status', '']}
                     render={(s) => (
                       <tr key={s.id}>
-                        <td>{s.title ?? '—'}</td>
-                        <td>
+                        <td data-label="Titel">{s.title ?? '—'}</td>
+                        <td data-label="Vertrag">
                           {s.contract_number
                             ? s.contract_number
                             : s.contract_id != null
                               ? `#${s.contract_id}`
                               : '—'}
                         </td>
-                        <td>{CADENCE_LABEL[s.cadence] ?? s.cadence}</td>
-                        <td>{fmtDate(s.next_run)}</td>
-                        <td>{s.active ? 'aktiv' : 'pausiert'}</td>
-                        <td className="row-actions">
+                        <td data-label="Turnus">{CADENCE_LABEL[s.cadence] ?? s.cadence}</td>
+                        <td data-label="Nächster Lauf">{fmtDate(s.next_run)}</td>
+                        <td data-label="Status">{s.active ? 'aktiv' : 'pausiert'}</td>
+                        <td className="row-actions" data-label="">
                           <button
                             className="ghost"
                             onClick={() => onIntent({ type: 'open', module: 'recurring', openId: s.id, back: backHere() })}
@@ -699,7 +699,7 @@ export function CustomersView({
               <tbody>
                 {visible.map((c) => (
                   <tr key={c.id} className="clickable" onClick={() => openCustomer(c)}>
-                    <td>
+                    <td className="cell-primary" data-label="Name">
                       <strong>{c.name}</strong>
                       {c.contact_name ? (
                         <div className="muted" style={{ fontSize: 12 }}>
@@ -707,10 +707,10 @@ export function CustomersView({
                         </div>
                       ) : null}
                     </td>
-                    <td>{c.city ?? '—'}</td>
-                    <td>{c.email ?? '—'}</td>
-                    <td>{CLIENT_TYPE_LABEL[c.client_type] ?? c.client_type}</td>
-                    <td>{c.active ? 'aktiv' : 'inaktiv'}</td>
+                    <td data-label="Ort">{c.city ?? '—'}</td>
+                    <td data-label="E-Mail">{c.email ?? '—'}</td>
+                    <td data-label="Typ">{CLIENT_TYPE_LABEL[c.client_type] ?? c.client_type}</td>
+                    <td data-label="Status">{c.active ? 'aktiv' : 'inaktiv'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -838,7 +838,7 @@ function AttachModal({
               <tbody>
                 {visible.map((c) => (
                   <tr key={c.id} className="clickable" onClick={() => onToggle(c.id)}>
-                    <td style={{ width: 32 }}>
+                    <td style={{ width: 32 }} data-label="">
                       <input
                         type="checkbox"
                         checked={selected.has(c.id)}
@@ -846,7 +846,7 @@ function AttachModal({
                         onClick={(e) => e.stopPropagation()}
                       />
                     </td>
-                    <td>
+                    <td className="cell-primary" data-label="">
                       <strong>{c.label}</strong>
                       {c.sub ? (
                         <div className="muted" style={{ fontSize: 12 }}>
