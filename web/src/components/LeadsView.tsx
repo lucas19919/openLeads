@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api'
+import { usePhoneViewport } from '../util'
 import type { Config, Lead } from '../types'
 import type { ModuleIntent } from './SuiteNav'
 import { Toolbar } from './Toolbar'
 import { Board } from './Board'
+import { LeadCards } from './LeadCards'
 import { Table } from './Table'
 import { LeadDetail } from './LeadDetail'
 import { NewLeadModal } from './NewLeadModal'
@@ -23,11 +25,12 @@ export function LeadsView({
 }) {
   const [leads, setLeads] = useState<Lead[]>([])
   const [loaded, setLoaded] = useState(false)
-  // Kanban drag-and-drop needs a mouse; default phones to the table view, whose
-  // per-row Phase dropdown works with touch.
-  const [view, setView] = useState<'board' | 'table'>(() =>
-    typeof window !== 'undefined' && window.innerWidth <= 720 ? 'table' : 'board',
-  )
+  // Phones don't get the Board/Tabelle choice at all — see LeadCards for why.
+  // This only drives the desktop view.
+  const [view, setView] = useState<'board' | 'table'>('board')
+  const phone = usePhoneViewport()
+  // Phone-only stand-in for the kanban's columns: '' = every phase.
+  const [stageFilter, setStageFilter] = useState('')
   const [search, setSearch] = useState('')
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [showNew, setShowNew] = useState(false)
@@ -80,15 +83,21 @@ export function LeadsView({
   }
 
   const q = search.trim().toLowerCase()
-  const filtered = q
+  const searched = q
     ? leads.filter((l) =>
         [l.company, l.city, l.trade, l.website, l.tags].some((v) => v?.toLowerCase().includes(q)),
       )
     : leads
+  const filtered =
+    phone && stageFilter ? searched.filter((l) => l.stage === stageFilter) : searched
 
   return (
     <>
       <Toolbar
+        phone={phone}
+        stages={config.stages}
+        stageFilter={stageFilter}
+        setStageFilter={setStageFilter}
         view={view}
         setView={setView}
         search={search}
@@ -107,6 +116,8 @@ export function LeadsView({
             Noch keine Leads. Importiere eine Liste (.xlsx), lass den KI-Chat eine
             Website prüfen — oder lege manuell einen an („+ Lead").
           </div>
+        ) : phone ? (
+          <LeadCards stages={config.stages} leads={filtered} onOpen={setSelectedId} onMove={onMove} />
         ) : view === 'board' ? (
           <Board stages={config.stages} leads={filtered} onOpen={setSelectedId} onMove={onMove} />
         ) : (

@@ -6,6 +6,7 @@ import { fmtDate, todayISO, useEscapeKey } from '../../util'
 import type { Config, Contract, Customer } from '../../types'
 import type { BackTarget, ModuleIntent } from '../SuiteNav'
 import { CustomerPicker } from '../CustomerPicker'
+import { Disclosure } from '../Disclosure'
 
 const CLIENT_TYPE_LABEL: Record<string, string> = { geschaeft: 'Geschäft (B2B)', privat: 'Privat (B2C)' }
 const STATUS_LABEL: Record<string, string> = {
@@ -653,12 +654,12 @@ export function ContractsView({
       </div>
 
       <div className="content">
-        <div className="hint">
+        <Disclosure summary="So funktionieren Verträge" className="hint">
           Erstelle Dienst-, Werk- oder Wartungsverträge mit deinen <strong>AGB</strong> — oder lege einen bestehenden
           Vertrag einfach als <strong>PDF ab</strong> („PDF ablegen"). Beim Festschreiben eigener Verträge wird eine
           Vertragsnummer vergeben und die AGB eingefroren; nichts wird automatisch versendet. AGB pflegst du unter
           <strong> Einstellungen → Verträge & AGB</strong>.
-        </div>
+        </Disclosure>
         {error && <div className="section-error">{error}</div>}
         {msg && <div className="section-info">{msg}</div>}
 

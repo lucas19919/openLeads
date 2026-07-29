@@ -5,6 +5,7 @@ import { euro, centsToInput, inputToCents, lineTotalCents } from '../../money'
 import { fmtDate, todayISO } from '../../util'
 import { CatalogPicker, catalogItemToLine } from './CatalogPicker'
 import { CustomerPicker } from '../CustomerPicker'
+import { Disclosure } from '../Disclosure'
 import type { Config, Customer, DocItem, RecurringInvoice } from '../../types'
 import type { ModuleIntent } from '../SuiteNav'
 
@@ -404,11 +405,11 @@ export function RecurringView({
       </div>
 
       <div className="content">
-        <div className="hint">
+        <Disclosure summary="So funktionieren Serienrechnungen" className="hint">
           Eine Serienrechnung (z.&nbsp;B. Hosting-/Wartungsvertrag) erzeugt je Turnus einen{' '}
           <strong>Rechnungsentwurf</strong> — du prüfst und schreibst ihn selbst fest. Nichts wird
           automatisch versendet.
-        </div>
+        </Disclosure>
         {msg && <div className="section-info">{msg}</div>}
 
         {!loaded ? (

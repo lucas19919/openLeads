@@ -380,6 +380,31 @@ input[type='checkbox'] { width: auto; accent-color: var(--accent); }
 .badge.mittel { background: var(--warn-soft); color: var(--warn-ink); }
 .badge.niedrig { background: var(--neutral-soft); color: var(--neutral-ink); }
 
+/* ---- phone lead list (LeadCards) ---- */
+.lead-cards { display: flex; flex-direction: column; gap: 10px; }
+.lead-card {
+  background: var(--surface-card);
+  border: 1px solid var(--line-card);
+  border-left: 3px solid var(--prio, var(--line-card));
+  border-radius: var(--radius-table);
+  box-shadow: var(--shadow-card);
+  padding: 12px 14px 13px;
+  display: flex; flex-direction: column; gap: 7px;
+}
+.lead-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.lead-card-head .company { font-weight: 600; font-size: 16px; color: var(--ink); min-width: 0; overflow-wrap: anywhere; }
+.lead-card-head .score { flex: none; }
+.lead-card .meta { color: var(--muted); font-size: 13px; }
+.lead-card .tag-list { margin-top: 0; }
+.lead-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+/* Big enough to hit, and visibly a link — this is the main phone action. */
+.lead-phone {
+  color: var(--accent); text-decoration: none; font-weight: 600; font-size: 14px;
+  padding: 4px 2px; white-space: nowrap;
+}
+.lead-phone:hover { color: var(--accent-dark); text-decoration: underline; }
+.lead-phase { width: 100%; margin-top: 1px; }
+
 /* ---- data tables ---- */
 /* The rounded frame lives on the scroll wrap, NOT the table: overflow:hidden
    on the table would re-anchor the sticky header row to the table itself
@@ -626,6 +651,37 @@ table.leads td.num, table.leads th.num { text-align: right; font-variant-numeric
 
 /* Horizontal-scroll container for wide tables on narrow screens. */
 .table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+/* ---- collapsible explainer / power-user panel ---- */
+/* Carries whatever look its wrapper class asks for (.hint, .ai-draft-box), so
+   an open disclosure is visually identical to the plain block it replaced. */
+.disclosure { margin: 0; }
+.disclosure-summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13.5px;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.disclosure-summary::-webkit-details-marker { display: none; }
+/* Own marker, so it sits before the label at a size we control. */
+.disclosure-summary::before {
+  content: '';
+  flex: none;
+  width: 7px; height: 7px;
+  border-right: 1.6px solid currentColor;
+  border-bottom: 1.6px solid currentColor;
+  transform: rotate(-45deg);
+  margin: -3px 2px 0 2px;
+  transition: transform 0.15s;
+}
+.disclosure[open] > .disclosure-summary::before { transform: rotate(45deg); margin-top: -1px; }
+.disclosure[open] > .disclosure-summary { margin-bottom: 12px; }
+.disclosure-body { display: flex; flex-direction: column; gap: 12px; }
+/* The hint variant is a prose banner, not a form. */
+.hint.disclosure .disclosure-body { display: block; }
 
 /* Soft-accent info banner (Abo-Rechnungen, Verträge). */
 .hint {
@@ -882,10 +938,25 @@ table.leads td.num, table.leads th.num { text-align: right; font-variant-numeric
 
 @media (max-width: 720px) {
   .chat-shell { flex-direction: column; }
+  /* A horizontal strip of thread chips. As a stacked list it was a 146px block
+     sitting on top of the conversation, leaving the stream 60% of the screen. */
   .chat-sidebar {
-    flex: 0 0 auto; max-height: 156px;
+    flex: 0 0 auto; max-height: none;
+    flex-direction: row; align-items: center; gap: 8px;
+    padding: 8px 12px; overflow-x: auto; overflow-y: hidden;
     border-right: none; border-bottom: 1px solid var(--line);
   }
+  .chat-new { width: auto; flex: none; min-height: 38px; padding: 8px 12px; font-size: 12.5px; }
+  .chat-thread-list {
+    flex-direction: row; align-items: stretch; gap: 6px;
+    overflow-x: auto; overflow-y: hidden; margin: 0; padding: 0;
+  }
+  .chat-thread {
+    width: auto; flex: none; max-width: 170px; gap: 0;
+    padding: 5px 10px; border-color: var(--line-input); justify-content: center;
+  }
+  .chat-thread-title { font-size: 12.5px; }
+  .chat-thread-when { font-size: 10.5px; }
 }
 
 /* Sits below the shared .toolbar like every other page's .content. */
@@ -1014,7 +1085,6 @@ table.leads td.num, table.leads th.num { text-align: right; font-variant-numeric
   padding: 18px 20px; border: 1px solid var(--line-card);
   border-radius: var(--radius-card); background: var(--surface-card);
 }
-.ai-draft-label { display: block; font-weight: 600; font-size: 13.5px; margin-bottom: 10px; }
 .ai-draft-text { width: 100%; resize: vertical; background: var(--surface-chrome); border-radius: var(--radius-lead); line-height: 1.5; }
 .ai-draft-actions { display: flex; align-items: center; gap: 14px; margin-top: 12px; }
 .ai-draft-hint { font-size: 12px; color: var(--muted-2); }
@@ -1202,12 +1272,16 @@ table.leads td.num, table.leads th.num { text-align: right; font-variant-numeric
   /* Chat / copilot — .app already clears the tab bar, so no extra inset here. */
   .copilot { padding: 0 12px; }
   .copilot-input { padding-bottom: 14px; }
-  /* overflow-wrap on .bubble itself catches the error bubble, whose text is not
-     wrapped in .bubble-text. */
-  .bubble { max-width: 92%; overflow-wrap: anywhere; }
-  .bubble-text, .step-trail span, .step-trail code, .erechnung-list li {
-    overflow-wrap: anywhere; word-break: break-word;
-  }
+  .copilot-stream { padding-top: 14px; gap: 12px; }
+  /* `break-word` breaks a word only when it genuinely can't fit; `anywhere`
+     also chopped ordinary German words mid-word, which is what made the
+     assistant's replies hard to read on a narrow column. */
+  .bubble { max-width: 92%; overflow-wrap: break-word; font-size: 15px; line-height: 1.6; }
+  .bubble-text, .step-trail span, .erechnung-list li { overflow-wrap: break-word; }
+  /* Genuinely unbreakable strings (URLs, IBANs, identifiers) still need it. */
+  .step-trail code, .md code, .bubble a { overflow-wrap: anywhere; }
+  .md p { margin-bottom: 10px; }
+  .md ul, .md ol { padding-left: 20px; }
 
   /* Ausgaben filter bar: the "Zeitraum <date> – <date>" label is 446px wide
      with native date inputs, so it has to wrap and the inputs have to share

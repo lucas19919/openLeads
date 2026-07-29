@@ -2,7 +2,7 @@ import { useState, type CSSProperties } from 'react'
 import { parseTags } from '../util'
 import type { Lead } from '../types'
 
-function prioColor(p: string) {
+export function prioColor(p: string) {
   return p === 'hoch'
     ? 'var(--prio-hoch)'
     : p === 'mittel'

@@ -5,6 +5,7 @@ import { euro } from '../../money'
 import { fmtDate } from '../../util'
 import type { Config, Doc } from '../../types'
 import type { ModuleIntent } from '../SuiteNav'
+import { Disclosure } from '../Disclosure'
 import { DocumentEditor } from './DocumentEditor'
 
 const KIND_LABEL: Record<string, string> = { angebot: 'Angebot', rechnung: 'Rechnung' }
@@ -202,8 +203,7 @@ export function InvoicesView({
       </div>
 
       <div className="content">
-        <div className="ai-draft-box">
-          <label className="ai-draft-label">KI-Rechnung aus Text</label>
+        <Disclosure summary="KI-Rechnung aus Text" className="ai-draft-box">
           <textarea
             className="ai-draft-text"
             rows={3}
@@ -226,7 +226,7 @@ export function InvoicesView({
             </button>
           </div>
           {draftError && <div className="section-error">{draftError}</div>}
-        </div>
+        </Disclosure>
 
         {!loaded ? (
           <div className="center-muted">Lädt…</div>
