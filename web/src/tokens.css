@@ -62,6 +62,7 @@
   /* ---- spacing ---- */
   --side-w: 246px;           /* sidebar width */
   --top-h: 66px;             /* top bar height */
+  --tabbar-h: 56px;          /* phone bottom tab bar (excl. safe-area inset) */
   --content-pad: 26px 30px 44px;
   /* Single-value top component: --content-pad is a 3-value shorthand and is
      INVALID in longhands like padding-top (the declaration gets dropped). */

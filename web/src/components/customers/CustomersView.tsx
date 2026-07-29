@@ -512,7 +512,7 @@ export function CustomersView({
                     render={(doc) => (
                       <tr key={doc.id}>
                         <td data-label="Art">{KIND_LABEL[doc.kind] ?? doc.kind}</td>
-                        <td data-label="Nr.">{doc.number ?? '—'}</td>
+                        <td className="cell-primary" data-label="Nr.">{doc.number ?? '—'}</td>
                         <td data-label="Status">{STATUS_LABEL[doc.status] ?? doc.status}</td>
                         <td className="num" data-label="Brutto">{euro(doc.gross_cents)}</td>
                         <td className="num" data-label="Offen">{euro(doc.open_cents)}</td>
@@ -546,7 +546,7 @@ export function CustomersView({
                     columns={['Nr.', 'Titel', 'Status', 'Wert', 'Unterschrift', '']}
                     render={(krow) => (
                       <tr key={krow.id}>
-                        <td data-label="Nr.">{krow.number ?? '—'}</td>
+                        <td className="cell-primary" data-label="Nr.">{krow.number ?? '—'}</td>
                         <td data-label="Titel">{krow.title ?? '—'}</td>
                         <td data-label="Status">{STATUS_LABEL[krow.status] ?? krow.status}</td>
                         <td className="num" data-label="Wert">{euro(krow.value_cents)}</td>
@@ -589,7 +589,7 @@ export function CustomersView({
                     columns={['Titel', 'Vertrag', 'Turnus', 'Nächster Lauf', 'Status', '']}
                     render={(s) => (
                       <tr key={s.id}>
-                        <td data-label="Titel">{s.title ?? '—'}</td>
+                        <td className="cell-primary" data-label="Titel">{s.title ?? '—'}</td>
                         <td data-label="Vertrag">
                           {s.contract_number
                             ? s.contract_number
@@ -834,7 +834,9 @@ function AttachModal({
           </div>
         ) : (
           <div className="table-wrap" style={{ maxHeight: 320, overflow: 'auto' }}>
-            <table className="leads">
+            {/* .picker opts out of the mobile card reflow: this is a tick list,
+                not a data table, so a checkbox + label stay on one line. */}
+            <table className="leads picker">
               <tbody>
                 {visible.map((c) => (
                   <tr key={c.id} className="clickable" onClick={() => onToggle(c.id)}>

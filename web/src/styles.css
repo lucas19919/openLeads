@@ -143,19 +143,88 @@ input[type='checkbox'] { width: auto; accent-color: var(--accent); }
 .side-user-name { font-size: 13px; font-weight: 600; color: var(--ink); }
 .side-user-role { font-size: 11.5px; color: var(--muted-2); }
 
-/* Burger toggle — desktop never shows it; the nav list is always visible there. */
-.nav-burger {
-  display: none;
-  border: none;
-  background: transparent;
-  color: var(--ink);
-  font-size: 22px;
-  line-height: 1;
-  padding: 6px 10px;
-  border-radius: var(--radius-btn);
-  cursor: pointer;
+/* ---- phone bottom tab bar + "Mehr" sheet ----
+   Both are phone-only; the media query below flips them on. Declared here so
+   the mobile block stays a list of overrides rather than a second stylesheet. */
+.tabbar { display: none; }
+.sheet, .sheet-scrim { display: none; }
+
+@media (max-width: 720px) {
+  .tabbar {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    z-index: 25;
+    display: flex;
+    background: var(--surface-chrome);
+    border-top: 1px solid var(--line);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .tab {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    height: var(--tabbar-h);
+    padding: 0 2px;
+    border: none;
+    background: transparent;
+    border-radius: 0;
+    font: 500 10.5px var(--font-ui);
+    color: var(--nav-ink);
+    /* Labels are already at the legibility floor — ellipsis beats shrinking. */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .tab:hover { background: transparent; }
+  .tab .tab-icon { flex: none; }
+  .tab.active { color: var(--accent); font-weight: 700; }
+  /* Tapping a tab shouldn't leave a lingering highlight on iOS. */
+  .tab { -webkit-tap-highlight-color: transparent; }
+
+  .sheet-scrim { display: block; z-index: 35; }
+  .sheet {
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    z-index: 36;
+    max-height: 82dvh;
+    background: var(--surface-chrome);
+    border-top: 1px solid var(--line);
+    border-radius: var(--radius-card) var(--radius-card) 0 0;
+    box-shadow: 0 -16px 50px -16px rgba(30, 25, 15, 0.35);
+    padding: 8px 12px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+    animation: sheet-in 0.2s cubic-bezier(0.2, 0.7, 0.3, 1);
+  }
+  @keyframes sheet-in {
+    from { transform: translateY(14px); opacity: 0; }
+    to { transform: none; opacity: 1; }
+  }
+  .sheet-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; padding: 2px 2px 10px; border-bottom: 1px solid var(--line-row);
+  }
+  .sheet-nav { display: flex; flex-direction: column; gap: 2px; padding: 8px 0; overflow-y: auto; }
+  .sheet-item {
+    display: flex; align-items: center; gap: 11px; width: 100%;
+    padding: 11px 12px; border: none; background: transparent;
+    border-radius: var(--radius-input); font-size: 15px; font-weight: 400;
+    color: var(--nav-ink); text-align: left;
+  }
+  .sheet-item .dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; opacity: 0.4; flex: none; }
+  .sheet-item .tab-icon { flex: none; opacity: 0.75; }
+  .sheet-item.active { background: var(--accent); color: #fff; font-weight: 600; }
+  .sheet-item.active .dot { opacity: 1; }
+  .sheet-foot {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding-top: 10px; border-top: 1px solid var(--line-row);
+  }
 }
-.nav-burger:hover { background: var(--column); }
 
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 
@@ -573,57 +642,46 @@ table.leads td.num, table.leads th.num { text-align: right; font-variant-numeric
   /* 16px form controls stop iOS Safari from auto-zooming on focus. */
   input, select, textarea { font-size: 16px; }
 
-  /* Shell: sidebar collapses into a top bar; the nav list drops down behind
-     the burger, exactly like the previous top-nav behavior. */
-  .app { flex-direction: column; }
-  .side {
-    width: 100%;
-    flex-direction: row;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 8px 10px;
-    padding: 8px 12px;
-    padding-top: max(8px, env(safe-area-inset-top));
-    padding-left: max(12px, env(safe-area-inset-left));
-    padding-right: max(12px, env(safe-area-inset-right));
-    border-right: none;
-    border-bottom: 1px solid var(--line);
-  }
-  .brand { padding: 0; font-size: 20px; }
-  .nav-burger { display: inline-flex; order: 5; }
-  /* Hidden until the burger is tapped; then a full-width stacked list so every
-     German label stays readable and tappable. */
-  .nav {
-    order: 6;
-    flex-basis: 100%;
-    display: none;
-    padding-top: 6px;
-    border-top: 1px solid var(--line-row);
-  }
-  .side.open .nav { display: flex; }
-  .nav-item { width: 100%; padding: 11px 14px; }
-  .side-foot {
-    margin-top: 0; margin-left: auto; order: 2;
-    flex-direction: row; align-items: center; gap: 8px;
-    padding-top: 0; border-top: none;
-  }
-  .side-user { padding: 0; }
-  .side-user-role { display: none; }
-  .side-user-name { display: none; }
+  /* Shell: no top chrome at all. The sidebar is desktop-only and navigation
+     moves to the fixed bottom tab bar, so the module's own toolbar is the
+     first thing on screen. .app's padding keeps every inner scroller (which
+     all bottom out inside .main) clear of the bar. */
+  .app { flex-direction: column; padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom)); }
+  .side { display: none; }
 
-  /* Per-module toolbars wrap; search/segments take the full width. */
+  /* Per-module toolbars wrap into: [title … primary action] / [search] /
+     [everything else]. Explicit `order` beats source order so each view's
+     toolbar lands the same way without touching its JSX. */
   .toolbar {
     flex-wrap: wrap;
     gap: 8px;
-    padding: 8px 12px;
+    padding: 10px 12px;
+    padding-top: max(10px, env(safe-area-inset-top));
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
     min-height: 0;
   }
-  .back-bar { padding: 4px 12px; }
+  .back-bar { padding: 4px 12px; padding-top: max(4px, env(safe-area-inset-top)); }
+  .page-title {
+    font-size: 20px; order: 0; margin-right: auto;
+    /* Long module titles ellipsise rather than push the row wider than the phone. */
+    min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis;
+  }
+  /* The one call-to-action shares row 1 with the title. */
+  .toolbar > button.primary, .toolbar > .btn.primary { order: 1; }
   .toolbar .spacer { display: none; }
-  .toolbar .search { max-width: none; flex: 1 1 100%; order: -1; }
-  .toolbar .seg { flex: 1 1 100%; }
+  .toolbar .search { max-width: none; flex: 1 1 100%; order: 2; }
+  /* Filters, counts and bulk actions (Import/Export) share the last row and
+     stay compact — they're occasional, not everyday, on a phone. */
+  .toolbar .seg { order: 3; flex: 1 1 auto; }
   .toolbar .seg button { flex: 1; }
-  .page-title { font-size: 20px; }
+  .toolbar > select { order: 4; flex: 1 1 auto; width: auto; min-width: 0; }
+  .toolbar > button:not(.primary), .toolbar > .btn:not(.primary) {
+    order: 5; min-height: 38px; padding: 6px 12px; font-size: 12.5px;
+  }
+  /* The count/status caption rides along on the title row rather than claiming
+     a row of its own. */
+  .toolbar .user-chip { order: 0; align-self: center; }
 
   /* Comfortable tap targets everywhere (44px ≈ Apple/Material minimum). */
   button,
@@ -631,22 +689,26 @@ table.leads td.num, table.leads th.num { text-align: right; font-variant-numeric
   .ghost-link,
   input, select, textarea { min-height: 44px; }
   /* Inline controls that shouldn't be forced tall. */
-  .tag-x, .seg button, .nav-burger { min-height: 0; }
+  .tag-x, .seg button { min-height: 0; }
 
+  /* The bottom inset is already reserved by .app's padding — adding it here
+     too would leave a dead band above the tab bar. */
   .content {
     padding: 14px 12px 20px;
     padding-left: max(12px, env(safe-area-inset-left));
     padding-right: max(12px, env(safe-area-inset-right));
-    padding-bottom: max(20px, env(safe-area-inset-bottom));
     gap: 16px;
   }
 
-  /* Kanban: one column ~fills the screen, swipe sideways between phases. */
-  .board { gap: 10px; }
-  .column { flex: 0 0 80vw; max-width: 320px; }
+  /* Kanban: one column ~fills the screen, swipe sideways between phases and
+     let each column snap into place instead of drifting mid-scroll. */
+  .board { gap: 10px; scroll-snap-type: x mandatory; overflow-x: auto; }
+  .column { flex: 0 0 80vw; max-width: 320px; scroll-snap-align: start; }
 
   /* Wide data tables collapse into labelled cards — no horizontal scrolling.
-     Each <td> carries a data-label that becomes the field name on the left. */
+     Each <td> carries a data-label that becomes the field name above the value.
+     Fields pack two-up: one field per row turned a nine-column lead into a
+     367px card, so a phone showed barely one record at a time. */
   table.leads, table.leads tbody, table.leads tr, table.leads td { display: block; }
   table.leads { min-width: 0; border: none; background: transparent; border-radius: 0; overflow: visible; }
   /* Cards carry their own frames — the wrap frame is desktop-only. */
@@ -654,25 +716,58 @@ table.leads td.num, table.leads th.num { text-align: right; font-variant-numeric
   table.leads thead { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); border: 0; }
   table.leads tbody { display: flex; flex-direction: column; gap: 10px; }
   table.leads tr {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px;
     background: var(--surface-card); border: 1px solid var(--line-card);
-    border-radius: var(--radius-table); padding: 2px 14px; box-shadow: var(--shadow-card);
+    border-radius: var(--radius-table); padding: 10px 14px 12px; box-shadow: var(--shadow-card);
   }
   table.leads tbody tr:hover { background: var(--surface-card); }
+  /* Label left, value right — as before, but two fields share a row, so the
+     label sets its own width instead of a fixed gutter. */
   table.leads td {
-    display: flex; align-items: center; gap: 12px; justify-content: flex-end;
-    padding: 10px 0; border-bottom: 1px solid var(--line-row); text-align: right;
+    display: flex; align-items: baseline; justify-content: flex-end; gap: 8px;
+    padding: 5px 0; border-bottom: none; text-align: right;
+    min-width: 0; overflow-wrap: anywhere;
   }
-  table.leads tr td:last-child { border-bottom: none; }
   table.leads td::before {
-    content: attr(data-label); margin-right: auto; text-align: left; white-space: nowrap;
-    color: var(--muted-2); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+    content: attr(data-label); margin-right: auto; text-align: left; flex: none;
+    color: var(--muted-2); font-size: 10.5px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.04em;
   }
-  table.leads td[data-label=""]::before { content: none; }
-  table.leads td.cell-primary { font-weight: 600; font-size: 15px; }
-  table.leads td select { flex: 1; min-width: 0; max-width: 220px; }
+  /* Full width: the headline, anything holding a control, tag lists and long
+     free text — a half column can't hold those without shredding them. */
+  table.leads td.cell-primary,
+  table.leads td[data-label=''],
+  table.leads td.dunning-actions,
+  table.leads td:has(select),
+  table.leads td:has(input),
+  table.leads td:has(.tag-list) { grid-column: 1 / -1; }
+  /* Full-width cells get the label above the value — a headline or a control
+     shouldn't be squeezed next to its own label. */
+  table.leads td.cell-primary,
+  table.leads td:has(select),
+  table.leads td:has(input),
+  table.leads td:has(.tag-list) {
+    flex-direction: column; align-items: flex-start; gap: 2px; text-align: left;
+  }
+  table.leads td.cell-primary::before,
+  table.leads td:has(select)::before,
+  table.leads td:has(input)::before,
+  table.leads td:has(.tag-list)::before { margin-right: 0; }
+  table.leads td.cell-primary { font-weight: 600; font-size: 15px; padding-top: 1px; }
+  table.leads td select, table.leads td input { width: 100%; max-width: none; }
   /* Action cells: buttons/links share the row and wrap when cramped. */
-  table.leads td[data-label=""], table.leads td.dunning-actions { flex-wrap: wrap; justify-content: flex-start; gap: 8px; }
-  table.leads td[data-label=""] > *, table.leads td.dunning-actions > * { flex: 1 1 auto; text-align: center; }
+  table.leads td[data-label=''], table.leads td.dunning-actions {
+    flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 9px;
+  }
+  table.leads td[data-label='']::before { content: none; }
+  table.leads td[data-label=''] > *, table.leads td.dunning-actions > * { flex: 1 1 auto; text-align: center; }
+
+  /* Tick lists (attach-existing pickers) keep checkbox + label on one line. */
+  table.leads.picker tr { display: flex; align-items: center; gap: 10px; padding: 4px 12px; }
+  table.leads.picker td { flex: 0 0 auto; padding: 8px 0; }
+  table.leads.picker td:last-child { flex: 1 1 auto; }
+  table.leads.picker td input { width: auto; }
+  table.leads.picker td[data-label=''] > * { flex: none; text-align: left; }
 
   /* Input tables (line items, payments, team) → stacked labelled fields. */
   .items-table, .items-table tbody, .items-table tr, .items-table td { display: block; }
@@ -701,16 +796,26 @@ table.leads td.num, table.leads th.num { text-align: right; font-variant-numeric
   /* Stack the multi-column form rows. */
   .row2, .row3, .doc-grid { grid-template-columns: 1fr; }
 
-  /* Document editor: let the action bar wrap, totals go full width. */
-  .doc-editor-head { flex-wrap: wrap; gap: 6px; }
-  .doc-editor-head strong { flex-basis: 100%; }
+  /* Document editor: "Zurück" and the document number share row 1 — giving the
+     back button its own full-width row pushed this sticky bar to 182px, which
+     stayed on screen for the whole editor. Actions wrap onto the rows below. */
+  .doc-editor-head { flex-wrap: wrap; gap: 6px 8px; }
   .doc-editor-head .spacer { display: none; }
-  .doc-editor-head button { flex: 1; }
+  .doc-editor-head > button:first-child {
+    order: 0; flex: 0 0 auto; min-height: 38px; padding: 6px 12px; font-size: 12.5px;
+  }
+  .doc-editor-head strong { order: 1; flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+  .doc-editor-head button { order: 2; flex: 1 1 auto; min-height: 40px; }
   .doc-totals { width: 100%; }
 
-  /* Drawer = full-screen sheet, with notch-safe padding. */
+  /* Drawer = full-screen sheet, with notch-safe padding. It sits above the tab
+     bar and keeps its own bottom inset — .app's padding doesn't reach a
+     position:fixed element. */
   .drawer { width: 100%; }
   .drawer-head { padding: 14px; padding-top: max(14px, env(safe-area-inset-top)); }
+  /* The head never scrolls away, so every pixel here is charged to the body. */
+  .drawer-title { font-size: 18px; }
+  .drawer-head button { min-height: 40px; font-size: 13px; padding: 7px 12px; }
   .drawer-body {
     padding: 14px;
     padding-bottom: max(14px, env(safe-area-inset-bottom));
@@ -1082,9 +1187,11 @@ table.leads td.num, table.leads th.num { text-align: right; font-variant-numeric
    selectors' base rules appear earlier in the file, so the override must come
    after them to win on source order (equal specificity). */
 @media (max-width: 720px) {
-  /* Dashboard */
+  /* Dashboard. minmax(0,1fr), not 1fr: a grid item's automatic minimum size is
+     its min-content, and the KPI captions ("0 Rechnung(en) über Frist") pushed
+     the columns to 383px inside a 351px row — the whole page scrolled sideways. */
   .dash-row2 { grid-template-columns: 1fr; }
-  .dash-cards { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .dash-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .dash-card { padding: 13px 15px; }
   .dash-card-value { font-size: 25px; }
   .dash-bar-label { width: 48px; }
@@ -1092,15 +1199,23 @@ table.leads td.num, table.leads th.num { text-align: right; font-variant-numeric
   .dash-bar-value { width: 72px; }
   .panel { padding: 16px 18px; }
 
-  /* Chat / copilot */
+  /* Chat / copilot — .app already clears the tab bar, so no extra inset here. */
   .copilot { padding: 0 12px; }
-  .copilot-input { padding-bottom: max(14px, env(safe-area-inset-bottom)); }
+  .copilot-input { padding-bottom: 14px; }
   /* overflow-wrap on .bubble itself catches the error bubble, whose text is not
      wrapped in .bubble-text. */
   .bubble { max-width: 92%; overflow-wrap: anywhere; }
   .bubble-text, .step-trail span, .step-trail code, .erechnung-list li {
     overflow-wrap: anywhere; word-break: break-word;
   }
+
+  /* Ausgaben filter bar: the "Zeitraum <date> – <date>" label is 446px wide
+     with native date inputs, so it has to wrap and the inputs have to share
+     the row instead of sitting at their intrinsic width. */
+  .expense-filterbar { gap: 8px 10px; }
+  .expense-filterbar label { flex: 1 1 100%; flex-wrap: wrap; }
+  .expense-filterbar input[type='date'] { flex: 1 1 120px; width: auto; min-width: 0; }
+  .expense-filterbar .spacer { display: none; }
 
   /* Invoice payment + AI-draft action rows */
   .pay-form { gap: 8px; }
