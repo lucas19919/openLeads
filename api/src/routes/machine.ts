@@ -1,8 +1,10 @@
 import type { Hono } from 'hono'
 import { db, type LeadRow } from '../db'
 import { insertLead, applyLeadUpdate, queryLeads } from '../leads'
+import { audit } from '../audit'
+import { rateLimit } from '../ratelimit'
 import { requireMachine, machinePrincipal } from '../machineAuth'
-import type { Vars } from './middleware'
+import { clientIp, type Vars } from './middleware'
 
 // The machine API: a small, stable surface for external agents and automation
 // platforms, mounted under /api/machine/* and authenticated with the static
@@ -14,6 +16,15 @@ import type { Vars } from './middleware'
 const RECENT_EVENTS = 50
 
 export function registerMachineRoutes(app: Hono<{ Variables: Vars }>): void {
+  // Throttle the machine surface per client IP. It carries no per-user identity,
+  // so without this a leaked token — or a token-guessing loop — runs unbounded.
+  // Registered before the routes so it runs ahead of requireMachine and also
+  // throttles failed-auth attempts; the data-free health probe stays unlimited.
+  const limit = rateLimit({ windowMs: 60_000, max: 120, key: clientIp })
+  app.use('/api/machine/*', (c, next) =>
+    c.req.path === '/api/machine/health' ? next() : limit(c, next),
+  )
+
   // Liveness/routing probe. Unauthenticated and data-free on purpose, so an
   // operator can verify reachability before the token is provisioned.
   app.get('/api/machine/health', (c) => c.json({ ok: true, service: 'openleads' }))
@@ -42,6 +53,12 @@ export function registerMachineRoutes(app: Hono<{ Variables: Vars }>): void {
     // shows where they came from; an explicit source in the body still wins.
     const source = typeof b.source === 'string' && b.source.trim() ? b.source : 'machine'
     const r = insertLead({ ...b, source }, machinePrincipal())
+    if (!r.deduped) {
+      audit({
+        actor: machinePrincipal(), action: 'lead.create', entity: 'lead',
+        entityId: r.id, detail: { source }, ip: clientIp(c),
+      })
+    }
     return r.deduped ? c.json({ deduped: true, id: r.id }) : c.json({ id: r.id }, 201)
   })
 
@@ -51,6 +68,10 @@ export function registerMachineRoutes(app: Hono<{ Variables: Vars }>): void {
     try {
       const lead = applyLeadUpdate(id, b, machinePrincipal())
       if (!lead) return c.json({ error: 'not found' }, 404)
+      audit({
+        actor: machinePrincipal(), action: 'lead.update', entity: 'lead',
+        entityId: id, detail: { fields: Object.keys(b) }, ip: clientIp(c),
+      })
       return c.json({ lead })
     } catch (e) {
       return c.json({ error: (e as Error).message }, 400)

@@ -11,7 +11,7 @@ import { bodyLimit } from 'hono/body-limit'
 import { seedDefaults } from './seed'
 import { processDueRecurring } from './recurring'
 import type { Vars } from './routes/middleware'
-import { requireAuth, csrfExempt } from './routes/middleware'
+import { requireAuth, requireAdmin, csrfExempt } from './routes/middleware'
 import { registerAuthRoutes } from './routes/auth'
 import { registerLeadRoutes } from './routes/leads'
 import { registerMachineRoutes } from './routes/machine'
@@ -102,7 +102,10 @@ registerTokenRoutes(app)
 registerExportRoutes(app)
 registerAdminRoutes(app)
 registerAiRoutes(app, requireAuth)
-registerDsgvoRoutes(app, requireAuth)
+// DSGVO tooling — erasure (Art. 17), the full audit log, and the processing
+// record — is a data-protection/admin responsibility, not a per-rep action, so
+// the whole surface requires admin rather than any authenticated user.
+registerDsgvoRoutes(app, requireAdmin)
 
 app.get('/api/health', (c) => c.json({ ok: true }))
 

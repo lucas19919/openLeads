@@ -98,7 +98,6 @@ export function insertLead(
     `INSERT INTO lead_events (lead_id, actor, type, to_stage, body)
      VALUES (?, ?, 'created', 'neu', ?)`,
   ).run(id, actor, `Quelle: ${(b.source as string) ?? 'manual'}`)
-  const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(id) as unknown as LeadRow
   return { id }
 }
 
