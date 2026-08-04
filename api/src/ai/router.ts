@@ -6,6 +6,8 @@ import { composeOutreachEmail } from '../mailer'
 import { deliverMail, mailReady } from '../maildispatch'
 import { probe, AI, isLocalInference, AIError } from './provider'
 import { analyzeLead, draftOutreach, draftInvoiceFromText } from './leadIntel'
+import { researchCompany, researchLead } from './research'
+import { recordFact, isFactField, FACT_FIELD_NAMES, EVIDENCE_KINDS } from '../facts'
 import { buildDigest } from './digest'
 import { runAgent } from './agent'
 import { rateLimit } from '../ratelimit'
@@ -113,6 +115,55 @@ export function registerAiRoutes(app: App, auth: MiddlewareHandler): void {
     } catch (e) {
       return c.json({ error: (e as Error).message }, e instanceof AIError ? 502 : 500)
     }
+  })
+
+  // Research a lead's website (homepage + Impressum) and file the evidence.
+  // Sits under /api/ai because it makes outbound fetches and should share the
+  // model rate limit, even though no model is involved.
+  app.post('/api/ai/leads/:id/research', async (c) => {
+    const lead = leadOr404(c)
+    if (!lead) return c.json({ error: 'not found' }, 404)
+    try {
+      return c.json({ research: await researchLead(lead.id, c.get('user').username) })
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400)
+    }
+  })
+
+  // File a single observation with its evidence. The ledger grades it; the
+  // response says what it did and why, so a caller can learn the rules from
+  // one round trip rather than from documentation.
+  app.post('/api/ai/facts', async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+    if (!isFactField(b.field)) {
+      return c.json({ error: `Unbekanntes Feld. Erlaubt: ${FACT_FIELD_NAMES.join(', ')}` }, 400)
+    }
+    if (!(EVIDENCE_KINDS as readonly string[]).includes(String(b.evidence))) {
+      return c.json({ error: `evidence muss eines von ${EVIDENCE_KINDS.join(', ')} sein` }, 400)
+    }
+    try {
+      const r = recordFact({
+        lead_id: Number(b.lead_id),
+        field: b.field,
+        value: String(b.value ?? ''),
+        evidence: b.evidence as (typeof EVIDENCE_KINDS)[number],
+        detail: String(b.detail ?? ''),
+        source_url: typeof b.source_url === 'string' ? b.source_url : null,
+        method: 'model',
+        actor: c.get('user').username,
+      })
+      return c.json({ fact: r.fact, applied: r.applied, status: r.status, reason: r.reason }, 201)
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400)
+    }
+  })
+
+  // Read a public site without touching the database — "who is this?".
+  app.post('/api/ai/research', async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as { url?: string }
+    const url = (b.url ?? '').trim()
+    if (!url) return c.json({ error: 'url fehlt' }, 400)
+    return c.json({ research: await researchCompany(url) })
   })
 
   app.post('/api/ai/leads/:id/outreach', async (c) => {

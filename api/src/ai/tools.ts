@@ -8,7 +8,16 @@ import { listRecurring, createRecurring, recurringFromContract } from '../recurr
 import { insertLead } from '../leads'
 import { audit } from '../audit'
 import { analyzeLead, draftOutreach } from './leadIntel'
-import { lookupWebsite, companyFromDomain } from './weblookup'
+import { companyFromDomain } from './weblookup'
+import { researchCompany, researchLead } from './research'
+import {
+  recordFact,
+  listFacts,
+  isFactField,
+  FACT_FIELD_NAMES,
+  FACT_STATUSES,
+  EVIDENCE_KINDS,
+} from '../facts'
 import type { ToolSchema } from './types'
 
 // The agent's hands. Each tool is a small, auditable capability over the same
@@ -76,27 +85,131 @@ export const TOOLS: AgentTool[] = [
   ),
 
   def(
-    'fetch_website',
-    'Rufe eine öffentliche Website auf und lies Eckdaten aus (Firmenname, Beschreibung, ' +
-      'E-Mail, Telefon). Nutze dies, BEVOR du aus einer URL einen Lead anlegst, damit du ' +
-      'Firma und Kontakt nicht erraten musst. Schreibt nichts.',
+    'research_company',
+    'Recherchiere eine Firma anhand ihrer Website: liest Startseite UND Impressum aus und liefert ' +
+      'belegte Beobachtungen (Firma, Rechtsform, Inhaber, Anschrift, USt-IdNr., Handelsregister, ' +
+      'E-Mail, Telefon) plus den technischen Zustand der Seite (mobilfähig, Technik, Veraltungs-' +
+      'Signale). Schreibt NICHTS in die Datenbank — nutze es, um zu sehen, mit wem du es zu tun ' +
+      'hast. Um daraus einen Lead zu machen, nimm `create_lead` mit `research: true`.',
     obj({ url: { type: 'string', description: 'Website-URL (mit oder ohne https://)' } }, ['url']),
     async (a) => {
       const url = typeof a.url === 'string' ? a.url : ''
-      const facts = await lookupWebsite(url)
-      if (!facts) {
-        return { ok: false, url, reachable: false, company_guess: companyFromDomain(url) }
+      const res = await researchCompany(url)
+      if (!res.reachable) {
+        return { ok: false, url, reachable: false, company_guess: companyFromDomain(url), notes: res.notes }
       }
-      return { ok: true, reachable: true, ...facts }
+      // Flatten to field → value so a small model doesn't have to walk an array
+      // of objects to answer "what is the Firma".
+      const facts: Record<string, string> = {}
+      for (const o of res.observations) if (!facts[o.field]) facts[o.field] = o.value
+      return {
+        ok: true,
+        reachable: true,
+        final_url: res.final_url,
+        impressum_url: res.impressum_url,
+        impressum_ausgewertet: !!res.impressum_url,
+        facts,
+        observations: res.observations.map((o) => ({ field: o.field, value: o.value, evidence: o.evidence, detail: o.detail })),
+        notes: res.notes,
+      }
+    },
+  ),
+
+  def(
+    'research_lead',
+    'Recherchiere die Website eines BESTEHENDEN Leads erneut und trage die Belege ein. Füllt leere ' +
+      'Felder mit direkt belegten Werten (Impressum) und legt alles Übrige als Vorschlag zur Prüfung ' +
+      'ab. Von Hand gesetzte Werte werden nie überschrieben.',
+    obj({ id: { type: 'number', description: 'Lead-ID' } }, ['id']),
+    async (a, ctx) => {
+      const id = Number(a.id)
+      if (!getLeadRow(id)) return { error: 'Lead nicht gefunden' }
+      try {
+        return await researchLead(id, ctx.actor)
+      } catch (e) {
+        return { error: (e as Error).message }
+      }
+    },
+  ),
+
+  def(
+    'record_fact',
+    'Halte EINE Beobachtung über einen Lead fest — mit Beleg. `value` ist der Wert genau so, wie die ' +
+      'Quelle ihn nennt; `detail` ist ein Satz darüber, was dort tatsächlich stand. `evidence`: ' +
+      '"primary" = direkt belegt (Impressum, Signatur, Antwortmail), "supporting" = mittelbar ' +
+      '(Suchtreffer, Erwähnung), "contradiction" = die Quelle widerspricht dem gespeicherten Wert. ' +
+      'Nur direkt belegte Werte werden in leere Felder übernommen; alles andere wird zur Prüfung ' +
+      'vorgelegt. Erfinde niemals einen Beleg.',
+    obj(
+      {
+        lead_id: { type: 'number' },
+        field: { type: 'string', enum: [...FACT_FIELD_NAMES], description: 'Welches Feld die Beobachtung betrifft' },
+        value: { type: 'string', description: 'Der Wert, wortgetreu aus der Quelle' },
+        evidence: { type: 'string', enum: [...EVIDENCE_KINDS], description: 'Stärke des Belegs' },
+        detail: { type: 'string', description: 'Was die Quelle wörtlich hergab, in einem Satz' },
+        source_url: { type: 'string', description: 'URL der Quelle, falls vorhanden' },
+      },
+      ['lead_id', 'field', 'value', 'evidence', 'detail'],
+    ),
+    (a, ctx) => {
+      if (!isFactField(a.field)) return { error: `Unbekanntes Feld. Erlaubt: ${FACT_FIELD_NAMES.join(', ')}` }
+      const evidence = String(a.evidence ?? '')
+      if (!(EVIDENCE_KINDS as readonly string[]).includes(evidence)) {
+        return { error: `evidence muss eines von ${EVIDENCE_KINDS.join(', ')} sein` }
+      }
+      try {
+        const r = recordFact({
+          lead_id: Number(a.lead_id),
+          field: a.field,
+          value: String(a.value ?? ''),
+          evidence: evidence as (typeof EVIDENCE_KINDS)[number],
+          detail: String(a.detail ?? ''),
+          source_url: typeof a.source_url === 'string' ? a.source_url : null,
+          method: 'model',
+          actor: ctx.actor,
+        })
+        return { ok: true, applied: r.applied, status: r.status, reason: r.reason }
+      } catch (e) {
+        return { error: (e as Error).message }
+      }
+    },
+  ),
+
+  def(
+    'list_facts',
+    'Zeige, woher die Daten eines Leads stammen: jede Beobachtung mit Quelle, Beleg und Status ' +
+      '(uebernommen / offen = wartet auf Prüfung / verworfen / widersprochen).',
+    obj({ id: { type: 'number' }, status: { type: 'string', enum: [...FACT_STATUSES] } }, ['id']),
+    (a) => {
+      const id = Number(a.id)
+      if (!getLeadRow(id)) return { error: 'Lead nicht gefunden' }
+      const status = (FACT_STATUSES as readonly string[]).includes(String(a.status))
+        ? (a.status as (typeof FACT_STATUSES)[number])
+        : undefined
+      const rows = listFacts(id, { status })
+      return {
+        count: rows.length,
+        facts: rows.map((f) => ({
+          id: f.id,
+          field: f.field,
+          value: f.value,
+          evidence: f.evidence,
+          status: f.status,
+          detail: f.detail,
+          source_url: f.source_url,
+          observed_at: f.observed_at,
+        })),
+      }
     },
   ),
 
   def(
     'create_lead',
-    'Lege einen neuen Lead an. Nur `website` ist nötig — fehlt die Firma, wird sie aus der ' +
-      'Domain abgeleitet. Für gute Daten vorher `fetch_website` nutzen. Dubletten werden über ' +
-      'die Domain erkannt (kein doppelter Lead). Setze `analyze: true`, damit der Lead direkt ' +
-      'voll bewertet wird (Qualifizierung + Priorität); `stage` legt ihn gleich in die richtige ' +
+    'Lege einen neuen Lead an. Nur `website` ist nötig. Der Normalfall für „mach mir aus dieser ' +
+      'URL einen Lead" ist EIN Aufruf mit `research: true, analyze: true` — dann werden Firma, ' +
+      'Anschrift, Kontakt und Technik aus Startseite und Impressum belegt übernommen und der Lead ' +
+      'anschließend bewertet. Frage NICHT nach Daten, die das Impressum liefert. Dubletten werden ' +
+      'über die Domain erkannt (kein doppelter Lead). `stage` legt ihn gleich in die richtige ' +
       'Pipeline-Spalte/Tab (z. B. "angebot"). WICHTIG: `stage: "angebot"` heißt Pipeline-Spalte ' +
       '„Angebot“ — NICHT ein Angebots-Dokument (dafür `create_document`).',
     obj({
@@ -109,6 +222,7 @@ export const TOOLS: AgentTool[] = [
       priority: { type: 'string', enum: [...PRIORITIES], description: 'wird bei analyze:true überschrieben' },
       why_lead: { type: 'string', description: 'kurze Begründung, warum das ein Lead ist' },
       stage: { type: 'string', enum: [...STAGES], description: 'Pipeline-Spalte/Tab, in die der Lead soll (Standard: neu)' },
+      research: { type: 'boolean', description: 'true = Startseite + Impressum auswerten und die Felder belegt füllen (empfohlen)' },
       analyze: { type: 'boolean', description: 'true = Lead sofort voll bewerten (Qualifizierung + Priorität setzen)' },
     }, ['website']),
     async (a, ctx) => {
@@ -148,6 +262,17 @@ export const TOOLS: AgentTool[] = [
         audit({ actor: ctx.actor, action: 'ai.move_stage', entity: 'lead', entityId: r.id, detail: { from: 'neu', to: stage }, ip: ctx.ip })
       }
 
+      // Research first, so the evaluation below reasons over Impressum-backed
+      // facts instead of a bare domain guess.
+      let research: unknown = null
+      if (a.research) {
+        try {
+          research = await researchLead(r.id, ctx.actor)
+        } catch (e) {
+          research = { error: (e as Error).message }
+        }
+      }
+
       // Full eval on request: qualifies the lead and sets its priority from the
       // verdict (so it no longer defaults to "mittel").
       let analysis: unknown = null
@@ -158,7 +283,7 @@ export const TOOLS: AgentTool[] = [
           analysis = { error: (e as Error).message }
         }
       }
-      return { ok: true, lead: getLeadRow(r.id), analysis }
+      return { ok: true, lead: getLeadRow(r.id), research, analysis }
     },
   ),
 

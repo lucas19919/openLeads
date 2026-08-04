@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { fmtDate, parseTags, useEscapeKey } from '../util'
-import type { Lead, LeadAnalysis, LeadEvent, Outreach, PublicUser } from '../types'
+import type { Lead, LeadAnalysis, LeadEvent, LeadFact, Outreach, PublicUser } from '../types'
 
 // talking_points / risk_flags arrive as JSON strings from the model.
 // Parse defensively: never throw, always fall back to an empty list.
@@ -20,6 +20,32 @@ const QUAL_LABELS: Record<string, string> = {
   warm: 'Warm',
   cold: 'Kalt',
   disqualified: 'Disqualifiziert',
+}
+
+// Field keys as recorded in the evidence ledger (api/src/facts.ts). Labels live
+// here because the ledger stores the key, not the display name.
+const FACT_LABELS: Record<string, string> = {
+  company: 'Firma',
+  trade: 'Gewerk',
+  city: 'Ort',
+  website: 'Website',
+  email: 'E-Mail',
+  phone: 'Telefon',
+  tech: 'Technik',
+  mobile_friendly: 'Mobilfähig',
+  staleness_signal: 'Veraltungs-Signal',
+  legal_form: 'Rechtsform',
+  owner: 'Inhaber/Geschäftsführung',
+  address: 'Straße und Hausnummer',
+  zip: 'PLZ',
+  vat_id: 'USt-IdNr.',
+  register: 'Handelsregister',
+}
+
+const EVIDENCE_LABELS: Record<string, string> = {
+  primary: 'direkt belegt',
+  supporting: 'mittelbar',
+  contradiction: 'Widerspruch',
 }
 
 const OUTREACH_STATUSES: { value: string; label: string }[] = [
@@ -89,6 +115,13 @@ export function LeadDetail({
   const [analyzing, setAnalyzing] = useState(false)
   const [analysisErr, setAnalysisErr] = useState<string | null>(null)
 
+  const [facts, setFacts] = useState<LeadFact[]>([])
+  const [researching, setResearching] = useState(false)
+  const [researchNote, setResearchNote] = useState<string | null>(null)
+  const [factsErr, setFactsErr] = useState<string | null>(null)
+  const [resolvingFact, setResolvingFact] = useState<number | null>(null)
+  const [showProvenance, setShowProvenance] = useState(false)
+
   // Ansprache (Outreach)
   const [outreach, setOutreach] = useState<Outreach[]>([])
   const [drafting, setDrafting] = useState(false)
@@ -130,10 +163,57 @@ export function LeadDetail({
         if (active) setUsers(users)
       })
       .catch(() => {})
+    api
+      .leadFacts(id)
+      .then(({ facts }) => {
+        if (active) setFacts(facts)
+      })
+      .catch((e: unknown) => {
+        if (active) setFactsErr(errMsg(e))
+      })
     return () => {
       active = false
     }
   }, [id])
+
+  async function runResearch() {
+    setResearching(true)
+    setFactsErr(null)
+    setResearchNote(null)
+    try {
+      const { research } = await api.researchLead(id)
+      setResearchNote(
+        research.reachable
+          ? `${research.pages_fetched} Seite(n) gelesen${research.impressum_url ? ', Impressum ausgewertet' : ', kein Impressum gefunden'} — ${research.applied.length} übernommen, ${research.suggested.length} zur Prüfung.`
+          : 'Website nicht erreichbar.',
+      )
+      const [{ facts }, fresh] = await Promise.all([api.leadFacts(id), api.getLead(id)])
+      setFacts(facts)
+      setLead(fresh.lead)
+      setEvents(fresh.events)
+      onChanged(fresh.lead)
+    } catch (e) {
+      setFactsErr(errMsg(e))
+    } finally {
+      setResearching(false)
+    }
+  }
+
+  async function decideFact(fact: LeadFact, accept: boolean) {
+    setResolvingFact(fact.id)
+    setFactsErr(null)
+    try {
+      await api.resolveFact(fact.id, accept)
+      const [{ facts }, fresh] = await Promise.all([api.leadFacts(id), api.getLead(id)])
+      setFacts(facts)
+      setLead(fresh.lead)
+      onChanged(fresh.lead)
+    } catch (e) {
+      setFactsErr(errMsg(e))
+    } finally {
+      setResolvingFact(null)
+    }
+  }
 
   async function runAnalysis() {
     setAnalyzing(true)
@@ -290,6 +370,11 @@ export function LeadDetail({
       setSavingDetails(false)
     }
   }
+
+  // Waiting on a human: weaker evidence, and sources that disagree with what is
+  // stored. Everything already accepted becomes the provenance trail instead.
+  const openFacts = facts.filter((f) => f.status === 'offen' || f.status === 'widersprochen')
+  const provenance = facts.filter((f) => f.status === 'uebernommen')
 
   return (
     <>
@@ -590,6 +675,121 @@ export function LeadDetail({
                     {saving ? '…' : 'Notiz speichern'}
                   </button>
                 </div>
+              </div>
+
+              <div className="field ai-section">
+                <label>Recherche &amp; Herkunft</label>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <button
+                    className="primary"
+                    disabled={researching || !(lead.website || lead.domain)}
+                    onClick={runResearch}
+                    title={
+                      lead.website || lead.domain
+                        ? 'Startseite und Impressum auswerten'
+                        : 'Für die Recherche braucht der Lead eine Website'
+                    }
+                  >
+                    {researching ? 'Recherchiere…' : 'Website recherchieren'}
+                  </button>
+                  {provenance.length > 0 && (
+                    <button className="ghost" onClick={() => setShowProvenance((v) => !v)}>
+                      {showProvenance ? 'Herkunft ausblenden' : `Herkunft (${provenance.length})`}
+                    </button>
+                  )}
+                </div>
+                {researchNote && (
+                  <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>
+                    {researchNote}
+                  </div>
+                )}
+                {factsErr && (
+                  <div className="section-error" role="alert">
+                    {factsErr}
+                  </div>
+                )}
+
+                {openFacts.length > 0 && (
+                  <div style={{ marginTop: 10 }}>
+                    <div className="muted" style={{ fontWeight: 600, marginBottom: 4 }}>
+                      Zu prüfen ({openFacts.length})
+                    </div>
+                    <ul className="fact-list">
+                      {openFacts.map((f) => (
+                        <li key={f.id} className={`fact fact-${f.status}`}>
+                          <div>
+                            <strong>{FACT_LABELS[f.field] ?? f.field}</strong>{' '}
+                            <span className={`chip${f.evidence === 'contradiction' ? ' chip-warn' : ''}`}>
+                              {EVIDENCE_LABELS[f.evidence] ?? f.evidence}
+                            </span>
+                          </div>
+                          <div className="fact-value">{f.value}</div>
+                          <div className="muted fact-detail">
+                            {f.detail}
+                            {f.source_url && (
+                              <>
+                                {' — '}
+                                <a href={f.source_url} target="_blank" rel="noreferrer noopener">
+                                  Quelle
+                                </a>
+                              </>
+                            )}
+                          </div>
+                          <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                            <button
+                              className="primary"
+                              disabled={resolvingFact === f.id}
+                              onClick={() => decideFact(f, true)}
+                            >
+                              Übernehmen
+                            </button>
+                            <button className="ghost" disabled={resolvingFact === f.id} onClick={() => decideFact(f, false)}>
+                              Verwerfen
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {showProvenance && (
+                  <div style={{ marginTop: 10 }}>
+                    <div className="muted" style={{ fontWeight: 600, marginBottom: 4 }}>
+                      Woher die Daten stammen
+                    </div>
+                    <ul className="fact-list">
+                      {provenance.map((f) => (
+                        <li key={f.id} className="fact">
+                          <div>
+                            <strong>{FACT_LABELS[f.field] ?? f.field}</strong>: {f.value}
+                          </div>
+                          <div className="muted fact-detail">
+                            {f.detail}
+                            {f.source_url && (
+                              <>
+                                {' — '}
+                                <a href={f.source_url} target="_blank" rel="noreferrer noopener">
+                                  Quelle
+                                </a>
+                              </>
+                            )}
+                            {' · '}
+                            {/* observed_at is a full `YYYY-MM-DD HH:MM:SS`; fmtDate wants the date alone. */}
+                            {fmtDate(f.observed_at.slice(0, 10))}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {!openFacts.length && !provenance.length && !researchNote && (
+                  <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>
+                    Noch nichts recherchiert. Die Recherche liest Startseite und Impressum und trägt nur ein, was dort
+                    tatsächlich steht — von Hand gesetzte Werte bleiben unangetastet.
+                  </div>
+                )}
               </div>
 
               <div className="field ai-section">

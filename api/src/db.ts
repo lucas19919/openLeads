@@ -328,6 +328,28 @@ CREATE TABLE IF NOT EXISTS ai_messages (
 );
 CREATE INDEX IF NOT EXISTS idx_ai_messages_thread ON ai_messages(thread_id);
 
+-- Evidence ledger: where every machine-written lead datum came from. A fact is
+-- an *observation* ("the Impressum on 2026-08-04 read 'Müller Dach GmbH'"), not
+-- a verdict, and it is kept whether or not it was applied to the lead. Two jobs:
+-- it lets the app answer "where does this value come from" (Art. 15 Auskunft),
+-- and it is what stops the AI silently overwriting something a human typed —
+-- see facts.ts for the grading rules.
+CREATE TABLE IF NOT EXISTS lead_facts (
+  id          INTEGER PRIMARY KEY,
+  lead_id     INTEGER NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+  field       TEXT NOT NULL,           -- key from FACT_FIELDS (facts.ts)
+  value       TEXT NOT NULL,           -- the claim, exactly as the source stated it
+  evidence    TEXT NOT NULL,           -- primary | supporting | contradiction
+  detail      TEXT NOT NULL,           -- what the source actually said, one line
+  source_url  TEXT,
+  method      TEXT NOT NULL,           -- impressum.parse | website.meta | tech.probe | model | human
+  status      TEXT NOT NULL DEFAULT 'offen', -- offen | uebernommen | verworfen | widersprochen
+  actor       TEXT,
+  observed_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_lead_facts_lead ON lead_facts(lead_id, field);
+CREATE INDEX IF NOT EXISTS idx_lead_facts_status ON lead_facts(status);
+
 -- Payments recorded against an invoice. An invoice can be settled in parts, so
 -- "paid" is the sum of these rows, not a single flag. Money in integer cents.
 CREATE TABLE IF NOT EXISTS payments (
@@ -799,6 +821,20 @@ export interface LeadEventRow {
   from_stage: string | null
   to_stage: string | null
   body: string | null
+}
+
+export interface LeadFactRow {
+  id: number
+  lead_id: number
+  field: string
+  value: string
+  evidence: string
+  detail: string
+  source_url: string | null
+  method: string
+  status: string
+  actor: string | null
+  observed_at: string
 }
 
 export interface SettingsRow {

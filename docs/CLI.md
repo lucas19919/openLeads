@@ -235,8 +235,8 @@ kann.**
 
 | Tier | Werkzeuge |
 |------|-----------|
-| lesen | `list_leads`, `get_lead`, `pipeline_overview`, `morning_digest`, `list_invoices`, `get_invoice`, `list_customers`, `customer_overview`, `list_contracts`, `list_expenses`, `list_subscriptions`, `list_recurring`, `list_catalog`, `euer_report`, `export_csv`, `create_backup` |
-| umkehrbar schreiben | `create_lead`, `update_lead`, `add_lead_note`, `analyze_lead`, `draft_outreach`, `create_customer`, `create_invoice_draft`, `create_expense`, `run_due_recurring` |
+| lesen | `list_leads`, `get_lead`, `pipeline_overview`, `morning_digest`, `list_invoices`, `get_invoice`, `list_customers`, `customer_overview`, `list_contracts`, `list_expenses`, `list_subscriptions`, `list_recurring`, `list_catalog`, `euer_report`, `export_csv`, `create_backup`, `research_company`, `list_lead_facts`, `review_facts` |
+| umkehrbar schreiben | `create_lead`, `update_lead`, `add_lead_note`, `analyze_lead`, `draft_outreach`, `create_customer`, `create_invoice_draft`, `create_expense`, `run_due_recurring`, `research_lead`, `record_fact`, `resolve_fact` |
 | **nicht umkehrbar** (aus) | `finalize_invoice`, `send_invoice`, `create_storno`, `finalize_contract`, `send_contract`, `ask_copilot` |
 
 Das dritte Tier ist nicht registriert, solange du es nicht freischaltest — ein
