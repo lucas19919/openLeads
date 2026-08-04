@@ -200,3 +200,96 @@ test('CSRF: machine routes are exempt, the rest of /api is not', async () => {
   })
   assert.equal(res.status, 201) // non-JSON body → empty lead body, but no CSRF rejection
 })
+
+test('customers create → get → overview → patch → list by lead_id', async () => {
+  const leadRes = await app.request('/api/machine/leads', {
+    method: 'POST',
+    headers: JSON_AUTH,
+    body: JSON.stringify({ company: 'Kunden-Lead GmbH', website: 'kunden-lead-maschine.de' }),
+  })
+  const { id: leadId } = (await leadRes.json()) as { id: number }
+
+  const create = await app.request('/api/machine/customers', {
+    method: 'POST',
+    headers: JSON_AUTH,
+    body: JSON.stringify({
+      name: 'Kunden-Lead GmbH',
+      city: 'München',
+      lead_id: leadId,
+      email: 'buero@kunden-lead-maschine.de',
+    }),
+  })
+  assert.equal(create.status, 201)
+  const { customer } = (await create.json()) as { customer: { id: number; name: string; lead_id: number } }
+  assert.ok(customer.id > 0)
+  assert.equal(customer.name, 'Kunden-Lead GmbH')
+  assert.equal(customer.lead_id, leadId)
+
+  const get = await app.request(`/api/machine/customers/${customer.id}`, { headers: AUTH })
+  assert.equal(get.status, 200)
+
+  const overview = await app.request(`/api/machine/customers/${customer.id}/overview`, { headers: AUTH })
+  assert.equal(overview.status, 200)
+  const ov = (await overview.json()) as { overview: { customer: { id: number }; kpis: unknown } }
+  assert.equal(ov.overview.customer.id, customer.id)
+  assert.ok(ov.overview.kpis)
+
+  const patch = await app.request(`/api/machine/customers/${customer.id}`, {
+    method: 'PATCH',
+    headers: JSON_AUTH,
+    body: JSON.stringify({ phone: '+49 89 123456', notes: 'via machine' }),
+  })
+  assert.equal(patch.status, 200)
+  const patched = (await patch.json()) as { customer: { phone: string; notes: string } }
+  assert.equal(patched.customer.phone, '+49 89 123456')
+  assert.equal(patched.customer.notes, 'via machine')
+
+  const byLead = await app.request(`/api/machine/customers?lead_id=${leadId}`, { headers: AUTH })
+  assert.equal(byLead.status, 200)
+  const { customers } = (await byLead.json()) as { customers: Array<{ id: number }> }
+  assert.ok(customers.some((c) => c.id === customer.id))
+})
+
+test('customer create without name → 400; unknown id → 404', async () => {
+  let res = await app.request('/api/machine/customers', {
+    method: 'POST',
+    headers: JSON_AUTH,
+    body: JSON.stringify({ city: 'Berlin' }),
+  })
+  assert.equal(res.status, 400)
+
+  res = await app.request('/api/machine/customers/999999', { headers: AUTH })
+  assert.equal(res.status, 404)
+
+  res = await app.request('/api/machine/customers/999999', {
+    method: 'PATCH',
+    headers: JSON_AUTH,
+    body: JSON.stringify({ city: 'Hamburg' }),
+  })
+  assert.equal(res.status, 404)
+})
+
+test('documents list/get and dashboard are readable; no write surface', async () => {
+  const docs = await app.request('/api/machine/documents', { headers: AUTH })
+  assert.equal(docs.status, 200)
+  const { documents } = (await docs.json()) as { documents: unknown[] }
+  assert.ok(Array.isArray(documents))
+
+  const missing = await app.request('/api/machine/documents/999999', { headers: AUTH })
+  assert.equal(missing.status, 404)
+
+  const dash = await app.request('/api/machine/dashboard', { headers: AUTH })
+  assert.equal(dash.status, 200)
+  const body = (await dash.json()) as { dashboard: { leads: { total: number } } }
+  assert.ok(typeof body.dashboard.leads.total === 'number')
+
+  // Finance must stay read-only on the machine surface.
+  for (const [method, path] of [
+    ['POST', '/api/machine/documents'],
+    ['PATCH', '/api/machine/documents/1'],
+    ['DELETE', '/api/machine/customers/1'],
+  ] as const) {
+    const res = await app.request(path, { method, headers: JSON_AUTH, body: '{}' })
+    assert.ok(res.status === 404 || res.status === 405, `${method} ${path} must not mutate`)
+  }
+})
