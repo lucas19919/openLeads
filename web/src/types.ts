@@ -528,6 +528,36 @@ export interface LeadAnalysis {
   created_at: string
 }
 
+/**
+ * One recorded observation about a lead. `status` is the ledger's verdict:
+ * `uebernommen` means the value is in the lead, `offen` means it is waiting for
+ * a human, `widersprochen` flags a source that disagrees with what is stored.
+ */
+export interface LeadFact {
+  id: number
+  lead_id: number
+  field: string
+  value: string
+  evidence: 'primary' | 'supporting' | 'contradiction'
+  detail: string
+  source_url: string | null
+  method: string
+  status: 'offen' | 'uebernommen' | 'verworfen' | 'widersprochen'
+  actor: string | null
+  observed_at: string
+}
+
+export interface ResearchSummary {
+  lead_id: number
+  researched_url: string
+  reachable: boolean
+  impressum_url: string | null
+  pages_fetched: number
+  applied: { field: string; value: string }[]
+  suggested: { field: string; value: string; reason: string }[]
+  notes: string[]
+}
+
 export interface Outreach {
   id: number
   lead_id: number

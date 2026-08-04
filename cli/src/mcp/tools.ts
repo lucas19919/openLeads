@@ -403,6 +403,58 @@ export function buildTools(client: Client, options: ToolOptions): ToolDefinition
         return { path: target, bytes: file.data.length, server_filename: file.filename }
       },
     ),
+
+    def(
+      'research_company',
+      'Eine Firma anhand ihrer Website recherchieren: liest Startseite UND Impressum und liefert ' +
+        'belegte Beobachtungen — Firma, Rechtsform, Geschäftsführung, Anschrift, USt-IdNr., ' +
+        'Handelsregister, E-Mail, Telefon — dazu den technischen Zustand der Seite (mobilfähig, ' +
+        'eingesetzte Technik, Veraltungs-Signale). Schreibt nichts. Das deutsche Impressum ist ' +
+        'gesetzlich vorgeschrieben und damit die verlässlichste Quelle für Firmendaten.',
+      obj({ url: S.string('Website-URL, mit oder ohne https://') }, ['url']),
+      async (a) =>
+        (
+          await client.post<{ research: unknown }>(
+            '/ai/research',
+            { url: requireStr(a, 'url') },
+            { timeoutMs: AI_TIMEOUT_MS },
+          )
+        ).research,
+    ),
+
+    def(
+      'list_lead_facts',
+      'Herkunft der Daten eines Leads: jede Beobachtung mit Quelle, Beleg, Stärke und Status ' +
+        '(uebernommen = steht im Lead, offen = wartet auf menschliche Prüfung, verworfen, ' +
+        'widersprochen). Nutze dies, bevor du einem gespeicherten Wert vertraust.',
+      obj(
+        {
+          id: S.number('Lead-ID'),
+          status: S.enum(['offen', 'uebernommen', 'verworfen', 'widersprochen'], 'nur diesen Status zeigen'),
+        },
+        ['id'],
+      ),
+      async (a) => {
+        const { facts } = await client.get<{ facts: unknown[] }>(`/leads/${requireNum(a, 'id')}/facts`, {
+          status: str(a, 'status'),
+        })
+        return capped(facts, maxRows)
+      },
+    ),
+
+    def(
+      'review_facts',
+      'Alle Beobachtungen quer über die Pipeline, die auf eine menschliche Entscheidung warten — ' +
+        'die Prüfliste. Enthält Vorschläge mit schwächerem Beleg und Widersprüche zu von Hand ' +
+        'gesetzten Werten.',
+      obj({ limit: S.number('Höchstzahl Einträge') }),
+      async (a) => {
+        const { facts } = await client.get<{ facts: unknown[] }>('/facts/pending', {
+          limit: num(a, 'limit') !== undefined ? String(num(a, 'limit')) : undefined,
+        })
+        return capped(facts, maxRows)
+      },
+    ),
   ]
 
   // --- writes a human can undo ---------------------------------------------
@@ -610,6 +662,71 @@ export function buildTools(client: Client, options: ToolOptions): ToolDefinition
         'Entwürfe — es wird nichts ausgestellt und nichts versendet.',
       obj({}),
       async () => client.post<{ generated: number }>('/recurring/run-due'),
+    ),
+
+    def(
+      'research_lead',
+      'Website eines bestehenden Leads auswerten und die Belege eintragen. Leere Felder werden mit ' +
+        'direkt belegten Werten aus dem Impressum gefüllt; alles Schwächere landet als Vorschlag in ' +
+        'der Prüfliste. Von Hand gesetzte Werte werden nie überschrieben — jede Änderung ist über ' +
+        '`list_lead_facts` nachvollziehbar und umkehrbar.',
+      obj({ id: S.number('Lead-ID') }, ['id']),
+      async (a) =>
+        (
+          await client.post<{ research: unknown }>(`/ai/leads/${requireNum(a, 'id')}/research`, undefined, {
+            timeoutMs: AI_TIMEOUT_MS,
+          })
+        ).research,
+    ),
+
+    def(
+      'record_fact',
+      'EINE belegte Beobachtung über einen Lead festhalten. `value` ist der Wert wortgetreu aus der ' +
+        'Quelle, `detail` ein Satz darüber, was dort tatsächlich stand. `evidence`: "primary" = ' +
+        'direkt belegt (Impressum, Signatur, Antwort des Betriebs), "supporting" = mittelbar ' +
+        '(Suchtreffer, Erwähnung Dritter), "contradiction" = die Quelle widerspricht dem ' +
+        'gespeicherten Wert. Nur direkt Belegtes füllt leere Felder; alles Übrige wird einem ' +
+        'Menschen vorgelegt. Erfinde niemals einen Beleg — ein selbstbewusst falsches Feld richtet ' +
+        'mehr Schaden an als ein leeres.',
+      obj(
+        {
+          lead_id: S.number('Lead-ID'),
+          field: S.enum(
+            [
+              'company', 'trade', 'city', 'website', 'email', 'phone', 'tech',
+              'mobile_friendly', 'staleness_signal', 'legal_form', 'owner',
+              'address', 'zip', 'vat_id', 'register',
+            ],
+            'Welches Feld die Beobachtung betrifft',
+          ),
+          value: S.string('Der Wert, wortgetreu aus der Quelle'),
+          evidence: S.enum(['primary', 'supporting', 'contradiction'], 'Stärke des Belegs'),
+          detail: S.string('Was die Quelle wörtlich hergab, in einem Satz'),
+          source_url: S.string('URL der Quelle, falls vorhanden'),
+        },
+        ['lead_id', 'field', 'value', 'evidence', 'detail'],
+      ),
+      async (a) =>
+        client.post<unknown>('/ai/facts', {
+          lead_id: requireNum(a, 'lead_id'),
+          field: requireStr(a, 'field'),
+          value: requireStr(a, 'value'),
+          evidence: requireStr(a, 'evidence'),
+          detail: requireStr(a, 'detail'),
+          source_url: str(a, 'source_url'),
+        }),
+    ),
+
+    def(
+      'resolve_fact',
+      'Einen offenen Vorschlag aus der Prüfliste entscheiden: übernehmen (schreibt den Wert in den ' +
+        'Lead) oder verwerfen. Nur einsetzen, wenn die Nutzerin die Entscheidung ausdrücklich ' +
+        'getroffen hat — das Prüfen ist ihre Aufgabe, nicht deine.',
+      obj({ id: S.number('Fakt-ID aus review_facts / list_lead_facts'), accept: S.boolean('true = übernehmen, false = verwerfen') }, [
+        'id',
+        'accept',
+      ]),
+      async (a) => client.patch<unknown>(`/facts/${requireNum(a, 'id')}`, { accept: bool(a, 'accept') }),
     ),
   ]
 

@@ -1059,6 +1059,20 @@ table.leads td.num, table.leads th.num { text-align: right; font-variant-numeric
 }
 .outreach-card select { width: auto; padding: 4px 8px; font-size: 13px; }
 
+/* --- Evidence ledger (Recherche & Herkunft) -------------------------------- */
+.fact-list { margin: 0; padding-left: 0; list-style: none; }
+.fact {
+  margin-top: 8px; padding: 10px 12px; border: 1px solid var(--line-card);
+  border-radius: 12px; background: var(--surface-card); font-size: 13px;
+}
+.fact .chip { padding: 2px 9px; font-size: 11.5px; font-weight: 600; cursor: default; }
+.fact-value { margin-top: 4px; font-weight: 600; overflow-wrap: anywhere; }
+.fact-detail { margin-top: 3px; font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+/* A contradiction is not a suggestion — it is a warning that two sources
+   disagree, so it must not read like the rest of the review queue. */
+.fact-widersprochen { border-color: var(--warn-soft-border); background: var(--warn-soft); }
+.chip-warn { color: var(--warn-ink); background: var(--warn-soft); border-color: var(--warn-soft-border); }
+
 /* --- E-Rechnung validation panel ------------------------------------------ */
 .erechnung-panel {
   margin-top: 12px; padding: 12px 14px; border: 1px solid var(--line-card);

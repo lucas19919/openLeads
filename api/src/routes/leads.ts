@@ -4,6 +4,7 @@ import { insertLead, applyLeadUpdate, queryLeads } from '../leads'
 import { parseWorkbookBuffer } from '../import'
 import { leadsCsv, exportFilename } from '../export'
 import { audit } from '../audit'
+import { listFacts, pendingFacts, resolveFact, FACT_STATUSES } from '../facts'
 import { requireAuth, type Vars } from './middleware'
 import { csvResponse } from './helpers'
 
@@ -66,6 +67,43 @@ export function registerLeadRoutes(app: Hono<{ Variables: Vars }>): void {
       const lead = applyLeadUpdate(id, b, c.get('user').username)
       if (!lead) return c.json({ error: 'not found' }, 404)
       return c.json({ lead })
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400)
+    }
+  })
+
+  // --- Evidence ledger ---------------------------------------------------
+  // Where a lead's data came from, and the review queue for anything the
+  // grading held back. Plain data routes (not under /api/ai) so the UI can
+  // poll them without burning the model rate limit.
+
+  app.get('/api/leads/:id/facts', requireAuth, (c) => {
+    const id = Number(c.req.param('id'))
+    if (!db.prepare('SELECT 1 FROM leads WHERE id = ?').get(id)) return c.json({ error: 'not found' }, 404)
+    const status = c.req.query('status')
+    return c.json({
+      facts: listFacts(id, {
+        status: (FACT_STATUSES as readonly string[]).includes(String(status))
+          ? (status as (typeof FACT_STATUSES)[number])
+          : undefined,
+      }),
+    })
+  })
+
+  // The cross-pipeline review queue: everything waiting on a human verdict.
+  app.get('/api/facts/pending', requireAuth, (c) =>
+    c.json({ facts: pendingFacts(Number(c.req.query('limit') ?? 50) || 50) }),
+  )
+
+  // Accept or reject a suggestion. Accepting writes through even on weak
+  // evidence — the operator has overruled the grading, which is the point.
+  app.patch('/api/facts/:id', requireAuth, async (c) => {
+    const id = Number(c.req.param('id'))
+    const b = (await c.req.json().catch(() => ({}))) as { accept?: boolean }
+    if (typeof b.accept !== 'boolean') return c.json({ error: 'accept (true/false) fehlt' }, 400)
+    try {
+      const r = resolveFact(id, b.accept, c.get('user').username)
+      return c.json({ fact: r.fact, applied: r.applied, status: r.status })
     } catch (e) {
       return c.json({ error: (e as Error).message }, 400)
     }
