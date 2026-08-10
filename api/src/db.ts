@@ -187,6 +187,25 @@ CREATE TABLE IF NOT EXISTS lead_events (
 
 CREATE INDEX IF NOT EXISTS idx_events_lead ON lead_events(lead_id);
 
+-- Links hung off a lead: the preview URL an agent published, the finished site,
+-- a shared document. Kept out of the notes field on purpose — notes are free
+-- text that
+-- every edit overwrites, and a share URL is exactly the thing you cannot afford
+-- to lose that way. One row per URL per lead (UNIQUE), so re-attaching the same
+-- link is a no-op instead of a duplicate.
+CREATE TABLE IF NOT EXISTS lead_links (
+  id         INTEGER PRIMARY KEY,
+  lead_id    INTEGER NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+  url        TEXT NOT NULL,
+  label      TEXT,                          -- what to call it in the UI
+  kind       TEXT NOT NULL DEFAULT 'sonstiges', -- preview / website / dokument / sonstiges
+  created_by TEXT,                          -- username or machine principal
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (lead_id, url)
+);
+
+CREATE INDEX IF NOT EXISTS idx_lead_links_lead ON lead_links(lead_id);
+
 -- Single-row business profile used in document headers + footers.
 CREATE TABLE IF NOT EXISTS settings (
   id              INTEGER PRIMARY KEY CHECK (id = 1),
@@ -821,6 +840,19 @@ export interface LeadEventRow {
   from_stage: string | null
   to_stage: string | null
   body: string | null
+}
+
+export const LINK_KINDS = ['preview', 'website', 'dokument', 'sonstiges'] as const
+export type LinkKind = (typeof LINK_KINDS)[number]
+
+export interface LeadLinkRow {
+  id: number
+  lead_id: number
+  url: string
+  label: string | null
+  kind: LinkKind
+  created_by: string | null
+  created_at: string
 }
 
 export interface LeadFactRow {

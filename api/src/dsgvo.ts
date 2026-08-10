@@ -70,6 +70,7 @@ export function registerDsgvoRoutes(app: App, auth: MiddlewareHandler): void {
       exported_at: new Date().toISOString(),
       lead,
       events: db.prepare('SELECT * FROM lead_events WHERE lead_id = ? ORDER BY at').all(id),
+      links: db.prepare('SELECT * FROM lead_links WHERE lead_id = ? ORDER BY created_at').all(id),
       ai_analysis: db.prepare('SELECT * FROM lead_ai WHERE lead_id = ?').get(id) ?? null,
       outreach: db.prepare('SELECT * FROM outreach WHERE lead_id = ? ORDER BY created_at').all(id),
       consent: db.prepare('SELECT * FROM consent WHERE lead_id = ? ORDER BY at').all(id),

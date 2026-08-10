@@ -19,6 +19,8 @@ import type {
   LeadAnalysis,
   LeadEvent,
   LeadFact,
+  LeadLink,
+  LinkKind,
   ResearchSummary,
   NewLead,
   Outreach,
@@ -80,7 +82,16 @@ export const api = {
     const suffix = qs.toString() ? `?${qs}` : ''
     return req<{ leads: Lead[] }>(`/leads${suffix}`)
   },
-  getLead: (id: number) => req<{ lead: Lead; events: LeadEvent[] }>(`/leads/${id}`),
+  getLead: (id: number) =>
+    req<{ lead: Lead; events: LeadEvent[]; links: LeadLink[] }>(`/leads/${id}`),
+  leadLinks: (id: number) => req<{ links: LeadLink[] }>(`/leads/${id}/links`),
+  addLeadLink: (id: number, link: { url: string; label?: string | null; kind?: LinkKind }) =>
+    req<{ link: LeadLink; existed?: true }>(`/leads/${id}/links`, {
+      method: 'POST',
+      body: JSON.stringify(link),
+    }),
+  removeLeadLink: (id: number, linkId: number) =>
+    req<{ ok: true }>(`/leads/${id}/links/${linkId}`, { method: 'DELETE' }),
   createLead: (lead: NewLead) =>
     req<{ id: number } | { deduped: true; id: number }>('/leads', {
       method: 'POST',

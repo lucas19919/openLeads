@@ -22,6 +22,21 @@ export interface Lead {
   updated_at: string
 }
 
+// Links hung off a lead — the preview URL, the live site, a shared document.
+// Kinds mirror api/src/db.ts LINK_KINDS.
+export const LINK_KINDS = ['preview', 'website', 'dokument', 'sonstiges'] as const
+export type LinkKind = (typeof LINK_KINDS)[number]
+
+export interface LeadLink {
+  id: number
+  lead_id: number
+  url: string
+  label: string | null
+  kind: LinkKind
+  created_by: string | null
+  created_at: string
+}
+
 export interface LeadEvent {
   id: number
   lead_id: number

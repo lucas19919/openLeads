@@ -11,6 +11,13 @@ import { csrf } from 'hono/csrf'
 const DB_FILE = join(tmpdir(), `openleads-machine-${process.pid}.db`)
 process.env.DB_PATH = DB_FILE
 
+// Trust X-Forwarded-For here (both are read once, at module load, below) so each
+// test can speak from its own address. The machine surface is rate-limited to
+// 120 requests per minute per client, and without this the whole suite shares
+// one bucket: a suite that grows past 120 requests starts failing with 429s
+// that say nothing about the code under test.
+process.env.TRUST_PROXY = '1'
+
 const { db } = await import('./db')
 const { registerMachineRoutes } = await import('./routes/machine')
 const { csrfExempt } = await import('./routes/middleware')
@@ -19,6 +26,7 @@ const { createExpense } = await import('./expenses')
 const { createRecurring } = await import('./recurring')
 const { createSubscription } = await import('./subscriptions')
 const { createCatalogItem } = await import('./catalog')
+const { addPayment } = await import('./payments')
 type Vars = import('./routes/middleware').Vars
 
 after(() => {
@@ -46,18 +54,30 @@ app.post('/api/csrf-probe', (c) => c.json({ ok: true }))
 registerMachineRoutes(app)
 
 const TOKEN = 'machine-secret-for-tests'
-const AUTH = { authorization: `Bearer ${TOKEN}` }
-const JSON_AUTH = { ...AUTH, 'content-type': 'application/json' }
+const AUTH: Record<string, string> = { authorization: `Bearer ${TOKEN}` }
+const JSON_AUTH: Record<string, string> = { ...AUTH, 'content-type': 'application/json' }
+
+// Every test gets a fresh source address, so one test's requests can never
+// exhaust the next one's rate-limit window. Mutated in place because the header
+// objects are shared by reference across every request in the suite.
+let client = 0
 
 beforeEach(() => {
   process.env.CRM_MACHINE_TOKEN = TOKEN
   delete process.env.CRM_MACHINE_PRINCIPAL
+  const ip = `10.0.0.${++client}`
+  AUTH['x-forwarded-for'] = ip
+  JSON_AUTH['x-forwarded-for'] = ip
 })
 
 function leadEvents(id: number): Array<{ actor: string; type: string; to_stage: string | null }> {
   return db
     .prepare('SELECT actor, type, to_stage FROM lead_events WHERE lead_id = ? ORDER BY id')
     .all(id) as never
+}
+
+function listLinks(id: number): Array<{ id: number; url: string }> {
+  return db.prepare('SELECT id, url FROM lead_links WHERE lead_id = ?').all(id) as never
 }
 
 test('health probe answers without auth and without data', async () => {
@@ -293,6 +313,14 @@ test('documents list/get and dashboard are readable; no write surface', async ()
     ['POST', '/api/machine/documents'],
     ['PATCH', '/api/machine/documents/1'],
     ['DELETE', '/api/machine/customers/1'],
+    ['POST', '/api/machine/contracts'],
+    ['PATCH', '/api/machine/contracts/1'],
+    ['POST', '/api/machine/expenses'],
+    ['PATCH', '/api/machine/expenses/1'],
+    ['DELETE', '/api/machine/expenses/1'],
+    ['POST', '/api/machine/subscriptions'],
+    ['POST', '/api/machine/catalog'],
+    ['POST', '/api/machine/documents/1/payments'],
   ] as const) {
     const res = await app.request(path, { method, headers: JSON_AUTH, body: '{}' })
     assert.ok(res.status === 404 || res.status === 405, `${method} ${path} must not mutate`)
@@ -568,4 +596,222 @@ test('the finance surface needs the bearer and offers no write verbs', async () 
       assert.ok(res.status === 404 || res.status === 405, `${method} ${path} must not mutate`)
     }
   }
+})
+
+// --- lead links, appendable notes, payments and the EÜR ----------------------
+
+test('appending a note grows the timeline without touching the notes field', async () => {
+  const create = await app.request('/api/machine/leads', {
+    method: 'POST',
+    headers: JSON_AUTH,
+    body: JSON.stringify({ company: 'NotizCo', website: 'notizco-maschine.de', notes: 'von Hand' }),
+  })
+  const { id } = (await create.json()) as { id: number }
+  // The lead starts with the operator's note text in the field.
+  await app.request(`/api/machine/leads/${id}`, {
+    method: 'PATCH',
+    headers: JSON_AUTH,
+    body: JSON.stringify({ notes: 'von Hand' }),
+  })
+
+  const res = await app.request(`/api/machine/leads/${id}/note`, {
+    method: 'POST',
+    headers: JSON_AUTH,
+    body: JSON.stringify({ body: 'Angerufen, Rückruf Dienstag' }),
+  })
+  assert.equal(res.status, 201)
+
+  const row = db.prepare('SELECT notes FROM leads WHERE id = ?').get(id) as { notes: string | null }
+  assert.equal(row.notes, 'von Hand', 'append must not clobber what the operator wrote')
+  const notes = leadEvents(id).filter((e) => e.type === 'note')
+  assert.equal(notes.length, 2)
+  assert.equal(notes[1]?.actor, 'machine:mcp')
+
+  // Empty body → 400, unknown lead → 404, and neither writes an event.
+  const empty = await app.request(`/api/machine/leads/${id}/note`, {
+    method: 'POST',
+    headers: JSON_AUTH,
+    body: JSON.stringify({ body: '   ' }),
+  })
+  assert.equal(empty.status, 400)
+  const missing = await app.request('/api/machine/leads/999999/note', {
+    method: 'POST',
+    headers: JSON_AUTH,
+    body: JSON.stringify({ body: 'x' }),
+  })
+  assert.equal(missing.status, 404)
+  assert.equal(leadEvents(id).filter((e) => e.type === 'note').length, 2)
+})
+
+test('links: attach → list → re-attach is idempotent → remove', async () => {
+  const create = await app.request('/api/machine/leads', {
+    method: 'POST',
+    headers: JSON_AUTH,
+    body: JSON.stringify({ company: 'LinkCo', website: 'linkco-maschine.de' }),
+  })
+  const { id } = (await create.json()) as { id: number }
+
+  const add = await app.request(`/api/machine/leads/${id}/links`, {
+    method: 'POST',
+    headers: JSON_AUTH,
+    body: JSON.stringify({ url: 'preview.isarwebsites.de/p/abc', label: 'Vorschau', kind: 'preview' }),
+  })
+  assert.equal(add.status, 201)
+  const { link } = (await add.json()) as { link: { id: number; url: string; kind: string } }
+  // A bare host gains https:// so the stored value is always a real href.
+  assert.equal(link.url, 'https://preview.isarwebsites.de/p/abc')
+  assert.equal(link.kind, 'preview')
+
+  // The attach shows up in the lead's own timeline, like a stage change does.
+  assert.ok(leadEvents(id).some((e) => e.type === 'link'))
+
+  const again = await app.request(`/api/machine/leads/${id}/links`, {
+    method: 'POST',
+    headers: JSON_AUTH,
+    body: JSON.stringify({ url: 'https://preview.isarwebsites.de/p/abc' }),
+  })
+  assert.equal(again.status, 200)
+  const dup = (await again.json()) as { existed: boolean; link: { id: number } }
+  assert.equal(dup.existed, true)
+  assert.equal(dup.link.id, link.id, 'a retry must not create a second row')
+
+  const list = await app.request(`/api/machine/leads/${id}/links`, { headers: AUTH })
+  const { links } = (await list.json()) as { links: unknown[] }
+  assert.equal(links.length, 1)
+
+  // The lead detail carries them too, so one call is enough to see everything.
+  const detail = await app.request(`/api/machine/leads/${id}`, { headers: AUTH })
+  const body = (await detail.json()) as { links: unknown[] }
+  assert.equal(body.links.length, 1)
+
+  const del = await app.request(`/api/machine/leads/${id}/links/${link.id}`, {
+    method: 'DELETE',
+    headers: AUTH,
+  })
+  assert.equal(del.status, 200)
+  const gone = await app.request(`/api/machine/leads/${id}/links/${link.id}`, {
+    method: 'DELETE',
+    headers: AUTH,
+  })
+  assert.equal(gone.status, 404)
+})
+
+test('links reject anything that is not http(s), and unknown leads', async () => {
+  const create = await app.request('/api/machine/leads', {
+    method: 'POST',
+    headers: JSON_AUTH,
+    body: JSON.stringify({ company: 'BöseLinkCo', website: 'boeselinkco-maschine.de' }),
+  })
+  const { id } = (await create.json()) as { id: number }
+
+  for (const url of ['javascript:alert(1)', 'file:///etc/passwd', 'data:text/html,<b>x', '  ']) {
+    const res = await app.request(`/api/machine/leads/${id}/links`, {
+      method: 'POST',
+      headers: JSON_AUTH,
+      body: JSON.stringify({ url }),
+    })
+    assert.equal(res.status, 400, `${url} must be rejected`)
+  }
+  assert.equal(listLinks(id).length, 0)
+
+  const missing = await app.request('/api/machine/leads/999999/links', {
+    method: 'POST',
+    headers: JSON_AUTH,
+    body: JSON.stringify({ url: 'https://example.de' }),
+  })
+  assert.equal(missing.status, 404)
+})
+
+test('deleting a lead takes its links with it', async () => {
+  const create = await app.request('/api/machine/leads', {
+    method: 'POST',
+    headers: JSON_AUTH,
+    body: JSON.stringify({ company: 'KaskadeCo', website: 'kaskadeco-maschine.de' }),
+  })
+  const { id } = (await create.json()) as { id: number }
+  await app.request(`/api/machine/leads/${id}/links`, {
+    method: 'POST',
+    headers: JSON_AUTH,
+    body: JSON.stringify({ url: 'https://kaskadeco-maschine.de' }),
+  })
+  assert.equal(listLinks(id).length, 1)
+  db.prepare('DELETE FROM leads WHERE id = ?').run(id)
+  assert.equal(listLinks(id).length, 0)
+})
+
+test('payments hang off their invoice; an unknown invoice is a 404', async () => {
+  // Documents are only creatable through the browser routes, so seed one
+  // directly — the point is that the machine surface can read what was booked
+  // against it, not that it could have booked it.
+  const docId = Number(
+    db
+      .prepare("INSERT INTO documents (kind, client_name, status) VALUES ('rechnung', ?, 'offen')")
+      .run('Zahler GmbH').lastInsertRowid,
+  )
+  addPayment(docId, { amount_cents: 25000, paid_on: '2026-08-01', method: 'überweisung' })
+
+  const body = (await getJson(`/api/machine/documents/${docId}/payments`)) as unknown as {
+    payments: Array<{ amount_cents: number }>
+    total: number
+  }
+  assert.equal(body.total, 1)
+  assert.equal(body.payments[0]?.amount_cents, 25000)
+
+  assert.equal(
+    (await app.request('/api/machine/documents/999999/payments', { headers: AUTH })).status,
+    404,
+    'no invoice, no payment list',
+  )
+
+  // Booking one stays with the human who can see the bank statement.
+  for (const [method, path] of [
+    ['POST', `/api/machine/documents/${docId}/payments`],
+    ['DELETE', `/api/machine/documents/${docId}/payments/1`],
+  ] as const) {
+    const res = await app.request(path, { method, headers: JSON_AUTH, body: '{}' })
+    assert.ok(res.status === 404 || res.status === 405, `${method} ${path} must not mutate`)
+  }
+})
+
+test('the EÜR report reads as a derived view, with the VAT position', async () => {
+  const ranged = (await getJson(
+    '/api/machine/report/euer?from=2026-01-01&to=2026-12-31',
+  )) as unknown as { report: { from: string | null; to: string | null } }
+  assert.equal(ranged.report.from, '2026-01-01', 'the range is honoured, not ignored')
+
+  const { report } = (await getJson('/api/machine/report/euer')) as unknown as {
+    report: { result_net_cents: number; vat: { payable_cents: number } }
+  }
+  assert.equal(typeof report.result_net_cents, 'number')
+  assert.equal(typeof report.vat.payable_cents, 'number')
+
+  // Derived from invoices and expenses, so there is nothing to write to it.
+  for (const [method, path] of [
+    ['POST', '/api/machine/report/euer'],
+    ['DELETE', '/api/machine/report/euer'],
+  ] as const) {
+    const res = await app.request(path, { method, headers: JSON_AUTH, body: '{}' })
+    assert.ok(res.status === 404 || res.status === 405, `${method} ${path} must not mutate`)
+  }
+})
+
+test('the new routes are behind the same bearer as the rest', async () => {
+  delete process.env.CRM_MACHINE_TOKEN
+  for (const path of [
+    '/api/machine/leads/1/links',
+    '/api/machine/contracts',
+    '/api/machine/expenses',
+    '/api/machine/subscriptions',
+    '/api/machine/catalog',
+    '/api/machine/report/euer',
+    '/api/machine/documents/1/payments',
+  ]) {
+    assert.equal((await app.request(path, { headers: AUTH })).status, 401, path)
+  }
+  const note = await app.request('/api/machine/leads/1/note', {
+    method: 'POST',
+    headers: JSON_AUTH,
+    body: JSON.stringify({ body: 'x' }),
+  })
+  assert.equal(note.status, 401)
 })

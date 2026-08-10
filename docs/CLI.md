@@ -341,14 +341,27 @@ Wer die volle API will, nimmt weiterhin die CLI/MCP-Tokens oben.
 |---------|------|-------|
 | GET | `/api/machine/health` | Erreichbarkeitsprobe: `{ ok, service }` — ohne Auth, ohne Daten |
 | GET | `/api/machine/leads?stage=&q=` | Leads filtern, gleiche Semantik wie in der Oberfläche |
-| GET | `/api/machine/leads/:id` | Lead mit den letzten Ereignissen |
+| GET | `/api/machine/leads/:id` | Lead mit Ereignissen, Links und verknüpftem Kunden |
 | POST | `/api/machine/leads` | Lead anlegen — Dedupe nach Domain, `source` standardmäßig `machine` |
 | PATCH | `/api/machine/leads/:id` | Stage, Notizen, Tags, … ändern |
+| POST | `/api/machine/leads/:id/note` | Notiz **anhängen** — überschreibt das Notizfeld nicht |
+| GET | `/api/machine/leads/:id/links` | Links am Lead: Vorschau-URL, fertige Seite, geteiltes Dokument |
+| POST | `/api/machine/leads/:id/links` | Link anhängen — nur http(s), pro Lead je URL einmal |
+| DELETE | `/api/machine/leads/:id/links/:linkId` | Einen Link wieder abhängen |
 | GET | `/api/machine/customers?active=&lead_id=` | Stammkunden filtern; `lead_id` liefert den Kunden zum Lead |
 | GET | `/api/machine/customers/:id` | Ein Stammkunde |
 | GET | `/api/machine/customers/:id/overview` | Kundenakte: Kennzahlen, Dokumente, Verträge |
 | POST | `/api/machine/customers` | Stammkunde anlegen |
 | PATCH | `/api/machine/customers/:id` | Stammkunde ändern — Löschen bleibt menschlich |
+
+`PATCH … { notes }` *ersetzt* den Notiztext — zwei Agenten, die dort schreiben,
+überschreiben einander. `POST …/note` hängt nur an den Verlauf an. Und eine
+Vorschau-URL gehört in die Links, nicht in die Notizen: dort überlebt sie die
+nächste Bearbeitung. Angenommen werden nur http(s)-Adressen (`javascript:`,
+`data:` und `file:` werden abgelehnt, ein nackter Host bekommt `https://`
+vorangestellt); dieselbe URL zweimal anzuhängen ändert nichts und antwortet mit
+`existed: true`. Jedes Anhängen steht im Lead-Verlauf, und mit dem Lead
+verschwinden auch seine Links.
 
 ### Nur lesen
 
@@ -356,6 +369,7 @@ Wer die volle API will, nimmt weiterhin die CLI/MCP-Tokens oben.
 |---------|------|-------|
 | GET | `/api/machine/documents?kind=&customer_id=` | Angebote und Rechnungen |
 | GET | `/api/machine/documents/:id` | Ein Dokument mit Positionen |
+| GET | `/api/machine/documents/:id/payments` | Gebuchte Zahlungen zu einer Rechnung — Buchen bleibt menschlich |
 | GET | `/api/machine/contracts?customer_id=&status=` | Verträge; `status` ist `entwurf`, `versendet`, `aktiv`, `beendet` oder `abgelehnt` |
 | GET | `/api/machine/contracts/:id` | Ein Vertrag mit `totals` |
 | GET | `/api/machine/expenses?from=&to=&category=&q=` | Ausgaben — die Liste liefert zusätzlich `summary` über den gesamten Filter |
@@ -366,6 +380,7 @@ Wer die volle API will, nimmt weiterhin die CLI/MCP-Tokens oben.
 | GET | `/api/machine/subscriptions/:id` | Ein Abonnement |
 | GET | `/api/machine/catalog?active=` | Leistungskatalog (Antwortschlüssel `items`) |
 | GET | `/api/machine/catalog/:id` | Ein Katalogeintrag |
+| GET | `/api/machine/report/euer?from=&to=` | EÜR-Sicht für einen Zeitraum inkl. USt-Position |
 | GET | `/api/machine/dashboard` | Kennzahlen wie auf der Startseite |
 
 Ein unbekannter `status` trifft bewusst nichts: ein Tippfehler liefert eine
