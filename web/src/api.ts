@@ -18,6 +18,10 @@ import type {
   Lead,
   LeadAnalysis,
   LeadEvent,
+  LeadFact,
+  LeadLink,
+  LinkKind,
+  ResearchSummary,
   NewLead,
   Outreach,
   Payment,
@@ -78,7 +82,16 @@ export const api = {
     const suffix = qs.toString() ? `?${qs}` : ''
     return req<{ leads: Lead[] }>(`/leads${suffix}`)
   },
-  getLead: (id: number) => req<{ lead: Lead; events: LeadEvent[] }>(`/leads/${id}`),
+  getLead: (id: number) =>
+    req<{ lead: Lead; events: LeadEvent[]; links: LeadLink[] }>(`/leads/${id}`),
+  leadLinks: (id: number) => req<{ links: LeadLink[] }>(`/leads/${id}/links`),
+  addLeadLink: (id: number, link: { url: string; label?: string | null; kind?: LinkKind }) =>
+    req<{ link: LeadLink; existed?: true }>(`/leads/${id}/links`, {
+      method: 'POST',
+      body: JSON.stringify(link),
+    }),
+  removeLeadLink: (id: number, linkId: number) =>
+    req<{ ok: true }>(`/leads/${id}/links/${linkId}`, { method: 'DELETE' }),
   createLead: (lead: NewLead) =>
     req<{ id: number } | { deduped: true; id: number }>('/leads', {
       method: 'POST',
@@ -444,6 +457,14 @@ export const api = {
     req<{ thread: AiThread; messages: ThreadMessage[] }>(`/ai/threads/${id}`),
   analyzeLead: (id: number) =>
     req<{ analysis: LeadAnalysis }>(`/ai/leads/${id}/analyze`, { method: 'POST' }),
+  researchLead: (id: number) =>
+    req<{ research: ResearchSummary }>(`/ai/leads/${id}/research`, { method: 'POST' }),
+  leadFacts: (id: number) => req<{ facts: LeadFact[] }>(`/leads/${id}/facts`),
+  resolveFact: (id: number, accept: boolean) =>
+    req<{ fact: LeadFact; applied: boolean }>(`/facts/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ accept }),
+    }),
   draftOutreach: (id: number, channel: 'email' | 'letter' | 'call_script' = 'email') =>
     req<{ outreach: Outreach }>(`/ai/leads/${id}/outreach`, {
       method: 'POST',

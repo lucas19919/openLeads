@@ -81,3 +81,37 @@ test('analyzeLead leaves the score untouched when the model returns no numeric f
   const updated = db.prepare('SELECT score FROM leads WHERE id = ?').get(lead.id) as { score: number }
   assert.equal(updated.score, 37) // non-finite fit → score preserved
 })
+
+// The priority a human sets by dragging a card on the board is a decision, not
+// a cached model opinion — re-analysing a lead must not quietly reverse it.
+test('analyzeLead does not overwrite a priority a human set', async () => {
+  stubModel({ summary: 'heiß', qualification: 'hot', fit_score: 90, next_action: 'Anrufen', talking_points: [], risk_flags: [] })
+  const lead = makeLead({ score: 0, priority: 'niedrig' })
+
+  await analyzeLead(lead, 'tester')
+  const updated = db.prepare('SELECT score, priority FROM leads WHERE id = ?').get(lead.id) as {
+    score: number
+    priority: string
+  }
+  assert.equal(updated.priority, 'niedrig', 'the operator outranks the model')
+  assert.equal(updated.score, 90, 'the fit score is the model’s own metric and still updates')
+})
+
+test('analyzeLead may revise a priority it set itself', async () => {
+  stubModel({ summary: 'lau', qualification: 'cold', fit_score: 20, next_action: 'Später', talking_points: [], risk_flags: [] })
+  const lead = makeLead({ score: 0, priority: 'mittel' })
+  await analyzeLead(lead, 'tester')
+  assert.equal(
+    (db.prepare('SELECT priority FROM leads WHERE id = ?').get(lead.id) as { priority: string }).priority,
+    'niedrig',
+  )
+
+  // Same lead, new evidence: the model owns this value, so it may raise it.
+  stubModel({ summary: 'doch heiß', qualification: 'hot', fit_score: 88, next_action: 'Anrufen', talking_points: [], risk_flags: [] })
+  const again = db.prepare('SELECT * FROM leads WHERE id = ?').get(lead.id) as unknown as LeadRow
+  await analyzeLead(again, 'tester')
+  assert.equal(
+    (db.prepare('SELECT priority FROM leads WHERE id = ?').get(lead.id) as { priority: string }).priority,
+    'hoch',
+  )
+})

@@ -1,7 +1,16 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { fmtDate, parseTags, useEscapeKey } from '../util'
-import type { Lead, LeadAnalysis, LeadEvent, Outreach, PublicUser } from '../types'
+import type {
+  Lead,
+  LeadAnalysis,
+  LeadEvent,
+  LeadFact,
+  LeadLink,
+  LinkKind,
+  Outreach,
+  PublicUser,
+} from '../types'
 
 // talking_points / risk_flags arrive as JSON strings from the model.
 // Parse defensively: never throw, always fall back to an empty list.
@@ -21,6 +30,40 @@ const QUAL_LABELS: Record<string, string> = {
   cold: 'Kalt',
   disqualified: 'Disqualifiziert',
 }
+
+// Field keys as recorded in the evidence ledger (api/src/facts.ts). Labels live
+// here because the ledger stores the key, not the display name.
+const FACT_LABELS: Record<string, string> = {
+  company: 'Firma',
+  trade: 'Gewerk',
+  city: 'Ort',
+  website: 'Website',
+  email: 'E-Mail',
+  phone: 'Telefon',
+  tech: 'Technik',
+  mobile_friendly: 'Mobilfähig',
+  staleness_signal: 'Veraltungs-Signal',
+  legal_form: 'Rechtsform',
+  owner: 'Inhaber/Geschäftsführung',
+  address: 'Straße und Hausnummer',
+  zip: 'PLZ',
+  vat_id: 'USt-IdNr.',
+  register: 'Handelsregister',
+}
+
+const EVIDENCE_LABELS: Record<string, string> = {
+  primary: 'direkt belegt',
+  supporting: 'mittelbar',
+  contradiction: 'Widerspruch',
+}
+
+// Link kinds as api/src/db.ts stores them, with the German labels the drawer shows.
+const LINK_KIND_LABELS: { value: LinkKind; label: string }[] = [
+  { value: 'preview', label: 'Vorschau' },
+  { value: 'website', label: 'Website' },
+  { value: 'dokument', label: 'Dokument' },
+  { value: 'sonstiges', label: 'Sonstiges' },
+]
 
 const OUTREACH_STATUSES: { value: string; label: string }[] = [
   { value: 'entwurf', label: 'Entwurf' },
@@ -52,6 +95,8 @@ function describe(ev: LeadEvent): string {
       return `Phase: ${ev.from_stage} zu ${ev.to_stage}`
     case 'note':
       return `Notiz: ${ev.body ?? ''}`
+    case 'link':
+      return `Link: ${ev.body ?? ''}`
     default:
       return ev.body ?? ev.type
   }
@@ -84,10 +129,25 @@ export function LeadDetail({
   const [customerBusy, setCustomerBusy] = useState(false)
   useEscapeKey(onClose)
 
+  // Links (Vorschau-URLs & Co.) — written here and by agents via the machine API.
+  const [links, setLinks] = useState<LeadLink[]>([])
+  const [linkUrl, setLinkUrl] = useState('')
+  const [linkLabel, setLinkLabel] = useState('')
+  const [linkKind, setLinkKind] = useState<LinkKind>('preview')
+  const [linkBusy, setLinkBusy] = useState(false)
+  const [linkErr, setLinkErr] = useState<string | null>(null)
+
   // KI-Analyse
   const [analysis, setAnalysis] = useState<LeadAnalysis | null>(null)
   const [analyzing, setAnalyzing] = useState(false)
   const [analysisErr, setAnalysisErr] = useState<string | null>(null)
+
+  const [facts, setFacts] = useState<LeadFact[]>([])
+  const [researching, setResearching] = useState(false)
+  const [researchNote, setResearchNote] = useState<string | null>(null)
+  const [factsErr, setFactsErr] = useState<string | null>(null)
+  const [resolvingFact, setResolvingFact] = useState<number | null>(null)
+  const [showProvenance, setShowProvenance] = useState(false)
 
   // Ansprache (Outreach)
   const [outreach, setOutreach] = useState<Outreach[]>([])
@@ -110,11 +170,12 @@ export function LeadDetail({
 
   useEffect(() => {
     let active = true
-    api.getLead(id).then(({ lead, events }) => {
+    api.getLead(id).then(({ lead, events, links }) => {
       if (!active) return
       setLead(lead)
       setEvents(events)
       setNotes(lead.notes ?? '')
+      setLinks(links ?? [])
     })
     api
       .listOutreach(id)
@@ -130,10 +191,94 @@ export function LeadDetail({
         if (active) setUsers(users)
       })
       .catch(() => {})
+    api
+      .leadFacts(id)
+      .then(({ facts }) => {
+        if (active) setFacts(facts)
+      })
+      .catch((e: unknown) => {
+        if (active) setFactsErr(errMsg(e))
+      })
     return () => {
       active = false
     }
   }, [id])
+
+  async function runResearch() {
+    setResearching(true)
+    setFactsErr(null)
+    setResearchNote(null)
+    try {
+      const { research } = await api.researchLead(id)
+      setResearchNote(
+        research.reachable
+          ? `${research.pages_fetched} Seite(n) gelesen${research.impressum_url ? ', Impressum ausgewertet' : ', kein Impressum gefunden'} — ${research.applied.length} übernommen, ${research.suggested.length} zur Prüfung.`
+          : 'Website nicht erreichbar.',
+      )
+      const [{ facts }, fresh] = await Promise.all([api.leadFacts(id), api.getLead(id)])
+      setFacts(facts)
+      setLead(fresh.lead)
+      setEvents(fresh.events)
+      onChanged(fresh.lead)
+    } catch (e) {
+      setFactsErr(errMsg(e))
+    } finally {
+      setResearching(false)
+    }
+  }
+
+  async function decideFact(fact: LeadFact, accept: boolean) {
+    setResolvingFact(fact.id)
+    setFactsErr(null)
+    try {
+      await api.resolveFact(fact.id, accept)
+      const [{ facts }, fresh] = await Promise.all([api.leadFacts(id), api.getLead(id)])
+      setFacts(facts)
+      setLead(fresh.lead)
+      onChanged(fresh.lead)
+    } catch (e) {
+      setFactsErr(errMsg(e))
+    } finally {
+      setResolvingFact(null)
+    }
+  }
+
+  async function addLink() {
+    const url = linkUrl.trim()
+    if (!url) return
+    setLinkBusy(true)
+    setLinkErr(null)
+    try {
+      const { link, existed } = await api.addLeadLink(id, {
+        url,
+        label: linkLabel.trim() || null,
+        kind: linkKind,
+      })
+      // An already-attached URL comes back unchanged (the backend dedupes per
+      // lead); replace by id so the list never shows it twice.
+      setLinks((prev) => [link, ...prev.filter((l) => l.id !== link.id)])
+      setLinkUrl('')
+      setLinkLabel('')
+      if (!existed) {
+        const fresh = await api.getLead(id)
+        setEvents(fresh.events)
+      }
+    } catch (e) {
+      setLinkErr(errMsg(e))
+    } finally {
+      setLinkBusy(false)
+    }
+  }
+
+  async function removeLink(link: LeadLink) {
+    setLinkErr(null)
+    try {
+      await api.removeLeadLink(id, link.id)
+      setLinks((prev) => prev.filter((l) => l.id !== link.id))
+    } catch (e) {
+      setLinkErr(errMsg(e))
+    }
+  }
 
   async function runAnalysis() {
     setAnalyzing(true)
@@ -290,6 +435,11 @@ export function LeadDetail({
       setSavingDetails(false)
     }
   }
+
+  // Waiting on a human: weaker evidence, and sources that disagree with what is
+  // stored. Everything already accepted becomes the provenance trail instead.
+  const openFacts = facts.filter((f) => f.status === 'offen' || f.status === 'widersprochen')
+  const provenance = facts.filter((f) => f.status === 'uebernommen')
 
   return (
     <>
@@ -590,6 +740,219 @@ export function LeadDetail({
                     {saving ? '…' : 'Notiz speichern'}
                   </button>
                 </div>
+              </div>
+
+              <div className="field">
+                <label>Links</label>
+                {links.length > 0 && (
+                  <ul className="fact-list" style={{ marginTop: 4 }}>
+                    {links.map((l) => (
+                      <li key={l.id} className="fact">
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            gap: 8,
+                          }}
+                        >
+                          <span style={{ minWidth: 0 }}>
+                            <span className="chip">
+                              {LINK_KIND_LABELS.find((k) => k.value === l.kind)?.label ?? l.kind}
+                            </span>{' '}
+                            <a href={l.url} target="_blank" rel="noopener noreferrer">
+                              {l.label ?? l.url.replace(/^https?:\/\//, '')}
+                            </a>
+                          </span>
+                          <button
+                            className="ghost"
+                            aria-label="Link entfernen"
+                            onClick={() => removeLink(l)}
+                          >
+                            Entfernen
+                          </button>
+                        </div>
+                        {l.label && (
+                          <div className="muted fact-detail" style={{ wordBreak: 'break-all' }}>
+                            {l.url}
+                          </div>
+                        )}
+                        <div className="muted fact-detail">
+                          {fmtDate(l.created_at.slice(0, 10))}
+                          {l.created_by ? ` · ${l.created_by}` : ''}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <div className="row2" style={{ marginTop: 8 }}>
+                  <div className="field">
+                    <label>Adresse</label>
+                    <input
+                      value={linkUrl}
+                      placeholder="https://…"
+                      onChange={(e) => setLinkUrl(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          addLink()
+                        }
+                      }}
+                    />
+                  </div>
+                  <div className="field">
+                    <label>Art</label>
+                    <select
+                      value={linkKind}
+                      onChange={(e) => setLinkKind(e.target.value as LinkKind)}
+                    >
+                      {LINK_KIND_LABELS.map((k) => (
+                        <option key={k.value} value={k.value}>
+                          {k.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="field">
+                  <label>Bezeichnung (optional)</label>
+                  <input
+                    value={linkLabel}
+                    placeholder="z.B. Vorschau Startseite"
+                    onChange={(e) => setLinkLabel(e.target.value)}
+                  />
+                </div>
+                {linkErr && (
+                  <div className="section-error" role="alert">
+                    {linkErr}
+                  </div>
+                )}
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <button className="primary" disabled={linkBusy || !linkUrl.trim()} onClick={addLink}>
+                    {linkBusy ? '…' : 'Link hinzufügen'}
+                  </button>
+                </div>
+                {links.length === 0 && (
+                  <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                    Noch keine Links. Vorschau-URLs, die ein Agent veröffentlicht, erscheinen hier —
+                    anders als in den Notizen überschreibt sie später niemand.
+                  </div>
+                )}
+              </div>
+
+              <div className="field ai-section">
+                <label>Recherche &amp; Herkunft</label>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <button
+                    className="primary"
+                    disabled={researching || !(lead.website || lead.domain)}
+                    onClick={runResearch}
+                    title={
+                      lead.website || lead.domain
+                        ? 'Startseite und Impressum auswerten'
+                        : 'Für die Recherche braucht der Lead eine Website'
+                    }
+                  >
+                    {researching ? 'Recherchiere…' : 'Website recherchieren'}
+                  </button>
+                  {provenance.length > 0 && (
+                    <button className="ghost" onClick={() => setShowProvenance((v) => !v)}>
+                      {showProvenance ? 'Herkunft ausblenden' : `Herkunft (${provenance.length})`}
+                    </button>
+                  )}
+                </div>
+                {researchNote && (
+                  <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>
+                    {researchNote}
+                  </div>
+                )}
+                {factsErr && (
+                  <div className="section-error" role="alert">
+                    {factsErr}
+                  </div>
+                )}
+
+                {openFacts.length > 0 && (
+                  <div style={{ marginTop: 10 }}>
+                    <div className="muted" style={{ fontWeight: 600, marginBottom: 4 }}>
+                      Zu prüfen ({openFacts.length})
+                    </div>
+                    <ul className="fact-list">
+                      {openFacts.map((f) => (
+                        <li key={f.id} className={`fact fact-${f.status}`}>
+                          <div>
+                            <strong>{FACT_LABELS[f.field] ?? f.field}</strong>{' '}
+                            <span className={`chip${f.evidence === 'contradiction' ? ' chip-warn' : ''}`}>
+                              {EVIDENCE_LABELS[f.evidence] ?? f.evidence}
+                            </span>
+                          </div>
+                          <div className="fact-value">{f.value}</div>
+                          <div className="muted fact-detail">
+                            {f.detail}
+                            {f.source_url && (
+                              <>
+                                {' — '}
+                                <a href={f.source_url} target="_blank" rel="noreferrer noopener">
+                                  Quelle
+                                </a>
+                              </>
+                            )}
+                          </div>
+                          <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                            <button
+                              className="primary"
+                              disabled={resolvingFact === f.id}
+                              onClick={() => decideFact(f, true)}
+                            >
+                              Übernehmen
+                            </button>
+                            <button className="ghost" disabled={resolvingFact === f.id} onClick={() => decideFact(f, false)}>
+                              Verwerfen
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {showProvenance && (
+                  <div style={{ marginTop: 10 }}>
+                    <div className="muted" style={{ fontWeight: 600, marginBottom: 4 }}>
+                      Woher die Daten stammen
+                    </div>
+                    <ul className="fact-list">
+                      {provenance.map((f) => (
+                        <li key={f.id} className="fact">
+                          <div>
+                            <strong>{FACT_LABELS[f.field] ?? f.field}</strong>: {f.value}
+                          </div>
+                          <div className="muted fact-detail">
+                            {f.detail}
+                            {f.source_url && (
+                              <>
+                                {' — '}
+                                <a href={f.source_url} target="_blank" rel="noreferrer noopener">
+                                  Quelle
+                                </a>
+                              </>
+                            )}
+                            {' · '}
+                            {/* observed_at is a full `YYYY-MM-DD HH:MM:SS`; fmtDate wants the date alone. */}
+                            {fmtDate(f.observed_at.slice(0, 10))}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {!openFacts.length && !provenance.length && !researchNote && (
+                  <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>
+                    Noch nichts recherchiert. Die Recherche liest Startseite und Impressum und trägt nur ein, was dort
+                    tatsächlich steht — von Hand gesetzte Werte bleiben unangetastet.
+                  </div>
+                )}
               </div>
 
               <div className="field ai-section">

@@ -80,6 +80,20 @@ export async function requireAdmin(c: AppContext, next: Next) {
   await next()
 }
 
+/**
+ * True for requests that carry no ambient (cookie) authority and therefore need
+ * no CSRF origin check: bearer-authenticated calls (a token has to be set
+ * deliberately by the caller, so a foreign page cannot make the victim's
+ * browser attach one — and the CLI's multipart uploads would otherwise trip the
+ * form-content-type check), and the /api/machine/* surface, which never uses
+ * cookie auth and must stay reachable for headless clients regardless of
+ * content type.
+ */
+export function csrfExempt(c: Context): boolean {
+  if (c.req.path.startsWith('/api/machine/')) return true
+  return c.req.header('authorization')?.toLowerCase().startsWith('bearer ') ?? false
+}
+
 // X-Forwarded-For is attacker-controlled unless a reverse proxy we run sets it.
 // Only trust it when the operator says so (TRUST_PROXY=1, set in the production
 // compose file behind nginx); otherwise use the socket's remote address.

@@ -187,6 +187,25 @@ CREATE TABLE IF NOT EXISTS lead_events (
 
 CREATE INDEX IF NOT EXISTS idx_events_lead ON lead_events(lead_id);
 
+-- Links hung off a lead: the preview URL an agent published, the finished site,
+-- a shared document. Kept out of the notes field on purpose — notes are free
+-- text that
+-- every edit overwrites, and a share URL is exactly the thing you cannot afford
+-- to lose that way. One row per URL per lead (UNIQUE), so re-attaching the same
+-- link is a no-op instead of a duplicate.
+CREATE TABLE IF NOT EXISTS lead_links (
+  id         INTEGER PRIMARY KEY,
+  lead_id    INTEGER NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+  url        TEXT NOT NULL,
+  label      TEXT,                          -- what to call it in the UI
+  kind       TEXT NOT NULL DEFAULT 'sonstiges', -- preview / website / dokument / sonstiges
+  created_by TEXT,                          -- username or machine principal
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (lead_id, url)
+);
+
+CREATE INDEX IF NOT EXISTS idx_lead_links_lead ON lead_links(lead_id);
+
 -- Single-row business profile used in document headers + footers.
 CREATE TABLE IF NOT EXISTS settings (
   id              INTEGER PRIMARY KEY CHECK (id = 1),
@@ -327,6 +346,28 @@ CREATE TABLE IF NOT EXISTS ai_messages (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_ai_messages_thread ON ai_messages(thread_id);
+
+-- Evidence ledger: where every machine-written lead datum came from. A fact is
+-- an *observation* ("the Impressum on 2026-08-04 read 'Müller Dach GmbH'"), not
+-- a verdict, and it is kept whether or not it was applied to the lead. Two jobs:
+-- it lets the app answer "where does this value come from" (Art. 15 Auskunft),
+-- and it is what stops the AI silently overwriting something a human typed —
+-- see facts.ts for the grading rules.
+CREATE TABLE IF NOT EXISTS lead_facts (
+  id          INTEGER PRIMARY KEY,
+  lead_id     INTEGER NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+  field       TEXT NOT NULL,           -- key from FACT_FIELDS (facts.ts)
+  value       TEXT NOT NULL,           -- the claim, exactly as the source stated it
+  evidence    TEXT NOT NULL,           -- primary | supporting | contradiction
+  detail      TEXT NOT NULL,           -- what the source actually said, one line
+  source_url  TEXT,
+  method      TEXT NOT NULL,           -- impressum.parse | website.meta | tech.probe | model | human
+  status      TEXT NOT NULL DEFAULT 'offen', -- offen | uebernommen | verworfen | widersprochen
+  actor       TEXT,
+  observed_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_lead_facts_lead ON lead_facts(lead_id, field);
+CREATE INDEX IF NOT EXISTS idx_lead_facts_status ON lead_facts(status);
 
 -- Payments recorded against an invoice. An invoice can be settled in parts, so
 -- "paid" is the sum of these rows, not a single flag. Money in integer cents.
@@ -799,6 +840,33 @@ export interface LeadEventRow {
   from_stage: string | null
   to_stage: string | null
   body: string | null
+}
+
+export const LINK_KINDS = ['preview', 'website', 'dokument', 'sonstiges'] as const
+export type LinkKind = (typeof LINK_KINDS)[number]
+
+export interface LeadLinkRow {
+  id: number
+  lead_id: number
+  url: string
+  label: string | null
+  kind: LinkKind
+  created_by: string | null
+  created_at: string
+}
+
+export interface LeadFactRow {
+  id: number
+  lead_id: number
+  field: string
+  value: string
+  evidence: string
+  detail: string
+  source_url: string | null
+  method: string
+  status: string
+  actor: string | null
+  observed_at: string
 }
 
 export interface SettingsRow {

@@ -53,7 +53,7 @@ function isPrivateHost(host: string): boolean {
   return false
 }
 
-function normalizeUrl(raw: string): URL | null {
+export function normalizeUrl(raw: string): URL | null {
   const s = String(raw ?? '').trim()
   if (!s) return null
   try {
@@ -66,19 +66,39 @@ function normalizeUrl(raw: string): URL | null {
   }
 }
 
-function decode(s: string): string {
+// German pages lean hard on named entities — a typical Impressum is full of
+// `&uuml;`, `&szlig;` and `&sect;`. Leaving them encoded would put "M&uuml;ller"
+// in the Firmenname, so the table covers the umlauts as well as the usual ASCII.
+const ENTITIES: Record<string, string> = {
+  amp: '&', AMP: '&', lt: '<', LT: '<', gt: '>', GT: '>', quot: '"', QUOT: '"',
+  apos: "'", nbsp: ' ', NBSP: ' ', shy: '',
+  ndash: '–', mdash: '—', hellip: '…', middot: '·',
+  laquo: '«', raquo: '»', bdquo: '„', ldquo: '“', rdquo: '”', sbquo: '‚', lsquo: '‘', rsquo: '’',
+  auml: 'ä', ouml: 'ö', uuml: 'ü', Auml: 'Ä', Ouml: 'Ö', Uuml: 'Ü', szlig: 'ß',
+  agrave: 'à', aacute: 'á', eacute: 'é', egrave: 'è', ccedil: 'ç',
+  euro: '€', sect: '§', copy: '©', reg: '®', trade: '™', deg: '°', para: '¶',
+}
+
+function codePoint(n: number): string {
+  if (!Number.isFinite(n) || n < 9 || n > 0x10ffff) return ''
+  try {
+    return String.fromCodePoint(n)
+  } catch {
+    return ''
+  }
+}
+
+export function decode(s: string): string {
   return s
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#0?39;|&apos;/gi, "'")
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&ndash;|&mdash;/gi, '–')
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex: string) => codePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec: string) => codePoint(Number(dec)))
+    // Unknown entities are left alone rather than eaten — better a visible
+    // `&foo;` in a field than a silently mangled value.
+    .replace(/&([a-zA-Z][a-zA-Z0-9]{1,9});/g, (m, name: string) => ENTITIES[name] ?? m)
     .trim()
 }
 
-function meta(html: string, attr: 'name' | 'property', key: string): string | null {
+export function meta(html: string, attr: 'name' | 'property', key: string): string | null {
   const re = new RegExp(
     `<meta[^>]+${attr}=["']${key}["'][^>]*content=["']([^"']+)["']`,
     'i',
@@ -93,7 +113,7 @@ function meta(html: string, attr: 'name' | 'property', key: string): string | nu
 const EMAIL_RE = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g
 const PHONE_RE = /(?:\+49|0)[\d\s/().-]{6,}\d/g
 
-function stripTags(html: string): string {
+export function stripTags(html: string): string {
   return html
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
@@ -101,7 +121,7 @@ function stripTags(html: string): string {
     .replace(/\s+/g, ' ')
 }
 
-function pickEmail(text: string): string | null {
+export function pickEmail(text: string): string | null {
   for (const m of text.matchAll(EMAIL_RE)) {
     const e = m[0].toLowerCase()
     if (/\.(png|jpe?g|gif|svg|webp|ico)$/.test(e)) continue
@@ -112,7 +132,7 @@ function pickEmail(text: string): string | null {
   return null
 }
 
-function pickPhone(text: string): string | null {
+export function pickPhone(text: string): string | null {
   for (const m of text.matchAll(PHONE_RE)) {
     const digits = m[0].replace(/\D/g, '')
     if (digits.length < 7 || digits.length > 15) continue
@@ -130,12 +150,21 @@ function cleanTitle(title: string | null): string | null {
   return head || title
 }
 
+export interface FetchedPage {
+  html: string
+  /** Where we actually ended up after redirects. */
+  final_url: string
+  /** Uncapped byte length as reported by the response body we read. */
+  bytes: number
+}
+
 /**
- * Fetch a public website and pull out lead-relevant facts. Returns `null` on any
- * failure (unreachable, non-HTML, private/invalid URL) so the caller can fall back
- * gracefully — the agent should still be able to create a lead from the bare URL.
+ * Fetch one public HTML page under the module's guards (http/https only, no
+ * private hosts, hard timeout, byte cap). Returns `null` on any failure so
+ * callers can degrade instead of throwing. Shared by the shallow lookup below
+ * and the deeper Impressum research in `research.ts`.
  */
-export async function lookupWebsite(rawUrl: string): Promise<WebsiteFacts | null> {
+export async function fetchHtml(rawUrl: string): Promise<FetchedPage | null> {
   const u = normalizeUrl(rawUrl)
   if (!u) return null
   const ctrl = new AbortController()
@@ -149,25 +178,38 @@ export async function lookupWebsite(rawUrl: string): Promise<WebsiteFacts | null
     if (!res.ok) return null
     const ct = res.headers.get('content-type') ?? ''
     if (!ct.includes('html') && !ct.includes('text')) return null
-    const buf = new Uint8Array(await res.arrayBuffer()).subarray(0, MAX_HTML_BYTES)
-    const html = new TextDecoder('utf-8').decode(buf)
-    const titleRaw = decode(/<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? '') || null
-    const text = stripTags(html)
+    const raw = new Uint8Array(await res.arrayBuffer())
+    const html = new TextDecoder('utf-8').decode(raw.subarray(0, MAX_HTML_BYTES))
+    // A redirect target must clear the same guard as the original URL, or an
+    // open redirect on a public host becomes a way into the LAN.
     const finalUrl = res.url || u.href
-    return {
-      final_url: finalUrl,
-      company_guess:
-        meta(html, 'property', 'og:site_name') ||
-        cleanTitle(titleRaw) ||
-        companyFromDomain(finalUrl),
-      title: titleRaw,
-      description: meta(html, 'name', 'description') || meta(html, 'property', 'og:description'),
-      email: pickEmail(text),
-      phone: pickPhone(text),
-    }
+    if (!normalizeUrl(finalUrl)) return null
+    return { html, final_url: finalUrl, bytes: raw.byteLength }
   } catch {
     return null
   } finally {
     clearTimeout(timer)
+  }
+}
+
+/**
+ * Fetch a public website and pull out lead-relevant facts. Returns `null` on any
+ * failure (unreachable, non-HTML, private/invalid URL) so the caller can fall back
+ * gracefully — the agent should still be able to create a lead from the bare URL.
+ */
+export async function lookupWebsite(rawUrl: string): Promise<WebsiteFacts | null> {
+  const page = await fetchHtml(rawUrl)
+  if (!page) return null
+  const { html, final_url: finalUrl } = page
+  const titleRaw = decode(/<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? '') || null
+  const text = stripTags(html)
+  return {
+    final_url: finalUrl,
+    company_guess:
+      meta(html, 'property', 'og:site_name') || cleanTitle(titleRaw) || companyFromDomain(finalUrl),
+    title: titleRaw,
+    description: meta(html, 'name', 'description') || meta(html, 'property', 'og:description'),
+    email: pickEmail(text),
+    phone: pickPhone(text),
   }
 }

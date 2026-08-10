@@ -11,9 +11,10 @@ import { bodyLimit } from 'hono/body-limit'
 import { seedDefaults } from './seed'
 import { processDueRecurring } from './recurring'
 import type { Vars } from './routes/middleware'
-import { requireAuth } from './routes/middleware'
+import { requireAuth, requireAdmin, csrfExempt } from './routes/middleware'
 import { registerAuthRoutes } from './routes/auth'
 import { registerLeadRoutes } from './routes/leads'
+import { registerMachineRoutes } from './routes/machine'
 import { registerSettingsRoutes } from './routes/settings'
 import { registerDocumentRoutes } from './routes/documents'
 import { registerContractRoutes } from './routes/contracts'
@@ -64,18 +65,13 @@ app.use('/api/*', cors({ origin: WEB_ORIGIN, credentials: true }))
 
 // CSRF guard: mutating requests must come from our own origin (the Vite dev
 // origin, or same-origin in production). Cookie-authenticated form posts from a
-// foreign site are rejected regardless of SameSite behaviour.
-//
-// Bearer-authenticated requests skip it: CSRF only exists because browsers
-// attach cookies ambiently. An API token has to be set deliberately by the
-// caller, so a foreign page cannot make the victim's browser send one — and the
-// CLI's multipart uploads would otherwise trip the form-content-type check.
+// foreign site are rejected regardless of SameSite behaviour. Requests without
+// ambient cookie authority — bearer-authenticated calls and the /api/machine/*
+// surface — skip it; the rationale lives with csrfExempt in routes/middleware.
 const csrfGuard = csrf({
   origin: (origin, c) => origin === WEB_ORIGIN || origin === new URL(c.req.url).origin,
 })
-app.use('/api/*', (c, next) =>
-  c.req.header('authorization')?.toLowerCase().startsWith('bearer ') ? next() : csrfGuard(c, next),
-)
+app.use('/api/*', (c, next) => (csrfExempt(c) ? next() : csrfGuard(c, next)))
 
 // Request-size caps: JSON bodies stay small; the upload endpoints allow the
 // 10 MB receipt/signed-document files (validated again per route); the backup
@@ -92,6 +88,7 @@ app.use('/api/*', (c, next) => {
 
 registerAuthRoutes(app)
 registerLeadRoutes(app)
+registerMachineRoutes(app)
 registerSettingsRoutes(app)
 registerDocumentRoutes(app)
 registerContractRoutes(app)
@@ -105,7 +102,10 @@ registerTokenRoutes(app)
 registerExportRoutes(app)
 registerAdminRoutes(app)
 registerAiRoutes(app, requireAuth)
-registerDsgvoRoutes(app, requireAuth)
+// DSGVO tooling — erasure (Art. 17), the full audit log, and the processing
+// record — is a data-protection/admin responsibility, not a per-rep action, so
+// the whole surface requires admin rather than any authenticated user.
+registerDsgvoRoutes(app, requireAdmin)
 
 app.get('/api/health', (c) => c.json({ ok: true }))
 

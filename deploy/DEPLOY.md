@@ -36,6 +36,10 @@ SMTP password) — generate it once and never rotate it casually, or those store
 secrets become unreadable. Sessions live server-side in the DB, so no session
 secret is needed.
 
+Optional: add `CRM_MACHINE_TOKEN=$(openssl rand -hex 32)` to enable the
+`/api/machine/*` surface for headless integrations (see
+[docs/CLI.md](../docs/CLI.md)). Leave it out and that surface stays disabled.
+
 ## 3. Start it
 
 ```bash

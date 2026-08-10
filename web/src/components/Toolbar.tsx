@@ -1,6 +1,10 @@
 import { useRef } from 'react'
 
 export function Toolbar({
+  phone,
+  stages,
+  stageFilter,
+  setStageFilter,
   view,
   setView,
   search,
@@ -11,6 +15,10 @@ export function Toolbar({
   importing,
   exportHref,
 }: {
+  phone: boolean
+  stages: string[]
+  stageFilter: string
+  setStageFilter: (v: string) => void
   view: 'board' | 'table'
   setView: (v: 'board' | 'table') => void
   search: string
@@ -25,20 +33,36 @@ export function Toolbar({
   return (
     <div className="toolbar">
       <h1 className="page-title">Leads</h1>
-      <div className="seg">
-        <button
-          className={view === 'board' ? 'active' : ''}
-          onClick={() => setView('board')}
+      {/* Phones get one card list filtered by phase instead of the two views. */}
+      {phone ? (
+        <select
+          aria-label="Phase filtern"
+          value={stageFilter}
+          onChange={(e) => setStageFilter(e.target.value)}
         >
-          Board
-        </button>
-        <button
-          className={view === 'table' ? 'active' : ''}
-          onClick={() => setView('table')}
-        >
-          Tabelle
-        </button>
-      </div>
+          <option value="">Alle Phasen</option>
+          {stages.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <div className="seg">
+          <button
+            className={view === 'board' ? 'active' : ''}
+            onClick={() => setView('board')}
+          >
+            Board
+          </button>
+          <button
+            className={view === 'table' ? 'active' : ''}
+            onClick={() => setView('table')}
+          >
+            Tabelle
+          </button>
+        </div>
+      )}
       <input
         className="search"
         placeholder="Suche Firma, Ort, Gewerk…"

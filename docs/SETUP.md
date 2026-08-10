@@ -141,6 +141,8 @@ Trusting identity headers is safe **only if OpenLeads cannot be reached except t
 | `AUTH_MODE` | `password` (default) or `proxy` (SSO via a reverse proxy) |
 | `PROXY_AUTH_*` | Proxy/forward-auth settings (only when `AUTH_MODE=proxy`) |
 | `NODE_ENV` | `development` or `production` |
+| `CRM_MACHINE_TOKEN` | Static bearer token that enables the `/api/machine/*` surface (unset = disabled) |
+| `CRM_MACHINE_PRINCIPAL` | Audit actor for machine-API writes (default `machine:mcp`) |
 | `AI_*` | Model endpoint (overridable in UI) |
 | `SMTP_*` | Mail (overridable in UI; optional) |
 

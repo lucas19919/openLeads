@@ -53,17 +53,6 @@ export function createSession(uid: number): string {
   return token
 }
 
-/** Resolve a cookie token to its session, or null if unknown/expired. */
-export function readSession(token: string | undefined): { uid: number } | null {
-  if (!token) return null
-  const row = db
-    .prepare('SELECT user_id, expires_at FROM sessions WHERE token_hash = ?')
-    .get(tokenHash(token)) as unknown as { user_id: number; expires_at: string } | undefined
-  if (!row) return null
-  if (new Date(row.expires_at).getTime() <= Date.now()) return null
-  return { uid: row.user_id }
-}
-
 export interface SessionUser {
   id: number
   username: string

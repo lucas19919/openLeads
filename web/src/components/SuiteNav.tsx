@@ -55,7 +55,60 @@ const TABS: { id: Module; label: string; adminOnly?: boolean }[] = [
   { id: 'settings', label: 'Einstellungen', adminOnly: true },
 ]
 
+// Phone bottom bar: the four everyday modules get a permanent tab, the rest
+// live behind "Mehr". Every one of these is role-independent, so the bar has
+// the same five slots for admins and members alike.
+const PRIMARY: Module[] = ['dashboard', 'leads', 'customers', 'documents']
+
 const ROLE_LABEL: Record<string, string> = { admin: 'Admin', member: 'Team' }
+
+/** 20px stroke glyphs — labels alone don't fit five tabs across a 375px phone. */
+function TabIcon({ id }: { id: Module | 'more' | 'search' }) {
+  const p = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
+  return (
+    <svg className="tab-icon" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true">
+      {id === 'dashboard' && (
+        <g {...p}>
+          <rect x="2.5" y="2.5" width="6" height="6" rx="1.5" />
+          <rect x="11.5" y="2.5" width="6" height="6" rx="1.5" />
+          <rect x="2.5" y="11.5" width="6" height="6" rx="1.5" />
+          <rect x="11.5" y="11.5" width="6" height="6" rx="1.5" />
+        </g>
+      )}
+      {id === 'leads' && (
+        <g {...p}>
+          <path d="M2.5 3.5h15l-5.75 6.75v5.5l-3.5 1.75v-7.25z" />
+        </g>
+      )}
+      {id === 'customers' && (
+        <g {...p}>
+          <circle cx="7.5" cy="6.5" r="2.75" />
+          <path d="M2.5 16.5c0-2.5 2.2-4.25 5-4.25s5 1.75 5 4.25" />
+          <path d="M13.5 4.4a2.75 2.75 0 0 1 0 5.2M14.5 12.6c2.05.45 3.5 1.95 3.5 3.9" />
+        </g>
+      )}
+      {id === 'documents' && (
+        <g {...p}>
+          <path d="M4.5 2.5h7l4 4v11h-11z" />
+          <path d="M11.5 2.5v4h4M7 10h6M7 13h6" />
+        </g>
+      )}
+      {id === 'search' && (
+        <g {...p}>
+          <circle cx="8.75" cy="8.75" r="5.25" />
+          <path d="M12.75 12.75l4 4" />
+        </g>
+      )}
+      {id === 'more' && (
+        <g fill="currentColor">
+          <circle cx="4" cy="10" r="1.7" />
+          <circle cx="10" cy="10" r="1.7" />
+          <circle cx="16" cy="10" r="1.7" />
+        </g>
+      )}
+    </svg>
+  )
+}
 
 export function SuiteNav({
   module,
@@ -71,8 +124,8 @@ export function SuiteNav({
   onSearch?: () => void
 }) {
   const [aiStatus, setAiStatus] = useState<AiStatus | null>(null)
-  // Mobile only: the nav list collapses behind a burger. Selecting a tab closes it.
-  const [menuOpen, setMenuOpen] = useState(false)
+  // Phone only: the non-primary modules live in a bottom sheet behind "Mehr".
+  const [sheetOpen, setSheetOpen] = useState(false)
   useEffect(() => {
     let alive = true
     const load = () => api.aiStatus().then((s) => alive && setAiStatus(s)).catch(() => {})
@@ -84,64 +137,138 @@ export function SuiteNav({
     }
   }, [])
 
+  // Escape closes the sheet, like every other overlay in the app.
+  useEffect(() => {
+    if (!sheetOpen) return
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setSheetOpen(false)
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [sheetOpen])
+
   const tabs = TABS.filter((t) => !t.adminOnly || user.role === 'admin')
+  const primary = PRIMARY.map((id) => tabs.find((t) => t.id === id)!).filter(Boolean)
+  const rest = tabs.filter((t) => !PRIMARY.includes(t.id))
 
   function pick(m: Module) {
     setModule(m)
-    setMenuOpen(false)
+    setSheetOpen(false)
   }
 
-  return (
-    <aside className={`side${menuOpen ? ' open' : ''}`}>
-      <div className="brand">
-        Open<i>Leads</i>
+  const userBlock = (
+    <div className="side-user">
+      <span className="avatar">{user.username.slice(0, 2)}</span>
+      <div>
+        <div className="side-user-name">{user.username}</div>
+        <div className="side-user-role">{ROLE_LABEL[user.role] ?? user.role}</div>
       </div>
-      <button
-        className="nav-burger"
-        aria-label="Menü"
-        aria-expanded={menuOpen}
-        onClick={() => setMenuOpen((o) => !o)}
-      >
-        {menuOpen ? '✕' : '☰'}
-      </button>
-      <nav className="nav">
-        {onSearch && (
-          <button
-            className="nav-item nav-search"
-            onClick={() => {
-              onSearch()
-              setMenuOpen(false)
-            }}
-          >
-            <span className="dot" />
-            Suche
-            <kbd>Strg K</kbd>
+    </div>
+  )
+
+  return (
+    <>
+      {/* Desktop / tablet: the full sidebar. Hidden on phones. */}
+      <aside className="side">
+        <div className="brand">
+          Open<i>Leads</i>
+        </div>
+        <nav className="nav">
+          {onSearch && (
+            <button className="nav-item nav-search" onClick={onSearch}>
+              <span className="dot" />
+              Suche
+              <kbd>Strg K</kbd>
+            </button>
+          )}
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              className={`nav-item${module === t.id ? ' active' : ''}`}
+              onClick={() => setModule(t.id)}
+            >
+              <span className="dot" />
+              {t.label}
+            </button>
+          ))}
+        </nav>
+        <div className="side-foot">
+          <AiBadge status={aiStatus} />
+          {userBlock}
+          <button className="ghost" onClick={onLogout}>
+            Abmelden
           </button>
-        )}
-        {tabs.map((t) => (
+        </div>
+      </aside>
+
+      {/* Phone: fixed bottom tab bar — one tap per module, no chrome at the top. */}
+      <nav className="tabbar" aria-label="Hauptnavigation">
+        {primary.map((t) => (
           <button
             key={t.id}
-            className={`nav-item${module === t.id ? ' active' : ''}`}
+            className={`tab${module === t.id ? ' active' : ''}`}
+            aria-current={module === t.id ? 'page' : undefined}
             onClick={() => pick(t.id)}
           >
-            <span className="dot" />
+            <TabIcon id={t.id} />
             {t.label}
           </button>
         ))}
-      </nav>
-      <div className="side-foot">
-        <AiBadge status={aiStatus} />
-        <div className="side-user">
-          <span className="avatar">{user.username.slice(0, 2)}</span>
-          <div>
-            <div className="side-user-name">{user.username}</div>
-            <div className="side-user-role">{ROLE_LABEL[user.role] ?? user.role}</div>
-          </div>
-        </div>
-        <button className="ghost" onClick={onLogout}>
-          Abmelden
+        <button
+          className={`tab${rest.some((t) => t.id === module) ? ' active' : ''}`}
+          aria-expanded={sheetOpen}
+          onClick={() => setSheetOpen((o) => !o)}
+        >
+          <TabIcon id="more" />
+          Mehr
         </button>
-      </div>
-    </aside>
+      </nav>
+
+      {sheetOpen && (
+        <>
+          <div className="overlay sheet-scrim" onClick={() => setSheetOpen(false)} />
+          <div className="sheet" role="dialog" aria-label="Weitere Bereiche">
+            <div className="sheet-head">
+              <div className="brand">
+                Open<i>Leads</i>
+              </div>
+              <button className="ghost" onClick={() => setSheetOpen(false)}>
+                Schließen
+              </button>
+            </div>
+            <div className="sheet-nav">
+              {onSearch && (
+                <button
+                  className="sheet-item"
+                  onClick={() => {
+                    onSearch()
+                    setSheetOpen(false)
+                  }}
+                >
+                  <TabIcon id="search" />
+                  Suche
+                </button>
+              )}
+              {rest.map((t) => (
+                <button
+                  key={t.id}
+                  className={`sheet-item${module === t.id ? ' active' : ''}`}
+                  onClick={() => pick(t.id)}
+                >
+                  <span className="dot" />
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <div className="sheet-foot">
+              {userBlock}
+              <AiBadge status={aiStatus} />
+              <div className="spacer" />
+              <button className="ghost" onClick={onLogout}>
+                Abmelden
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </>
   )
 }

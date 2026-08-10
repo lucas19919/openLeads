@@ -77,10 +77,17 @@ export interface ComposedEmail {
 
 /** Pure composition: resolve placeholders + append the compliance footer. */
 export function composeOutreachEmail(o: OutreachRow, lead: LeadRow, s: SettingsRow): ComposedEmail {
-  if (!lead.email) throw new Error('Lead hat keine E-Mail-Adresse.')
+  const to = (lead.email ?? '').trim()
+  if (!to) throw new Error('Lead hat keine E-Mail-Adresse.')
+  // Exactly one clean address. lead.email is an unvalidated CRM field, so a value
+  // like "a@b.de, evil@x.com" — or one carrying CR/LF — must never fan the send
+  // out to a second recipient or inject mail headers.
+  if (!/^[^\s,;:<>"]+@[^\s,;:<>"@]+\.[^\s,;:<>"@]+$/.test(to)) {
+    throw new Error('Lead-E-Mail ist ungültig oder enthält mehrere Adressen.')
+  }
   const subject = o.subject?.trim() || `Kurze Anfrage zu Ihrer Website`
   const body = fillPlaceholders(o.body, s) + buildFooter(s)
-  return { to: lead.email, from: SMTP.from || s.email || '', subject, text: body }
+  return { to, from: SMTP.from || s.email || '', subject, text: body }
 }
 
 export interface MailAttachment {

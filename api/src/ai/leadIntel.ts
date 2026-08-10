@@ -2,6 +2,7 @@ import { db, type LeadRow, type LeadAiRow, type OutreachRow } from '../db'
 import { getSettings } from '../documents'
 import { audit } from '../audit'
 import { chatJSON, AI } from './provider'
+import { ledgerOnlyFacts } from '../facts'
 import { LEAD_ANALYST_SYSTEM, OUTREACH_SYSTEM, INVOICE_DRAFTER_SYSTEM } from './prompts'
 
 function leadFacts(lead: LeadRow): string {
@@ -20,6 +21,11 @@ function leadFacts(lead: LeadRow): string {
     stage: lead.stage,
     notizen: lead.notes,
   }
+  // Impressum-derived facts the leads table has no column for. They sharpen the
+  // read considerably: knowing the Rechtsform and who signs tells the analyst
+  // whether this is a one-person Betrieb or something with a Geschäftsführung.
+  const extra = ledgerOnlyFacts(lead.id)
+  if (Object.keys(extra).length) f.impressum = extra
   return JSON.stringify(f, null, 2)
 }
 
@@ -41,8 +47,29 @@ const QUALIFICATION_PRIORITY: Record<string, string> = {
   disqualified: 'niedrig',
 }
 
+/**
+ * May the analysis still set `priority`, or has the operator taken it over?
+ * Priority is the one ranking a human sets deliberately — by dragging a card —
+ * so re-running the analysis must not quietly undo that. Derived the same way
+ * the evidence ledger derives provenance: the value counts as machine-set while
+ * it still matches what the machine last wrote, or sits untouched at its default.
+ *
+ * `score` deliberately gets no such protection: it is the model's own 0..100 fit
+ * confidence (and the importer's staleness heuristic before that), not something
+ * anyone curates by hand.
+ */
+function priorityIsMachineOwned(lead: LeadRow): boolean {
+  if (lead.priority === 'mittel') return true // untouched default
+  const prev = db.prepare('SELECT qualification FROM lead_ai WHERE lead_id = ?').get(lead.id) as
+    | { qualification: string | null }
+    | undefined
+  const lastPriority = prev?.qualification ? QUALIFICATION_PRIORITY[prev.qualification] : undefined
+  return !!lastPriority && lead.priority === lastPriority
+}
+
 /** Run (or re-run) the AI assessment for a lead and cache it. */
 export async function analyzeLead(lead: LeadRow, actor: string): Promise<LeadAiRow> {
+  const maySetPriority = priorityIsMachineOwned(lead)
   const a = await chatJSON<LeadAnalysis>(
     LEAD_ANALYST_SYSTEM,
     `Bewerte diesen Lead:\n\n${leadFacts(lead)}`,
@@ -73,10 +100,11 @@ export async function analyzeLead(lead: LeadRow, actor: string): Promise<LeadAiR
   // Let the AI assessment steer the pipeline board: the qualification sets the
   // priority (urgency) and the model's fit confidence (0..100) becomes the lead
   // score used to rank leads — so a freshly analysed lead no longer sits at 0.
+  // ...but only where a human has not already made that call themselves.
   const mapped = a.qualification ? QUALIFICATION_PRIORITY[a.qualification] : undefined
   const sets: string[] = []
   const params: Record<string, string | number> = { id: lead.id }
-  if (mapped && mapped !== lead.priority) {
+  if (mapped && mapped !== lead.priority && maySetPriority) {
     sets.push('priority = @priority')
     params.priority = mapped
   }
@@ -88,7 +116,21 @@ export async function analyzeLead(lead: LeadRow, actor: string): Promise<LeadAiR
     sets.push("updated_at = datetime('now')")
     db.prepare(`UPDATE leads SET ${sets.join(', ')} WHERE id = @id`).run(params)
   }
-  audit({ actor, action: 'ai.analyze_lead', entity: 'lead', entityId: lead.id, detail: { model: AI.model, qualification: a.qualification, priority: mapped, fit_score: fitScore } })
+  audit({
+    actor,
+    action: 'ai.analyze_lead',
+    entity: 'lead',
+    entityId: lead.id,
+    detail: {
+      model: AI.model,
+      qualification: a.qualification,
+      fit_score: fitScore,
+      priority: mapped,
+      // Record when the verdict was deliberately *not* applied, so the trail
+      // shows the human's ranking was respected rather than silently lost.
+      priority_applied: !!params.priority,
+    },
+  })
   return db.prepare('SELECT * FROM lead_ai WHERE lead_id = ?').get(lead.id) as unknown as LeadAiRow
 }
 
