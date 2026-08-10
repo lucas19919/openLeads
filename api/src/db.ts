@@ -784,6 +784,65 @@ for (const col of [
   }
 }
 
+// --- Freigaben (human approvals for one-way doors) --------------------------
+// An agent may build a Rechnung, an Angebot or a Vertrag as far as it likes —
+// drafts are free, a human can delete them. The acts that cannot be taken back —
+// Festschreiben (a gapless number is consumed and the content freezes under
+// GoBD), Versenden (mail leaves the house) — need a person to say yes first.
+// This table is that yes: one row per request, decided by a logged-in human,
+// single-use, time-boxed, and bound to a fingerprint of the exact content that
+// was shown at decision time. Edit the invoice after the approval and the
+// fingerprint no longer matches, so the approval no longer applies.
+
+/** What an approval can permit. One action per row; nothing is implied. */
+export const APPROVAL_ACTIONS = [
+  'document.finalize',
+  'document.send',
+  'contract.finalize',
+  'contract.send',
+] as const
+export type ApprovalAction = (typeof APPROVAL_ACTIONS)[number]
+
+/**
+ * offen        — waiting for a human
+ * genehmigt    — approved, not used yet
+ * abgelehnt    — refused; a terminal state, ask again with a new request
+ * verbraucht   — approved and used; single-use, so it cannot be replayed
+ * zurueckgezogen — the requester withdrew it before a decision
+ * abgelaufen   — the window passed without being used
+ */
+export const APPROVAL_STATUSES = [
+  'offen',
+  'genehmigt',
+  'abgelehnt',
+  'verbraucht',
+  'zurueckgezogen',
+  'abgelaufen',
+] as const
+export type ApprovalStatus = (typeof APPROVAL_STATUSES)[number]
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS approvals (
+  id            INTEGER PRIMARY KEY,
+  action        TEXT NOT NULL,            -- APPROVAL_ACTIONS
+  entity        TEXT NOT NULL,            -- 'document' | 'contract'
+  entity_id     INTEGER NOT NULL,
+  fingerprint   TEXT NOT NULL,            -- SHA-256 of the content at request time
+  summary       TEXT NOT NULL,            -- JSON: what the human is being shown
+  reason        TEXT,                     -- why the agent wants it, in its words
+  requested_by  TEXT NOT NULL,            -- machine principal or username
+  requested_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  expires_at    TEXT NOT NULL,
+  status        TEXT NOT NULL DEFAULT 'offen',
+  decided_by    TEXT,                     -- the human who decided (never a token)
+  decided_at    TEXT,
+  decision_note TEXT,
+  used_at       TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals(status, requested_at DESC);
+CREATE INDEX IF NOT EXISTS idx_approvals_entity ON approvals(entity, entity_id);
+`)
+
 export interface UserRow {
   id: number
   username: string
@@ -1104,6 +1163,24 @@ export interface CatalogItemRow {
   notes: string | null
   created_at: string
   updated_at: string
+}
+
+export interface ApprovalRow {
+  id: number
+  action: ApprovalAction
+  entity: string
+  entity_id: number
+  fingerprint: string
+  summary: string
+  reason: string | null
+  requested_by: string
+  requested_at: string
+  expires_at: string
+  status: ApprovalStatus
+  decided_by: string | null
+  decided_at: string | null
+  decision_note: string | null
+  used_at: string | null
 }
 
 export interface AuditRow {

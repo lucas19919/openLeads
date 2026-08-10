@@ -12,6 +12,7 @@ import { print, warn } from './output.js'
 
 import { leads } from './commands/leads.js'
 import { docs } from './commands/docs.js'
+import { approvals } from './commands/approvals.js'
 import { customers } from './commands/customers.js'
 import { contracts } from './commands/contracts.js'
 import { expenses, subs, recurring, catalog } from './commands/finance.js'
@@ -49,6 +50,7 @@ const COMMANDS: Record<string, Command> = {
 const GROUPS: Record<string, Group> = {
   leads,
   docs,
+  approvals,
   customers,
   contracts,
   expenses,
@@ -65,6 +67,7 @@ const GROUPS: Record<string, Group> = {
 const GROUP_ALIASES: Record<string, string> = {
   invoices: 'docs',
   rechnungen: 'docs',
+  freigaben: 'approvals',
   kunden: 'customers',
   vertraege: 'contracts',
   ausgaben: 'expenses',

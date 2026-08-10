@@ -190,13 +190,23 @@ export const docs: Group = {
     },
 
     finalize: {
-      summary: 'Entwurf ausstellen — vergibt die Nummer, danach unveränderlich',
-      usage: '<id> --yes',
+      summary: 'Entwurf festschreiben — vergibt die Nummer, danach unveränderlich',
+      usage: '<id> --approval <freigabe-id> --yes',
+      options: { approval: { type: 'string' } },
+      help:
+        'Die CLI spricht mit einem API-Token, also als Automat. Festschreiben verlangt darum eine\n' +
+        'Freigabe, die ein angemeldeter Mensch in OpenLeads erteilt hat:\n' +
+        '  openleads approvals request <id> --action document.finalize --reason "..."\n' +
+        '  (ein Mensch entscheidet in der Oberfläche unter „Freigaben")\n' +
+        '  openleads docs finalize <id> --approval <freigabe-id> --yes',
       async run(ctx) {
-        ctx.confirm('Ausstellen vergibt eine fortlaufende Nummer und ist nicht umkehrbar')
-        const { document: d } = await ctx.client.post<{ document: Doc }>(`/documents/${ctx.id()}/finalize`)
+        ctx.confirm('Festschreiben vergibt eine fortlaufende Nummer und ist nicht umkehrbar')
+        const { document: d } = await ctx.client.post<{ document: Doc }>(
+          `/documents/${ctx.id()}/finalize`,
+          { approval_id: ctx.num('approval') },
+        )
         if (ctx.json) return printJson(d)
-        print(`Ausgestellt: ${label(d)} — fällig ${date(d.due_date)}.`)
+        print(`Festgeschrieben: ${label(d)} — fällig ${date(d.due_date)}.`)
       },
     },
 
@@ -211,11 +221,18 @@ export const docs: Group = {
     },
 
     send: {
-      summary: 'Ausgestelltes Dokument per E-Mail an den Kunden schicken',
-      usage: '<id> --yes',
+      summary: 'Festgeschriebenes Dokument per E-Mail an den Kunden schicken',
+      usage: '<id> --approval <freigabe-id> --yes',
+      options: { approval: { type: 'string' } },
+      help:
+        'Wie beim Festschreiben: eine Mail an den Kunden lässt sich nicht zurückholen, und ein\n' +
+        'Token-Aufruf braucht dafür die Freigabe eines Menschen —\n' +
+        '  openleads approvals request <id> --action document.send',
       async run(ctx) {
         ctx.confirm('Das verschickt eine E-Mail an den Kunden')
-        const res = await ctx.client.post<{ ok: true; to: string }>(`/documents/${ctx.id()}/send`)
+        const res = await ctx.client.post<{ ok: true; to: string }>(`/documents/${ctx.id()}/send`, {
+          approval_id: ctx.num('approval'),
+        })
         if (ctx.json) return printJson(res)
         print(`Versendet an ${res.to}.`)
       },
@@ -286,7 +303,10 @@ export const docs: Group = {
         ctx.confirm('Eine Stornorechnung korrigiert eine ausgestellte Rechnung')
         const { document: d } = await ctx.client.post<{ document: Doc }>(`/documents/${ctx.id()}/storno`)
         if (ctx.json) return printJson(d)
-        print(`Storno-Entwurf ${d.id} angelegt — mit "docs finalize ${d.id} --yes" ausstellen.`)
+        print(
+          `Storno-Entwurf ${d.id} angelegt. Wirksam wird er erst beim Festschreiben — dafür erst ` +
+            `"approvals request ${d.id} --action document.finalize", dann "docs finalize ${d.id} --approval <id> --yes".`,
+        )
       },
     },
   },

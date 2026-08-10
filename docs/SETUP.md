@@ -143,6 +143,7 @@ Trusting identity headers is safe **only if OpenLeads cannot be reached except t
 | `NODE_ENV` | `development` or `production` |
 | `CRM_MACHINE_TOKEN` | Static bearer token that enables the `/api/machine/*` surface (unset = disabled) |
 | `CRM_MACHINE_PRINCIPAL` | Audit actor for machine-API writes (default `machine:mcp`) |
+| `CRM_APPROVAL_TTL_MINUTES` | How long a Freigabe for Festschreiben/Versenden stays valid (default `1440`) |
 | `AI_*` | Model endpoint (overridable in UI) |
 | `SMTP_*` | Mail (overridable in UI; optional) |
 

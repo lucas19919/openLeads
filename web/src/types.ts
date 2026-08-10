@@ -524,6 +524,58 @@ export interface ValidationResult {
   notes?: ValidationFinding[]
 }
 
+// --- Freigaben (approvals) --------------------------------------------------
+// What an agent asked permission for, and what a human decided. Drafts are the
+// agent's to write; Festschreiben and Versenden are not — those wait here.
+
+export type ApprovalAction =
+  | 'document.finalize'
+  | 'document.send'
+  | 'contract.finalize'
+  | 'contract.send'
+
+export type ApprovalStatus =
+  | 'offen'
+  | 'genehmigt'
+  | 'abgelehnt'
+  | 'verbraucht'
+  | 'zurueckgezogen'
+  | 'abgelaufen'
+
+export interface ApprovalSummary {
+  action: ApprovalAction
+  label: string
+  entity: 'document' | 'contract'
+  entity_id: number
+  title: string
+  recipient: string | null
+  recipient_email: string | null
+  gross_cents: number
+  number: string | null
+  lines: string[]
+  warnings: string[]
+}
+
+export interface Approval {
+  id: number
+  action: ApprovalAction
+  entity: string
+  entity_id: number
+  fingerprint: string
+  summary: ApprovalSummary
+  reason: string | null
+  requested_by: string
+  requested_at: string
+  expires_at: string
+  status: ApprovalStatus
+  decided_by: string | null
+  decided_at: string | null
+  decision_note: string | null
+  used_at: string | null
+  /** False when the paper changed after the request — approving is then blocked. */
+  content_unchanged?: boolean
+}
+
 // --- AI core ---------------------------------------------------------------
 
 export interface AiStatus {

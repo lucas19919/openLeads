@@ -294,7 +294,7 @@ test('customer create without name → 400; unknown id → 404', async () => {
   assert.equal(res.status, 404)
 })
 
-test('documents list/get and dashboard are readable; no write surface', async () => {
+test('documents list/get and dashboard are readable; the books stay read-only', async () => {
   const docs = await app.request('/api/machine/documents', { headers: AUTH })
   assert.equal(docs.status, 200)
   const { documents } = (await docs.json()) as { documents: unknown[] }
@@ -308,10 +308,9 @@ test('documents list/get and dashboard are readable; no write surface', async ()
   const body = (await dash.json()) as { dashboard: { leads: { total: number } } }
   assert.ok(typeof body.dashboard.leads.total === 'number')
 
-  // Finance must stay read-only on the machine surface.
+  // The rest of finance stays read-only on the machine surface: an agent drafts
+  // invoices (see the Freigaben suite below) and nothing else here.
   for (const [method, path] of [
-    ['POST', '/api/machine/documents'],
-    ['PATCH', '/api/machine/documents/1'],
     ['DELETE', '/api/machine/customers/1'],
     ['POST', '/api/machine/contracts'],
     ['PATCH', '/api/machine/contracts/1'],

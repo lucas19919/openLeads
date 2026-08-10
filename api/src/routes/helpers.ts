@@ -20,6 +20,17 @@ export function inlineFile(c: AppContext, file: { data: Uint8Array; name: string
   return c.body(Buffer.from(file.data) as unknown as ArrayBuffer)
 }
 
+/**
+ * Narrow a domain error's status to the literals Hono's `c.json` accepts.
+ * Anything unexpected becomes a 400 — an error is still an error, and no route
+ * should be able to answer 200 because a status went missing.
+ */
+export type ErrorStatus = 400 | 403 | 404 | 409 | 422 | 500 | 502
+export function errorStatus(status: number | undefined): ErrorStatus {
+  const allowed: ErrorStatus[] = [400, 403, 404, 409, 422, 500, 502]
+  return allowed.includes(status as ErrorStatus) ? (status as ErrorStatus) : 400
+}
+
 // Allowed uploads for receipts and signed documents: a PDF or a photo/scan,
 // capped so a stray huge file can't bloat the DB.
 export const UPLOAD_MAX_BYTES = 10 * 1024 * 1024 // 10 MB

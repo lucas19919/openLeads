@@ -104,10 +104,16 @@ export const contracts: Group = {
 
     finalize: {
       summary: 'Vertrag festschreiben — Nummer vergeben, AGB einfrieren',
-      usage: '<id> --yes',
+      usage: '<id> --approval <freigabe-id> --yes',
+      options: { approval: { type: 'string' } },
+      help:
+        'Nicht umkehrbar, also für Token-Aufrufe nur mit der Freigabe eines Menschen:\n' +
+        '  openleads approvals request <id> --action contract.finalize',
       async run(ctx) {
         ctx.confirm('Festschreiben vergibt eine Nummer und friert die AGB ein')
-        const { contract } = await ctx.client.post<{ contract: Contract }>(`/contracts/${ctx.id()}/finalize`)
+        const { contract } = await ctx.client.post<{ contract: Contract }>(`/contracts/${ctx.id()}/finalize`, {
+          approval_id: ctx.num('approval'),
+        })
         if (ctx.json) return printJson(contract)
         print(`Festgeschrieben: ${contract.number ?? contract.id}`)
       },
@@ -140,10 +146,13 @@ export const contracts: Group = {
 
     send: {
       summary: 'Festgeschriebenen Vertrag per E-Mail zur Unterschrift schicken',
-      usage: '<id> --yes',
+      usage: '<id> --approval <freigabe-id> --yes',
+      options: { approval: { type: 'string' } },
       async run(ctx) {
         ctx.confirm('Das verschickt eine E-Mail an den Kunden')
-        const res = await ctx.client.post<{ ok: true; to: string }>(`/contracts/${ctx.id()}/send`)
+        const res = await ctx.client.post<{ ok: true; to: string }>(`/contracts/${ctx.id()}/send`, {
+          approval_id: ctx.num('approval'),
+        })
         if (ctx.json) return printJson(res)
         print(`Versendet an ${res.to}.`)
       },

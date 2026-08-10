@@ -4,6 +4,7 @@ import { euro } from '../money'
 import { fmtDate } from '../util'
 import type { Config, Dashboard } from '../types'
 import type { Module } from './SuiteNav'
+import { ApprovalsPanel } from './ApprovalsPanel'
 
 
 const MONTH_LABEL = (m: string) => {
@@ -51,6 +52,12 @@ export function DashboardView({
       </div>
 
       <div className="content">
+        {/* Above the numbers on purpose: a Freigabe is someone waiting on you,
+            and it is the one thing here that a machine cannot do without you. */}
+        <ApprovalsPanel
+          onOpen={(a) => onNavigate(a.entity === 'contract' ? 'contracts' : 'documents')}
+        />
+
         <div className="dash-cards">
           <button className="dash-card dash-clickable" onClick={() => onNavigate('documents')}>
             <span className="dash-card-label">Offene Forderungen</span>

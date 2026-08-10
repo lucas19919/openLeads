@@ -17,6 +17,7 @@ import type {
   RecurringInvoice,
   Subscription,
   CatalogItem,
+  Approval,
 } from '../types.js'
 
 // The tool surface an agent host sees. Two tiers:
@@ -29,9 +30,19 @@ import type {
 // The split is deliberate. An agent that mis-reads a calendar entry should be
 // able to make a mess someone can tidy up, not one that consumes an invoice
 // number under GoBD or e-mails the wrong client.
+//
+// Invoicing sits astride that line, so it is split down the middle. Writing the
+// paper — drafting an Angebot or a Rechnung, fixing a position, converting an
+// accepted quote, preparing a Storno, throwing a draft away — is safe: no number
+// is spent, nothing has left the building. Festschreiben and Versenden are not,
+// and they are not simply "irreversible tier" either: even with that tier on,
+// they need an `approval_id` — a Freigabe a human granted in OpenLeads for
+// exactly that document in exactly that state (`request_approval` →
+// `list_approvals` → finalise). The tier switch decides whether the agent may
+// *spend* a human's yes; it never substitutes for one.
 
 export interface ToolOptions {
-  /** Register the irreversible tier (finalise, send, storno, restore, copilot). */
+  /** Register the irreversible tier (finalise, send, restore, copilot). */
   allowIrreversible: boolean
   /** Register nothing that writes at all. */
   readOnly: boolean
@@ -588,7 +599,8 @@ export function buildTools(client: Client, options: ToolOptions): ToolDefinition
     def(
       'create_invoice_draft',
       'Entwurf für ein Angebot oder eine Rechnung anlegen. Entwürfe tragen keine Nummer, sind ' +
-        'jederzeit änderbar und löschbar. Das Ausstellen bleibt einem Menschen vorbehalten.',
+        'jederzeit änderbar und löschbar — hier darfst du frei arbeiten. Das Festschreiben ist ein ' +
+        'eigener Schritt und braucht die Freigabe eines Menschen (`request_approval`).',
       obj(
         {
           kind: S.enum(['angebot', 'rechnung'], 'Dokumentart'),
@@ -628,6 +640,146 @@ export function buildTools(client: Client, options: ToolOptions): ToolDefinition
         if (Array.isArray(a.items)) body.items = a.items
         return (await client.post<{ document: Doc }>('/documents', body)).document
       },
+    ),
+
+    def(
+      'update_invoice_draft',
+      'Entwurf ändern: Empfänger, Titel, Texte, Fälligkeit, Kundenverknüpfung — und mit `items` die ' +
+        'Positionen, die dabei VOLLSTÄNDIG ersetzt werden (immer die ganze Liste schicken). ' +
+        'Festgeschriebene Dokumente sind unveränderlich (GoBD) und werden abgelehnt. Korrigiere ' +
+        'hier, bevor du eine Freigabe beantragst — nach der Freigabe macht jede Änderung sie ungültig.',
+      obj(
+        {
+          id: S.number('Dokument-ID'),
+          client_name: S.string('Empfänger'),
+          client_email: S.string('E-Mail des Empfängers'),
+          client_address: S.string('Straße und Hausnummer'),
+          client_zip: S.string('PLZ'),
+          client_city: S.string('Ort'),
+          title: S.string('Titel'),
+          intro: S.string('Einleitungstext'),
+          notes: S.string('Schlussbemerkung'),
+          due_date: S.string('Fälligkeit YYYY-MM-DD'),
+          customer_id: S.number('Kunde aus dem Stamm'),
+          status: S.string('Status (nur bei Angeboten sinnvoll: angenommen, abgelehnt)'),
+          items: {
+            type: 'array',
+            description: 'ERSETZT alle Positionen',
+            items: obj(
+              {
+                description: S.string('Leistungsbeschreibung'),
+                quantity: S.number('Menge'),
+                unit: S.string('Einheit'),
+                unit_price_cents: S.number('Einzelpreis netto in Cent'),
+              },
+              ['description', 'quantity', 'unit_price_cents'],
+            ),
+          },
+        },
+        ['id'],
+      ),
+      async (a) => {
+        const { id, ...patch } = a
+        if (Object.keys(patch).length === 0) throw new Error('Kein Feld zum Ändern angegeben.')
+        return (await client.patch<{ document: Doc }>(`/documents/${requireNum(a, 'id')}`, patch)).document
+      },
+    ),
+
+    def(
+      'delete_invoice_draft',
+      'Einen Entwurf löschen (z. B. doppelt angelegt). Festgeschriebene Dokumente bleiben — sie ' +
+        'tragen eine Nummer und gehören zur lückenlosen Reihe; dafür gibt es den Storno.',
+      obj({ id: S.number('Dokument-ID') }, ['id']),
+      async (a) => client.delete<{ ok: true }>(`/documents/${requireNum(a, 'id')}`),
+    ),
+
+    def(
+      'convert_quote_to_invoice',
+      'Aus einem angenommenen Angebot einen Rechnungs-ENTWURF erzeugen: Empfänger und Positionen ' +
+        'werden kopiert, das Angebot bleibt unverändert. Nichts wird ausgestellt.',
+      obj({ id: S.number('Angebots-ID') }, ['id']),
+      async (a) =>
+        (await client.post<{ document: Doc }>(`/documents/${requireNum(a, 'id')}/convert`)).document,
+    ),
+
+    def(
+      'validate_invoice',
+      'Ein Dokument gegen die EN-16931-Regeln (Factur-X/ZUGFeRD, XRechnung) prüfen: fehlende ' +
+        'Pflichtangaben, Rechenfehler, B2G-Hinweise. Ändert nichts. Der sinnvolle Schritt, bevor du ' +
+        'einen Menschen um die Freigabe zum Festschreiben bittest.',
+      obj({ id: S.number('Dokument-ID') }, ['id']),
+      async (a) =>
+        (await client.get<{ validation: unknown }>(`/documents/${requireNum(a, 'id')}/validate`)).validation,
+    ),
+
+    def(
+      'create_storno_draft',
+      'Zu einer festgeschriebenen Rechnung eine Stornorechnung als ENTWURF vorbereiten (Positionen ' +
+        'negiert, Bezug auf die Originalnummer). Die Bücher ändern sich dadurch NICHT — die ' +
+        'Original-Rechnung wird erst storniert, wenn der Storno festgeschrieben wird, und das ' +
+        'braucht wieder eine Freigabe.',
+      obj({ id: S.number('Dokument-ID der zu stornierenden Rechnung') }, ['id']),
+      async (a) =>
+        (await client.post<{ document: Doc }>(`/documents/${requireNum(a, 'id')}/storno`)).document,
+    ),
+
+    // --- Freigaben: asking is safe, deciding is not yours ---------------------
+
+    def(
+      'request_approval',
+      'Eine menschliche Freigabe für eine NICHT UMKEHRBARE Aktion beantragen: Festschreiben oder ' +
+        'Versenden eines Angebots, einer Rechnung oder eines Vertrags. Der Antrag erscheint in ' +
+        'OpenLeads unter „Freigaben" mit Empfänger, Positionen und Summe; ein Mensch entscheidet ' +
+        'dort. Der Antrag allein bewirkt nichts. Nach der Genehmigung gibst du die `approval_id` ' +
+        'bei `finalize_invoice` bzw. `send_invoice` mit. Die Freigabe gilt genau einmal, nur für ' +
+        'diesen Inhalt (jede spätere Änderung macht sie ungültig) und läuft ab.',
+      obj(
+        {
+          action: S.enum(
+            ['document.finalize', 'document.send', 'contract.finalize', 'contract.send'],
+            'Wofür die Freigabe gilt',
+          ),
+          entity_id: S.number('ID des Dokuments bzw. Vertrags'),
+          reason: S.string('Warum das jetzt passieren soll — ein Satz für den Menschen'),
+        },
+        ['action', 'entity_id'],
+      ),
+      async (a) =>
+        client.post<{ approval: unknown; existed: boolean }>('/approvals', {
+          action: requireStr(a, 'action'),
+          entity_id: requireNum(a, 'entity_id'),
+          reason: str(a, 'reason'),
+        }),
+    ),
+
+    def(
+      'list_approvals',
+      'Freigabe-Anträge und ihr Stand: offen (wartet auf einen Menschen), genehmigt (nutzbar), ' +
+        'abgelehnt, verbraucht (bereits verwendet), abgelaufen. Hiermit prüfst du, ob du ' +
+        'weiterarbeiten darfst — warte auf „genehmigt", frage nicht mehrfach nach.',
+      obj({
+        status: S.enum(
+          ['offen', 'genehmigt', 'abgelehnt', 'verbraucht', 'zurueckgezogen', 'abgelaufen'],
+          'Statusfilter',
+        ),
+        entity_id: S.number('nur Anträge zu diesem Dokument/Vertrag'),
+      }),
+      async (a) => {
+        const { approvals } = await client.get<{ approvals: Approval[] }>('/approvals', {
+          status: str(a, 'status'),
+          entity_id: num(a, 'entity_id'),
+        })
+        return capped(approvals, maxRows)
+      },
+    ),
+
+    def(
+      'withdraw_approval',
+      'Einen eigenen offenen Antrag zurückziehen — etwa weil du den Entwurf noch korrigieren willst. ' +
+        'Höflicher, als einen Menschen über ein Dokument entscheiden zu lassen, das sich gleich ändert.',
+      obj({ id: S.number('Freigabe-ID') }, ['id']),
+      async (a) =>
+        (await client.post<{ approval: Approval }>(`/approvals/${requireNum(a, 'id')}/withdraw`)).approval,
     ),
 
     def(
@@ -730,46 +882,77 @@ export function buildTools(client: Client, options: ToolOptions): ToolDefinition
     ),
   ]
 
-  // --- one-way doors -------------------------------------------------------
+  // --- one-way doors, each behind a human's yes ----------------------------
+  //
+  // These four exist only to *spend* an approval a person already granted. There
+  // is no argument that skips it: the server rejects the call without a valid,
+  // unused, unexpired `approval_id` matching this exact document. Which is the
+  // point — the tool tier is the operator's decision about the agent, the
+  // Freigabe is a human's decision about this one piece of paper.
 
   const irreversible: ToolDefinition[] = [
     def(
       'finalize_invoice',
-      'ACHTUNG, nicht umkehrbar: Entwurf ausstellen. Vergibt eine lückenlose Nummer; das Dokument ' +
-        'ist danach unveränderlich (GoBD). Nur nach ausdrücklicher Freigabe eines Menschen aufrufen.',
-      obj({ id: S.number('Dokument-ID') }, ['id']),
-      async (a) => (await client.post<{ document: Doc }>(`/documents/${requireNum(a, 'id')}/finalize`)).document,
+      'NICHT UMKEHRBAR: Entwurf festschreiben. Vergibt eine lückenlose Nummer; das Dokument ist ' +
+        'danach unveränderlich (GoBD) und die Nummer verbraucht. Erfordert `approval_id` — die ID ' +
+        'einer von einem Menschen GENEHMIGTEN Freigabe für genau dieses Dokument (siehe ' +
+        '`request_approval`/`list_approvals`). Ohne sie schlägt der Aufruf fehl; frage dann nach ' +
+        'der Freigabe, statt es erneut zu versuchen.',
+      obj({ id: S.number('Dokument-ID'), approval_id: S.number('ID der genehmigten Freigabe') }, [
+        'id',
+        'approval_id',
+      ]),
+      async (a) =>
+        (
+          await client.post<{ document: Doc }>(`/documents/${requireNum(a, 'id')}/finalize`, {
+            approval_id: requireNum(a, 'approval_id'),
+          })
+        ).document,
     ),
 
     def(
       'send_invoice',
-      'ACHTUNG: verschickt eine E-Mail mit dem PDF an den Kunden. Nur nach ausdrücklicher Freigabe ' +
-        'eines Menschen aufrufen.',
-      obj({ id: S.number('Dokument-ID') }, ['id']),
-      async (a) => client.post<{ ok: true; to: string }>(`/documents/${requireNum(a, 'id')}/send`),
-    ),
-
-    def(
-      'create_storno',
-      'Stornorechnung zu einer ausgestellten Rechnung anlegen (zunächst als Entwurf). Buchhalterische ' +
-        'Korrektur — nur nach Rücksprache.',
-      obj({ id: S.number('Dokument-ID der zu stornierenden Rechnung') }, ['id']),
-      async (a) => (await client.post<{ document: Doc }>(`/documents/${requireNum(a, 'id')}/storno`)).document,
+      'NICHT UMKEHRBAR: verschickt eine E-Mail mit dem PDF an den Kunden. Erfordert `approval_id` ' +
+        'einer genehmigten Freigabe (`action: "document.send"`) für genau dieses Dokument.',
+      obj({ id: S.number('Dokument-ID'), approval_id: S.number('ID der genehmigten Freigabe') }, [
+        'id',
+        'approval_id',
+      ]),
+      async (a) =>
+        client.post<{ ok: true; to: string }>(`/documents/${requireNum(a, 'id')}/send`, {
+          approval_id: requireNum(a, 'approval_id'),
+        }),
     ),
 
     def(
       'finalize_contract',
-      'ACHTUNG, nicht umkehrbar: Vertrag festschreiben. Vergibt eine Nummer und friert die zu ' +
-        'diesem Zeitpunkt geltenden AGB ein.',
-      obj({ id: S.number('Vertrags-ID') }, ['id']),
-      async (a) => (await client.post<{ contract: Contract }>(`/contracts/${requireNum(a, 'id')}/finalize`)).contract,
+      'NICHT UMKEHRBAR: Vertrag festschreiben. Vergibt eine Nummer und friert die zu diesem ' +
+        'Zeitpunkt geltenden AGB ein. Erfordert `approval_id` einer genehmigten Freigabe ' +
+        '(`action: "contract.finalize"`).',
+      obj({ id: S.number('Vertrags-ID'), approval_id: S.number('ID der genehmigten Freigabe') }, [
+        'id',
+        'approval_id',
+      ]),
+      async (a) =>
+        (
+          await client.post<{ contract: Contract }>(`/contracts/${requireNum(a, 'id')}/finalize`, {
+            approval_id: requireNum(a, 'approval_id'),
+          })
+        ).contract,
     ),
 
     def(
       'send_contract',
-      'ACHTUNG: verschickt den Vertrag als PDF per E-Mail an den Kunden.',
-      obj({ id: S.number('Vertrags-ID') }, ['id']),
-      async (a) => client.post<{ ok: true; to: string }>(`/contracts/${requireNum(a, 'id')}/send`),
+      'NICHT UMKEHRBAR: verschickt den Vertrag als PDF per E-Mail an den Kunden. Erfordert ' +
+        '`approval_id` einer genehmigten Freigabe (`action: "contract.send"`).',
+      obj({ id: S.number('Vertrags-ID'), approval_id: S.number('ID der genehmigten Freigabe') }, [
+        'id',
+        'approval_id',
+      ]),
+      async (a) =>
+        client.post<{ ok: true; to: string }>(`/contracts/${requireNum(a, 'id')}/send`, {
+          approval_id: requireNum(a, 'approval_id'),
+        }),
     ),
 
     def(

@@ -17,6 +17,7 @@ import { registerLeadRoutes } from './routes/leads'
 import { registerMachineRoutes } from './routes/machine'
 import { registerSettingsRoutes } from './routes/settings'
 import { registerDocumentRoutes } from './routes/documents'
+import { registerApprovalRoutes } from './routes/approvals'
 import { registerContractRoutes } from './routes/contracts'
 import { registerCatalogRoutes } from './routes/catalog'
 import { registerCustomerRoutes } from './routes/customers'
@@ -91,6 +92,7 @@ registerLeadRoutes(app)
 registerMachineRoutes(app)
 registerSettingsRoutes(app)
 registerDocumentRoutes(app)
+registerApprovalRoutes(app)
 registerContractRoutes(app)
 registerCatalogRoutes(app)
 registerCustomerRoutes(app)
