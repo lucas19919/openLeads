@@ -1,7 +1,16 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { fmtDate, parseTags, useEscapeKey } from '../util'
-import type { Lead, LeadAnalysis, LeadEvent, LeadFact, Outreach, PublicUser } from '../types'
+import type {
+  Lead,
+  LeadAnalysis,
+  LeadEvent,
+  LeadFact,
+  LeadLink,
+  LinkKind,
+  Outreach,
+  PublicUser,
+} from '../types'
 
 // talking_points / risk_flags arrive as JSON strings from the model.
 // Parse defensively: never throw, always fall back to an empty list.
@@ -48,6 +57,14 @@ const EVIDENCE_LABELS: Record<string, string> = {
   contradiction: 'Widerspruch',
 }
 
+// Link kinds as api/src/db.ts stores them, with the German labels the drawer shows.
+const LINK_KIND_LABELS: { value: LinkKind; label: string }[] = [
+  { value: 'preview', label: 'Vorschau' },
+  { value: 'website', label: 'Website' },
+  { value: 'dokument', label: 'Dokument' },
+  { value: 'sonstiges', label: 'Sonstiges' },
+]
+
 const OUTREACH_STATUSES: { value: string; label: string }[] = [
   { value: 'entwurf', label: 'Entwurf' },
   { value: 'freigegeben', label: 'Freigegeben' },
@@ -78,6 +95,8 @@ function describe(ev: LeadEvent): string {
       return `Phase: ${ev.from_stage} zu ${ev.to_stage}`
     case 'note':
       return `Notiz: ${ev.body ?? ''}`
+    case 'link':
+      return `Link: ${ev.body ?? ''}`
     default:
       return ev.body ?? ev.type
   }
@@ -109,6 +128,14 @@ export function LeadDetail({
   const [users, setUsers] = useState<PublicUser[]>([])
   const [customerBusy, setCustomerBusy] = useState(false)
   useEscapeKey(onClose)
+
+  // Links (Vorschau-URLs & Co.) — written here and by agents via the machine API.
+  const [links, setLinks] = useState<LeadLink[]>([])
+  const [linkUrl, setLinkUrl] = useState('')
+  const [linkLabel, setLinkLabel] = useState('')
+  const [linkKind, setLinkKind] = useState<LinkKind>('preview')
+  const [linkBusy, setLinkBusy] = useState(false)
+  const [linkErr, setLinkErr] = useState<string | null>(null)
 
   // KI-Analyse
   const [analysis, setAnalysis] = useState<LeadAnalysis | null>(null)
@@ -143,11 +170,12 @@ export function LeadDetail({
 
   useEffect(() => {
     let active = true
-    api.getLead(id).then(({ lead, events }) => {
+    api.getLead(id).then(({ lead, events, links }) => {
       if (!active) return
       setLead(lead)
       setEvents(events)
       setNotes(lead.notes ?? '')
+      setLinks(links ?? [])
     })
     api
       .listOutreach(id)
@@ -212,6 +240,43 @@ export function LeadDetail({
       setFactsErr(errMsg(e))
     } finally {
       setResolvingFact(null)
+    }
+  }
+
+  async function addLink() {
+    const url = linkUrl.trim()
+    if (!url) return
+    setLinkBusy(true)
+    setLinkErr(null)
+    try {
+      const { link, existed } = await api.addLeadLink(id, {
+        url,
+        label: linkLabel.trim() || null,
+        kind: linkKind,
+      })
+      // An already-attached URL comes back unchanged (the backend dedupes per
+      // lead); replace by id so the list never shows it twice.
+      setLinks((prev) => [link, ...prev.filter((l) => l.id !== link.id)])
+      setLinkUrl('')
+      setLinkLabel('')
+      if (!existed) {
+        const fresh = await api.getLead(id)
+        setEvents(fresh.events)
+      }
+    } catch (e) {
+      setLinkErr(errMsg(e))
+    } finally {
+      setLinkBusy(false)
+    }
+  }
+
+  async function removeLink(link: LeadLink) {
+    setLinkErr(null)
+    try {
+      await api.removeLeadLink(id, link.id)
+      setLinks((prev) => prev.filter((l) => l.id !== link.id))
+    } catch (e) {
+      setLinkErr(errMsg(e))
     }
   }
 
@@ -675,6 +740,104 @@ export function LeadDetail({
                     {saving ? '…' : 'Notiz speichern'}
                   </button>
                 </div>
+              </div>
+
+              <div className="field">
+                <label>Links</label>
+                {links.length > 0 && (
+                  <ul className="fact-list" style={{ marginTop: 4 }}>
+                    {links.map((l) => (
+                      <li key={l.id} className="fact">
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            gap: 8,
+                          }}
+                        >
+                          <span style={{ minWidth: 0 }}>
+                            <span className="chip">
+                              {LINK_KIND_LABELS.find((k) => k.value === l.kind)?.label ?? l.kind}
+                            </span>{' '}
+                            <a href={l.url} target="_blank" rel="noopener noreferrer">
+                              {l.label ?? l.url.replace(/^https?:\/\//, '')}
+                            </a>
+                          </span>
+                          <button
+                            className="ghost"
+                            aria-label="Link entfernen"
+                            onClick={() => removeLink(l)}
+                          >
+                            Entfernen
+                          </button>
+                        </div>
+                        {l.label && (
+                          <div className="muted fact-detail" style={{ wordBreak: 'break-all' }}>
+                            {l.url}
+                          </div>
+                        )}
+                        <div className="muted fact-detail">
+                          {fmtDate(l.created_at.slice(0, 10))}
+                          {l.created_by ? ` · ${l.created_by}` : ''}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <div className="row2" style={{ marginTop: 8 }}>
+                  <div className="field">
+                    <label>Adresse</label>
+                    <input
+                      value={linkUrl}
+                      placeholder="https://…"
+                      onChange={(e) => setLinkUrl(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          addLink()
+                        }
+                      }}
+                    />
+                  </div>
+                  <div className="field">
+                    <label>Art</label>
+                    <select
+                      value={linkKind}
+                      onChange={(e) => setLinkKind(e.target.value as LinkKind)}
+                    >
+                      {LINK_KIND_LABELS.map((k) => (
+                        <option key={k.value} value={k.value}>
+                          {k.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="field">
+                  <label>Bezeichnung (optional)</label>
+                  <input
+                    value={linkLabel}
+                    placeholder="z.B. Vorschau Startseite"
+                    onChange={(e) => setLinkLabel(e.target.value)}
+                  />
+                </div>
+                {linkErr && (
+                  <div className="section-error" role="alert">
+                    {linkErr}
+                  </div>
+                )}
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <button className="primary" disabled={linkBusy || !linkUrl.trim()} onClick={addLink}>
+                    {linkBusy ? '…' : 'Link hinzufügen'}
+                  </button>
+                </div>
+                {links.length === 0 && (
+                  <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                    Noch keine Links. Vorschau-URLs, die ein Agent veröffentlicht, erscheinen hier —
+                    anders als in den Notizen überschreibt sie später niemand.
+                  </div>
+                )}
               </div>
 
               <div className="field ai-section">

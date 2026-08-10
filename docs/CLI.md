@@ -8,7 +8,7 @@ die Cloud legen" ist ein Skript oder ein Agenten-Auftrag, kein Klickweg.
 
 Beides spricht dieselbe REST-API wie die Oberfläche, mit demselben Token und
 demselben Audit-Trail. Einen versteckten Zweitzugang zu den Daten gibt es
-nicht — auch die schmale [Maschinen-API](#maschinen-api-apimachine) unten
+nicht — auch die [Maschinen-API](#maschinen-api-apimachine) unten
 schreibt in denselben Verlauf, nur unter eigenem Akteur.
 
 ---
@@ -326,18 +326,84 @@ das in ihren Logs.
 
 Manche Agenten-Plattformen und Automationen werden nicht mit einem persönlichen
 API-Token eingerichtet, sondern mit **einem gemeinsamen Maschinen-Geheimnis**,
-das der Betreiber per Umgebungsvariable setzt. Für sie gibt es eine bewusst
-schmale, stabile Fläche: nur die Lead-Pipeline — keine Rechnungen, kein Admin,
-nichts Unumkehrbares. Wer die volle API will, nimmt weiterhin die CLI/MCP-Tokens
-oben.
+das der Betreiber per Umgebungsvariable setzt. Für sie gibt es eine stabile
+Fläche mit einer klaren Trennlinie: **gelesen werden darf das ganze Zahlenwerk**
+— Verträge, Ausgaben, Serienrechnungen, Abonnements, Leistungskatalog —,
+**geschrieben nur Pipeline und Stammkunden**. Rechnungen ausstellen, Verträge
+festschreiben oder unterzeichnen, einen Serienlauf auslösen, stornieren,
+Einstellungen ändern: all das bleibt hinter einem menschlichen Login. Ein Agent
+kann damit über die Bücher berichten, ohne jemandem eine Rechnung zu schicken.
+Wer die volle API will, nimmt weiterhin die CLI/MCP-Tokens oben.
+
+### Lesen und schreiben
 
 | Methode | Pfad | Zweck |
 |---------|------|-------|
 | GET | `/api/machine/health` | Erreichbarkeitsprobe: `{ ok, service }` — ohne Auth, ohne Daten |
 | GET | `/api/machine/leads?stage=&q=` | Leads filtern, gleiche Semantik wie in der Oberfläche |
-| GET | `/api/machine/leads/:id` | Lead mit den letzten Ereignissen |
+| GET | `/api/machine/leads/:id` | Lead mit Ereignissen, Links und verknüpftem Kunden |
 | POST | `/api/machine/leads` | Lead anlegen — Dedupe nach Domain, `source` standardmäßig `machine` |
 | PATCH | `/api/machine/leads/:id` | Stage, Notizen, Tags, … ändern |
+| POST | `/api/machine/leads/:id/note` | Notiz **anhängen** — überschreibt das Notizfeld nicht |
+| GET | `/api/machine/leads/:id/links` | Links am Lead: Vorschau-URL, fertige Seite, geteiltes Dokument |
+| POST | `/api/machine/leads/:id/links` | Link anhängen — nur http(s), pro Lead je URL einmal |
+| DELETE | `/api/machine/leads/:id/links/:linkId` | Einen Link wieder abhängen |
+| GET | `/api/machine/customers?active=&lead_id=` | Stammkunden filtern; `lead_id` liefert den Kunden zum Lead |
+| GET | `/api/machine/customers/:id` | Ein Stammkunde |
+| GET | `/api/machine/customers/:id/overview` | Kundenakte: Kennzahlen, Dokumente, Verträge |
+| POST | `/api/machine/customers` | Stammkunde anlegen |
+| PATCH | `/api/machine/customers/:id` | Stammkunde ändern — Löschen bleibt menschlich |
+
+`PATCH … { notes }` *ersetzt* den Notiztext — zwei Agenten, die dort schreiben,
+überschreiben einander. `POST …/note` hängt nur an den Verlauf an. Und eine
+Vorschau-URL gehört in die Links, nicht in die Notizen: dort überlebt sie die
+nächste Bearbeitung. Angenommen werden nur http(s)-Adressen (`javascript:`,
+`data:` und `file:` werden abgelehnt, ein nackter Host bekommt `https://`
+vorangestellt); dieselbe URL zweimal anzuhängen ändert nichts und antwortet mit
+`existed: true`. Jedes Anhängen steht im Lead-Verlauf, und mit dem Lead
+verschwinden auch seine Links.
+
+### Nur lesen
+
+| Methode | Pfad | Zweck |
+|---------|------|-------|
+| GET | `/api/machine/documents?kind=&customer_id=` | Angebote und Rechnungen |
+| GET | `/api/machine/documents/:id` | Ein Dokument mit Positionen |
+| GET | `/api/machine/documents/:id/payments` | Gebuchte Zahlungen zu einer Rechnung — Buchen bleibt menschlich |
+| GET | `/api/machine/contracts?customer_id=&status=` | Verträge; `status` ist `entwurf`, `versendet`, `aktiv`, `beendet` oder `abgelehnt` |
+| GET | `/api/machine/contracts/:id` | Ein Vertrag mit `totals` |
+| GET | `/api/machine/expenses?from=&to=&category=&q=` | Ausgaben — die Liste liefert zusätzlich `summary` über den gesamten Filter |
+| GET | `/api/machine/expenses/:id` | Eine Ausgabe |
+| GET | `/api/machine/recurring?customer_id=&contract_id=&active=` | Serienrechnungs-Pläne |
+| GET | `/api/machine/recurring/:id` | Ein Plan — Auslösen (`/run`) gibt es hier nicht |
+| GET | `/api/machine/subscriptions?active=` | Abonnements, mit `summary`: Monats-/Jahres-Run-Rate und anstehende Verlängerungen |
+| GET | `/api/machine/subscriptions/:id` | Ein Abonnement |
+| GET | `/api/machine/catalog?active=` | Leistungskatalog (Antwortschlüssel `items`) |
+| GET | `/api/machine/catalog/:id` | Ein Katalogeintrag |
+| GET | `/api/machine/report/euer?from=&to=` | EÜR-Sicht für einen Zeitraum inkl. USt-Position |
+| GET | `/api/machine/dashboard` | Kennzahlen wie auf der Startseite |
+
+Ein unbekannter `status` trifft bewusst nichts: ein Tippfehler liefert eine
+leere Liste, nicht die ganze Tabelle. POST, PATCH und DELETE gibt es auf diesen
+Pfaden nicht — sie enden in 404, es gibt also keinen Schreibweg, den ein Agent
+versehentlich findet.
+
+**Binärdaten bleiben draußen.** Unterschriebene Vertrags-PDFs und
+Beleg-Scans sind über die Maschinen-API nicht abrufbar. Sichtbar sind nur
+`has_signed_doc` bzw. `has_receipt` und der Dateiname — ein Agent erfährt also,
+dass eine unterschriebene Fassung existiert, bekommt sie aber nicht in die Hand.
+
+**Blättern ist freiwillig.** Jede Liste nimmt `?limit=` (höchstens 500) und
+`?offset=` und liefert neben den Zeilen `total`, `returned` und `offset`. Ohne
+`limit` kommt weiterhin die vollständige Liste — ältere Clients merken von der
+Erweiterung nichts, neue können eine Pipeline mit 400 Zeilen anlesen, statt sie
+komplett in den Kontext eines Modells zu kippen.
+
+```bash
+curl -H "Authorization: Bearer $CRM_MACHINE_TOKEN" \
+  "https://openleads.example.de/api/machine/leads?stage=neu&limit=20"
+# { "leads": [ … 20 Einträge … ], "total": 137, "returned": 20, "offset": 0 }
+```
 
 Authentifizierung: `Authorization: Bearer <CRM_MACHINE_TOKEN>`. Ist die
 Variable nicht gesetzt, ist die gesamte Fläche abgeschaltet — jede Anfrage
@@ -352,9 +418,9 @@ Menschen unterscheidbar — eine Maschine gibt sich nie als Benutzerkonto aus.
 # Betreiber: Token erzeugen und in api/.env setzen
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
-# Client: Pipeline lesen
+# Client: laufende Verträge lesen
 curl -H "Authorization: Bearer $CRM_MACHINE_TOKEN" \
-  https://openleads.example.de/api/machine/leads?stage=neu
+  "https://openleads.example.de/api/machine/contracts?status=aktiv"
 ```
 
 ---

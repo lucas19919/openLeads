@@ -77,18 +77,29 @@ const COLS_NO_BLOB =
   'updated_at, signed_doc_name, signed_doc_mime, signed_doc_size, ' +
   'CASE WHEN signed_doc_data IS NOT NULL THEN X\'01\' ELSE NULL END AS signed_doc_data'
 
-export function listContracts(customerId?: number): FullContract[] {
-  const rows = (
-    customerId != null
-      ? db
-          .prepare(
-            `SELECT ${COLS_NO_BLOB} FROM contracts WHERE customer_id = ? ORDER BY created_at DESC, id DESC`,
-          )
-          .all(customerId)
-      : db
-          .prepare(`SELECT ${COLS_NO_BLOB} FROM contracts ORDER BY created_at DESC, id DESC`)
-          .all()
-  ) as unknown as ContractRow[]
+/**
+ * Contracts, newest first. Both filters are optional and combine; an unknown
+ * status matches nothing rather than being silently ignored, so a typo shows up
+ * as an empty list instead of the whole table.
+ */
+export function listContracts(customerId?: number, status?: string): FullContract[] {
+  const where: string[] = []
+  const params: (string | number)[] = []
+  if (customerId != null) {
+    where.push('customer_id = ?')
+    params.push(customerId)
+  }
+  if (status != null && status !== '') {
+    where.push('status = ?')
+    params.push(status)
+  }
+  const rows = db
+    .prepare(
+      `SELECT ${COLS_NO_BLOB} FROM contracts` +
+        (where.length ? ` WHERE ${where.join(' AND ')}` : '') +
+        ' ORDER BY created_at DESC, id DESC',
+    )
+    .all(...params) as unknown as ContractRow[]
   return rows.map(withTotals)
 }
 

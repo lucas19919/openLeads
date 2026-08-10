@@ -27,7 +27,7 @@ export function registerContractRoutes(app: Hono<{ Variables: Vars }>): void {
     const customer_id = c.req.query('customer_id')
     const cid =
       customer_id != null && customer_id !== '' ? Number(customer_id) : undefined
-    return c.json({ contracts: listContracts(cid) })
+    return c.json({ contracts: listContracts(cid, c.req.query('status') || undefined) })
   })
 
   app.get('/api/contracts/:id', requireAuth, (c) => {
