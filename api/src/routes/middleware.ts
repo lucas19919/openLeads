@@ -3,6 +3,7 @@ import { getCookie } from 'hono/cookie'
 import { getConnInfo } from '@hono/node-server/conninfo'
 import type { TokenScope, UserRow } from '../db'
 import { sessionUser, readApiToken } from '../auth'
+import { isProxyAuth, resolveProxyUser } from '../proxyAuth'
 
 // Shared HTTP plumbing for every route module: the request-scoped user variable,
 // the session cookie, and the auth gates. Routes import from here so the whole
@@ -29,9 +30,20 @@ function bearer(c: AppContext): string | undefined {
 }
 
 /**
- * Resolve the caller: an API token (headless — CLI, MCP, cron) if one is
- * presented, otherwise the browser's session cookie. Two credential kinds, one
- * identity, so every route below sees the same `user` variable either way.
+ * Resolve the caller. Three credential kinds, one identity, so every route below
+ * sees the same `user` variable whichever was used:
+ *
+ *  - an API token — headless callers (CLI, MCP server, cron). Checked first and
+ *    honoured in *either* auth mode: when an SSO proxy fronts the app, an
+ *    unattended job cannot complete an interactive login, so a token is the only
+ *    way in for it.
+ *  - in proxy mode, the identity the upstream proxy asserts, re-read from the
+ *    trusted headers on every request.
+ *  - otherwise the browser's session cookie.
+ *
+ * A presented bearer token never falls back to the cookie: otherwise a forged
+ * Authorization header would be a way to skip the CSRF guard and then ride the
+ * victim's session.
  */
 function identify(c: AppContext): Vars | null {
   const raw = bearer(c)
@@ -39,7 +51,7 @@ function identify(c: AppContext): Vars | null {
     const id = readApiToken(raw)
     return id ? { user: id.user, token: id.token } : null
   }
-  const user = sessionUser(getCookie(c, COOKIE))
+  const user = isProxyAuth ? resolveProxyUser(c) : sessionUser(getCookie(c, COOKIE))
   return user ? { user } : null
 }
 
