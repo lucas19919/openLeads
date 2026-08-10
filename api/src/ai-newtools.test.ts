@@ -37,7 +37,7 @@ test('create_catalog_item + list_catalog round-trip via the agent', async () => 
   assert.ok(list.items.some((i) => i.name === 'Webdesign Stunde'))
 })
 
-test('create_contract + finalize_contract assigns a number and freezes the AGB', async () => {
+test('create_contract drafts; the copilot can only REQUEST the Festschreiben', async () => {
   db.prepare('UPDATE settings SET agb_text = ? WHERE id = 1').run('KI-AGB gelten.')
   const made = (await runTool('create_contract', {
     type: 'wartungsvertrag',
@@ -50,18 +50,36 @@ test('create_contract + finalize_contract assigns a number and freezes the AGB',
   assert.equal(made.contract.number, null)
   assert.equal(made.contract.status, 'entwurf')
 
-  const fin = (await runTool('finalize_contract', { id: made.contract.id }, ctx)) as {
-    ok: boolean
-    contract: { number: string | null; status: string; agb_text: string | null }
+  // The one-way door is gone from the copilot's hands entirely.
+  const gone = (await runTool('finalize_contract', { id: made.contract.id }, ctx)) as { error?: string }
+  assert.match(gone.error ?? '', /Unbekanntes Werkzeug/)
+
+  const asked = (await runTool('request_approval', {
+    action: 'contract.finalize',
+    entity_id: made.contract.id,
+    reason: 'Kunde hat zugesagt',
+  }, ctx)) as { ok: boolean; approval_id: number; status: string }
+  assert.equal(asked.ok, true)
+  assert.equal(asked.status, 'offen')
+
+  // …and the contract is still an untouched draft: asking is not doing.
+  const still = db.prepare('SELECT number, status FROM contracts WHERE id = ?').get(made.contract.id) as {
+    number: string | null
+    status: string
   }
-  assert.equal(fin.ok, true)
-  assert.match(fin.contract.number ?? '', /^V-\d{4}-\d{4}$/)
-  assert.equal(fin.contract.status, 'versendet')
-  assert.equal(fin.contract.agb_text, 'KI-AGB gelten.')
+  assert.equal(still.number, null)
+  assert.equal(still.status, 'entwurf')
+
+  const queue = (await runTool('list_approvals', { status: 'offen' }, ctx)) as {
+    approvals: { id: number; action: string }[]
+  }
+  assert.ok(queue.approvals.some((a) => a.id === asked.approval_id && a.action === 'contract.finalize'))
 })
 
-test('finalize_contract on a missing id reports an error, not a throw', async () => {
-  const r = (await runTool('finalize_contract', { id: 999999 }, ctx)) as { error?: string }
+test('request_approval on a missing id reports an error, not a throw', async () => {
+  const r = (await runTool('request_approval', { action: 'contract.finalize', entity_id: 999999 }, ctx)) as {
+    error?: string
+  }
   assert.match(r.error ?? '', /nicht gefunden/)
 })
 

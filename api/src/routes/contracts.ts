@@ -17,10 +17,11 @@ import { recurringFromContract } from '../recurring'
 import { renderContractPdf, contractPdfFilename } from '../contractPdf'
 import { getSettings } from '../documents'
 import { audit } from '../audit'
+import { ApprovalError, requireApproval } from '../approvals'
 import { SMTP } from '../mailer'
 import { deliverMail } from '../maildispatch'
 import { requireAuth, type Vars } from './middleware'
-import { readUpload, inlineFile } from './helpers'
+import { readUpload, inlineFile, errorStatus } from './helpers'
 
 export function registerContractRoutes(app: Hono<{ Variables: Vars }>): void {
   app.get('/api/contracts', requireAuth, (c) => {
@@ -90,13 +91,26 @@ export function registerContractRoutes(app: Hono<{ Variables: Vars }>): void {
   })
 
   // Finalise: assign a gapless number, freeze the AGB text in force now, mark sent.
-  app.post('/api/contracts/:id/finalize', requireAuth, (c) => {
+  // Irreversible, so the same rule as invoices applies: a person clicking this is
+  // the approval; a headless caller carries an `approval_id` a person granted.
+  app.post('/api/contracts/:id/finalize', requireAuth, async (c) => {
     const id = Number(c.req.param('id'))
+    const actor = c.get('user').username
+    let approvalId: number | null = null
+    if (c.get('token')) {
+      const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+      try {
+        approvalId = requireApproval({ body: b, action: 'contract.finalize', entityId: id, actor }).id
+      } catch (e) {
+        const err = e as ApprovalError
+        return c.json({ error: err.message }, errorStatus(err.status))
+      }
+    }
     const wasFinal = !!(db.prepare('SELECT number FROM contracts WHERE id = ?').get(id) as { number?: string } | undefined)?.number
     const contract = finalizeContract(id)
     if (!contract) return c.json({ error: 'not found' }, 404)
     if (!wasFinal) {
-      audit({ actor: c.get('user').username, action: 'contract.finalize', entity: 'contract', entityId: id, detail: { number: contract.number, type: contract.type } })
+      audit({ actor, action: 'contract.finalize', entity: 'contract', entityId: id, detail: { number: contract.number, type: contract.type, approval_id: approvalId } })
     }
     return c.json({ contract })
   })
@@ -127,10 +141,22 @@ export function registerContractRoutes(app: Hono<{ Variables: Vars }>): void {
 
   // E-mail a finalised contract as a PDF to the client for signature.
   app.post('/api/contracts/:id/send', requireAuth, async (c) => {
-    const contract = getContract(Number(c.req.param('id')))
+    const id = Number(c.req.param('id'))
+    const contract = getContract(id)
     if (!contract) return c.json({ error: 'not found' }, 404)
     if (!contract.number) return c.json({ error: 'Nur festgeschriebene Verträge können versendet werden.' }, 400)
     if (!contract.client_email) return c.json({ error: 'Kein Empfänger (E-Mail) am Vertrag hinterlegt.' }, 400)
+    const actor = c.get('user').username
+    let approvalId: number | null = null
+    if (c.get('token')) {
+      const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+      try {
+        approvalId = requireApproval({ body: b, action: 'contract.send', entityId: id, actor }).id
+      } catch (e) {
+        const err = e as ApprovalError
+        return c.json({ error: err.message }, errorStatus(err.status))
+      }
+    }
     const s = getSettings()
     let pdf: Buffer
     try {
@@ -150,7 +176,7 @@ export function registerContractRoutes(app: Hono<{ Variables: Vars }>): void {
         attachments: [{ filename: contractPdfFilename(contract), content: pdf, contentType: 'application/pdf' }],
         actor: c.get('user').username,
       })
-      audit({ actor: c.get('user').username, action: 'contract.send', entity: 'contract', entityId: contract.id, detail: { to: email.to, messageId, via } })
+      audit({ actor, action: 'contract.send', entity: 'contract', entityId: contract.id, detail: { to: email.to, messageId, via, approval_id: approvalId } })
       return c.json({ ok: true, messageId, to: email.to })
     } catch (e) {
       return c.json({ error: (e as Error).message }, 502)

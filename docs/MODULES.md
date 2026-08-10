@@ -67,6 +67,8 @@ When you **Festschreiben** a Rechnung you get a ZUGFeRD / Factur-X PDF/A-3, a nu
 
 Record payments (partial supported). Upload the signed/final PDF onto the record if you keep paper copies elsewhere.
 
+Assistants (copilot, MCP, suite agents) may draft and correct invoices, but not issue or send them. When one wants to, its request appears as a **Freigabe** at the top of Übersicht — recipient, every position, the total, and what the yes would cause. You approve or reject; approving is what actually lets the machine festschreiben, once, for exactly that content.
+
 **Serienrechnungen** (recurring) have no sidebar tab of their own — open them from the related **Vertrag** or **Kunde**. Each period produces a *draft* for you to review. Nothing is auto-sent.
 
 ---

@@ -27,9 +27,10 @@ Rough map of the tool surface (prompts are tuned for a German web agency):
 - **Recherche** — `research_company` (look, save nothing), `research_lead` (re-check an existing lead)
 - **Belege** — `record_fact` / `list_facts`: every machine-written value carries its source
 - **Kunden** — find / create registry entries
-- **Documents** — draft Angebote/Rechnungen from natural language, attach catalog lines
+- **Documents** — draft Angebote/Rechnungen from natural language, attach catalog lines, correct or discard a draft (`create_document`, `update_document`, `delete_document_draft`)
 - **Catalog** — list / add Leistungskatalog items
-- **Contracts** — draft and finalise (with the usual human checks in the UI)
+- **Contracts** — draft (`create_contract`); finalising is not its call
+- **Freigaben** — `request_approval` / `list_approvals`: it asks for Festschreiben and Versenden, a human decides
 
 The voice is German by default: Website-Pakete, Relaunch, Hosting & Pflege, SEO, Google Business Profil.
 
@@ -38,6 +39,7 @@ The voice is German by default: Website-Pakete, Relaunch, Hosting & Pflege, SEO,
 ## Hard limits (on purpose)
 
 1. **Nothing leaves without approval.** Outreach e-mail is drafted and marked for freigabe. SMTP only sends after a human confirms. Impressum + opt-out footer are appended server-side.
+1a. **Festschreiben is not the copilot's to do.** Drafting is free — every draft is deletable and carries no number. Issuing one (a gapless number is spent, the content freezes under GoBD) and sending it are behind a Freigabe: the copilot calls `request_approval`, the request appears under „Freigaben" with recipient, positions and total, and a logged-in human decides. The yes is bound to a fingerprint of that exact content, is good once, and expires. There is deliberately no tool for granting one — an assistant that could approve its own request would be a rubber stamp with extra steps.
 2. **No silent side channels.** Tools go through the API layer; actions show up in the audit log with actor and (where relevant) IP.
 3. **You can run without AI.** If the endpoint is down, the badge shows *KI offline* and Chat is inert. CRM and billing keep working.
 4. **It may not overwrite you.** Anything the AI writes into a lead is graded first: only a value the business states about *itself* (Impressum, signature, its own reply) fills an empty field outright. Everything weaker — and everything that disagrees with a value you set by hand — becomes a suggestion you accept or reject. The priority you set by dragging a card is never revised by a re-analysis.
@@ -63,7 +65,7 @@ The German Impressum does the heavy lifting here: §5 DDG obliges every business
 ## Tips
 
 - Be concrete: “Angebot an *Kunde X*, Positionen aus Katalog Website Business + Hosting 12 Monate” beats “mach mal eine Rechnung”.
-- Review drafts before Festschreiben — the model can mis-hear amounts; numbers are net cents under the hood.
+- Read the Freigabe card before you click, not the chat summary: the model can mis-hear amounts, and the card shows the actual positions (numbers are net cents under the hood).
 - For lead gen from the web, give a full `https://…` URL and a short note about what you sell.
 - If answers feel off-domain, check `AI_MODEL` / temperature under Einstellungen; lower temperature (default `0.3`) keeps it more tool-ish than chatty.
 

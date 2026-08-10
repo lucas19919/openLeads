@@ -1,6 +1,8 @@
 import type {
   AiStatus,
   AiThread,
+  Approval,
+  ApprovalStatus,
   ChatResponse,
   CatalogItem,
   Config,
@@ -196,6 +198,27 @@ export const api = {
   sendDocument: (id: number) =>
     req<{ ok: true; messageId: string; to: string }>(`/documents/${id}/send`, {
       method: 'POST',
+    }),
+
+  // --- Freigaben (approvals) ---
+  // The queue where an agent's request for a one-way door waits for a person.
+  // Deciding is session-only on the server: an API token can ask, never grant.
+  listApprovals: (params: { status?: ApprovalStatus; entity_id?: number } = {}) => {
+    const q = new URLSearchParams()
+    if (params.status) q.set('status', params.status)
+    if (params.entity_id != null) q.set('entity_id', String(params.entity_id))
+    const suffix = q.toString() ? `?${q}` : ''
+    return req<{ approvals: Approval[]; pending: number }>(`/approvals${suffix}`)
+  },
+  approveApproval: (id: number, note?: string) =>
+    req<{ approval: Approval }>(`/approvals/${id}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ note: note ?? null }),
+    }),
+  rejectApproval: (id: number, note?: string) =>
+    req<{ approval: Approval }>(`/approvals/${id}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ note: note ?? null }),
     }),
 
   // --- Zahlungen (payments) ---

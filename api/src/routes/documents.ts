@@ -1,29 +1,41 @@
 import type { Hono } from 'hono'
-import { db, DOC_KINDS, DOC_STATUSES, type DocumentRow, type LeadRow } from '../db'
+import { db, DOC_KINDS, type DocumentRow } from '../db'
 import {
   getSettings,
   getDocument,
   listDocuments,
-  replaceItems,
   finalizeDraft,
   setDocumentSignedDoc,
   getDocumentSignedDoc,
   deleteDocumentSignedDoc,
   stornoFromDocument,
-  DOC_EDITABLE,
-  assertDocumentPatchable,
-  type DocItemInput,
+  createDraftDocument,
+  patchDocument,
+  deleteDraftDocument,
+  invoiceFromQuote,
 } from '../documents'
+import { mailDocument, DocumentMailError } from '../documentMail'
 import { renderDocumentPdf, pdfFilename } from '../pdf'
 import { validateInvoice } from '../validate'
 import { listPayments, addPayment, deletePayment, paidCents } from '../payments'
-import { getCustomer } from '../customers'
 import { contractFromDocument } from '../contracts'
 import { audit } from '../audit'
-import { SMTP } from '../mailer'
-import { deliverMail } from '../maildispatch'
-import { requireAuth, type Vars } from './middleware'
-import { readUpload, inlineFile } from './helpers'
+import { ApprovalError, requireApproval } from '../approvals'
+import { requireAuth, type AppContext, type Vars } from './middleware'
+import { readUpload, inlineFile, errorStatus } from './helpers'
+
+/**
+ * Who is asking, and may they walk through a one-way door unaccompanied?
+ *
+ * A cookie (or SSO-proxy) session is a person at a screen: clicking
+ * "Festschreiben" IS the explicit approval, and there is nothing to gate. A
+ * bearer token is a headless caller — the CLI, the MCP server, a cron job, an
+ * agent — and for those the yes has to come from a human first, carried as an
+ * `approval_id` from the Freigaben queue (approvals.ts).
+ */
+function headless(c: AppContext): boolean {
+  return c.get('token') !== undefined
+}
 
 
 export function registerDocumentRoutes(app: Hono<{ Variables: Vars }>): void {
@@ -56,128 +68,51 @@ export function registerDocumentRoutes(app: Hono<{ Variables: Vars }>): void {
   // Create a draft document. Optionally prefill from a customer or lead.
   app.post('/api/documents', requireAuth, async (c) => {
     const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
-    const kind = String(b.kind ?? '')
-    if (!DOC_KINDS.includes(kind as never)) return c.json({ error: 'invalid kind' }, 400)
-    const s = getSettings()
-
-    // Prefill precedence: explicit body field > linked customer > linked lead.
-    // Unknown customer_id → 400 (not a silent unlink).
-    const customerId = b.customer_id != null ? Number(b.customer_id) : null
-    const customer = customerId != null ? getCustomer(customerId) : null
-    if (customerId != null && !customer) return c.json({ error: 'Kunde nicht gefunden.' }, 400)
-    let prefillName: string | null = (b.client_name as string) ?? customer?.name ?? null
-    let prefillAddress: string | null = (b.client_address as string) ?? customer?.address ?? null
-    let prefillZip: string | null = (b.client_zip as string) ?? customer?.zip ?? null
-    let prefillCity: string | null = (b.client_city as string) ?? customer?.city ?? null
-    let prefillEmail: string | null = (b.client_email as string) ?? customer?.email ?? null
-    let prefillVat: string | null = (b.client_vat_id as string) ?? customer?.vat_id ?? null
-    const clientType = (b.client_type as string) ?? customer?.client_type ?? 'geschaeft'
-    const leadId = b.lead_id != null ? Number(b.lead_id) : customer?.lead_id ?? null
-    if (leadId) {
-      const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(leadId) as unknown as
-        | LeadRow
-        | undefined
-      if (lead) {
-        prefillName = prefillName ?? lead.company
-        prefillCity = prefillCity ?? lead.city
-        prefillEmail = prefillEmail ?? lead.email
-      }
+    try {
+      return c.json({ document: createDraftDocument(b) }, 201)
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400)
     }
-
-    const info = db
-      .prepare(
-        `INSERT INTO documents
-          (kind, lead_id, customer_id, client_name, client_address, client_zip, client_city,
-           client_email, client_vat_id, client_type, title, intro, notes, small_business, vat_rate)
-         VALUES
-          (@kind, @lead_id, @customer_id, @client_name, @client_address, @client_zip, @client_city,
-           @client_email, @client_vat_id, @client_type, @title, @intro, @notes, @small_business, @vat_rate)`,
-      )
-      .run({
-        kind,
-        lead_id: leadId,
-        customer_id: customer?.id ?? null,
-        client_name: prefillName,
-        client_address: prefillAddress,
-        client_zip: prefillZip,
-        client_city: prefillCity,
-        client_email: prefillEmail,
-        client_vat_id: prefillVat,
-        client_type: clientType === 'privat' ? 'privat' : 'geschaeft',
-        title: (b.title as string) ?? (kind === 'rechnung' ? 'Rechnung' : 'Angebot'),
-        intro: (b.intro as string) ?? null,
-        notes: (b.notes as string) ?? null,
-        small_business: s.small_business,
-        vat_rate: s.vat_rate,
-      })
-    const id = Number(info.lastInsertRowid)
-    if (Array.isArray(b.items)) replaceItems(id, b.items as DocItemInput[])
-    return c.json({ document: getDocument(id) }, 201)
   })
 
   app.patch('/api/documents/:id', requireAuth, async (c) => {
     const id = Number(c.req.param('id'))
-    const doc = db.prepare('SELECT id, kind, number, status FROM documents WHERE id = ?').get(id) as unknown as
-      | Pick<DocumentRow, 'id' | 'kind' | 'number' | 'status'>
-      | undefined
-    if (!doc) return c.json({ error: 'not found' }, 404)
     const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
-
-    // Issued (numbered) documents are immutable — reject content edits instead
-    // of silently ignoring them, so callers learn the rule.
     try {
-      assertDocumentPatchable(!!doc.number, b)
+      const document = patchDocument(id, b)
+      if (!document) return c.json({ error: 'not found' }, 404)
+      return c.json({ document })
     } catch (e) {
       return c.json({ error: (e as Error).message }, 400)
     }
-
-    // Status change, validated against the kind's allowed statuses.
-    if (typeof b.status === 'string' && b.status !== doc.status) {
-      const allowed = DOC_STATUSES[doc.kind as keyof typeof DOC_STATUSES] ?? []
-      if (!allowed.includes(b.status)) return c.json({ error: 'invalid status' }, 400)
-    }
-
-    // Link-only: customer_id may change; client_* snapshots are never auto-copied.
-    if ('customer_id' in b && b.customer_id != null) {
-      if (!getCustomer(Number(b.customer_id))) return c.json({ error: 'Kunde nicht gefunden.' }, 400)
-    }
-
-    const sets: string[] = []
-    const params: Record<string, string | number | null> = { id }
-    for (const key of [...DOC_EDITABLE, 'status']) {
-      if (!(key in b)) continue
-      const v = b[key]
-      // node:sqlite binds only string|number|null — coerce booleans, skip non-scalar
-      // (object/array) values rather than letting .run() throw a raw 500.
-      let bound: string | number | null
-      if (v === undefined || v === null) bound = null
-      else if (typeof v === 'boolean') bound = v ? 1 : 0
-      else if (key === 'customer_id' || key === 'lead_id') {
-        bound = v === '' || v === null ? null : Number(v)
-      } else if (typeof v === 'string' || typeof v === 'number') bound = v
-      else continue
-      sets.push(`${key} = @${key}`)
-      params[key] = bound
-    }
-    if (sets.length) {
-      sets.push("updated_at = datetime('now')")
-      db.prepare(`UPDATE documents SET ${sets.join(', ')} WHERE id = @id`).run(params)
-    }
-    if (Array.isArray(b.items)) replaceItems(id, b.items as DocItemInput[])
-    return c.json({ document: getDocument(id) })
   })
 
   // Finalise a draft: assign a gapless number + issue/due dates, mark "versendet".
   // Done atomically in finalizeDraft() so a number is never consumed without the
   // matching invoice (gapless numbering, §14 UStG / GoBD).
-  app.post('/api/documents/:id/finalize', requireAuth, (c) => {
+  //
+  // A person clicking this in the UI is the approval. A headless caller has to
+  // bring one: `approval_id` of a Freigabe a human granted for exactly this
+  // document, in exactly this state.
+  app.post('/api/documents/:id/finalize', requireAuth, async (c) => {
     const id = Number(c.req.param('id'))
+    const actor = c.get('user').username
+    let approvalId: number | null = null
+    if (headless(c)) {
+      const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+      try {
+        approvalId = requireApproval({ body: b, action: 'document.finalize', entityId: id, actor }).id
+      } catch (e) {
+        const err = e as ApprovalError
+        return c.json({ error: err.message }, errorStatus(err.status))
+      }
+    }
     const wasFinal = !!(db.prepare('SELECT number FROM documents WHERE id = ?').get(id) as { number?: string } | undefined)?.number
     const doc = finalizeDraft(id)
     if (!doc) return c.json({ error: 'not found' }, 404)
     // Audit the issuance (who finalised which number, when) — but not a re-finalise no-op.
     if (!wasFinal) {
-      audit({ actor: c.get('user').username, action: 'document.finalize', entity: 'document', entityId: id, detail: { number: doc.number, kind: doc.kind } })
+      audit({ actor, action: 'document.finalize', entity: 'document', entityId: id, detail: { number: doc.number, kind: doc.kind, approval_id: approvalId } })
     }
     return c.json({ document: doc })
   })
@@ -189,35 +124,34 @@ export function registerDocumentRoutes(app: Hono<{ Variables: Vars }>): void {
     return c.json({ validation: validateInvoice(doc, getSettings()) })
   })
 
-  // E-mail a finalised document as a PDF to the client.
+  // E-mail a finalised document as a PDF to the client. Same posture as
+  // finalise: a click is its own approval, a headless caller brings one.
   app.post('/api/documents/:id/send', requireAuth, async (c) => {
-    const doc = getDocument(Number(c.req.param('id')))
+    const id = Number(c.req.param('id'))
+    const doc = getDocument(id)
     if (!doc) return c.json({ error: 'not found' }, 404)
-    if (!doc.number) return c.json({ error: 'Nur ausgestellte Dokumente können versendet werden.' }, 400)
-    if (!doc.client_email) return c.json({ error: 'Kein Empfänger (E-Mail) am Dokument hinterlegt.' }, 400)
-    const s = getSettings()
-
-    let pdf: Buffer
-    try {
-      pdf = await renderDocumentPdf(doc, s)
-    } catch (e) {
-      return c.json({ error: 'PDF konnte nicht erstellt werden: ' + (e as Error).message }, 500)
+    const actor = c.get('user').username
+    let approvalId: number | null = null
+    if (headless(c)) {
+      const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+      try {
+        approvalId = requireApproval({ body: b, action: 'document.send', entityId: id, actor }).id
+      } catch (e) {
+        const err = e as ApprovalError
+        return c.json({ error: err.message }, errorStatus(err.status))
+      }
     }
-    const label = doc.kind === 'rechnung' ? 'Rechnung' : 'Angebot'
-    const greeting = doc.client_name ? `Sehr geehrte Damen und Herren bei ${doc.client_name},` : 'Sehr geehrte Damen und Herren,'
-    const body =
-      `${greeting}\n\nanbei erhalten Sie ${label === 'Rechnung' ? 'unsere Rechnung' : 'unser Angebot'} ${doc.number} als PDF.\n\n` +
-      `Mit freundlichen Grüßen\n${s.business_name ?? ''}`
-    const email = { to: doc.client_email, from: SMTP.from || s.email || '', subject: `${label} ${doc.number}`, text: body }
     try {
-      const { messageId, via } = await deliverMail(email, {
-        attachments: [{ filename: pdfFilename(doc), content: pdf, contentType: 'application/pdf' }],
-        actor: c.get('user').username,
-      })
-      audit({ actor: c.get('user').username, action: 'invoice.send', entity: 'document', entityId: doc.id, detail: { to: email.to, messageId, via } })
-      return c.json({ ok: true, messageId, to: email.to })
+      const sent = await mailDocument(doc, actor)
+      audit({ actor, action: 'invoice.send', entity: 'document', entityId: doc.id, detail: { to: sent.to, messageId: sent.messageId, via: sent.via, approval_id: approvalId } })
+      return c.json({ ok: true, messageId: sent.messageId, to: sent.to })
     } catch (e) {
-      return c.json({ error: (e as Error).message }, 502)
+      // A consumed Freigabe stays consumed even when the relay refuses: it is
+      // spent before the attempt so it can never authorise two mails, and from
+      // here we cannot tell a refused hand-off from a delivered one.
+      const err = e as DocumentMailError
+      const spent = approvalId ? ` Die Freigabe ${approvalId} ist verbraucht — bitte erneut anfragen.` : ''
+      return c.json({ error: err.message + spent }, errorStatus(err.status))
     }
   })
 
@@ -268,43 +202,13 @@ export function registerDocumentRoutes(app: Hono<{ Variables: Vars }>): void {
 
   // Convert an Angebot into a draft Rechnung (copies client + items).
   app.post('/api/documents/:id/convert', requireAuth, (c) => {
-    const id = Number(c.req.param('id'))
-    const src = getDocument(id)
-    if (!src) return c.json({ error: 'not found' }, 404)
-    if (src.kind !== 'angebot') return c.json({ error: 'nur Angebote konvertierbar' }, 400)
-    const info = db
-      .prepare(
-        `INSERT INTO documents
-          (kind, lead_id, client_name, client_address, client_zip, client_city,
-           client_email, client_type, title, intro, notes, small_business, vat_rate)
-         VALUES
-          ('rechnung', @lead_id, @client_name, @client_address, @client_zip, @client_city,
-           @client_email, @client_type, 'Rechnung', @intro, @notes, @small_business, @vat_rate)`,
-      )
-      .run({
-        lead_id: src.lead_id,
-        client_name: src.client_name,
-        client_address: src.client_address,
-        client_zip: src.client_zip,
-        client_city: src.client_city,
-        client_email: src.client_email,
-        client_type: src.client_type,
-        intro: src.intro,
-        notes: src.notes,
-        small_business: src.small_business,
-        vat_rate: src.vat_rate,
-      })
-    const newId = Number(info.lastInsertRowid)
-    replaceItems(
-      newId,
-      src.items.map((it) => ({
-        description: it.description,
-        quantity: it.quantity,
-        unit: it.unit,
-        unit_price_cents: it.unit_price_cents,
-      })),
-    )
-    return c.json({ document: getDocument(newId) }, 201)
+    try {
+      const document = invoiceFromQuote(Number(c.req.param('id')))
+      if (!document) return c.json({ error: 'not found' }, 404)
+      return c.json({ document }, 201)
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400)
+    }
   })
 
   // Create a draft Stornorechnung for a finalised Rechnung (negated items,
@@ -339,16 +243,11 @@ export function registerDocumentRoutes(app: Hono<{ Variables: Vars }>): void {
   })
 
   app.delete('/api/documents/:id', requireAuth, (c) => {
-    const id = Number(c.req.param('id'))
-    const doc = db.prepare('SELECT id, number FROM documents WHERE id = ?').get(id) as unknown as
-      | Pick<DocumentRow, 'id' | 'number'>
-      | undefined
-    if (!doc) return c.json({ error: 'not found' }, 404)
     // Keep the audit trail intact: finalised (numbered) documents must not vanish.
-    if (doc.number) {
+    const result = deleteDraftDocument(Number(c.req.param('id')))
+    if (result === 'not-found') return c.json({ error: 'not found' }, 404)
+    if (result === 'finalised')
       return c.json({ error: 'Ausgestellte Dokumente können nicht gelöscht werden.' }, 400)
-    }
-    db.prepare('DELETE FROM documents WHERE id = ?').run(id)
     return c.json({ ok: true })
   })
 

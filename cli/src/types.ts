@@ -216,6 +216,35 @@ export interface ValidationResult {
   warnings: { rule: string; message: string }[]
 }
 
+/** A human's yes (or no) to a one-way door — see api/src/approvals.ts. */
+export interface Approval {
+  id: number
+  action: 'document.finalize' | 'document.send' | 'contract.finalize' | 'contract.send'
+  entity: string
+  entity_id: number
+  status: 'offen' | 'genehmigt' | 'abgelehnt' | 'verbraucht' | 'zurueckgezogen' | 'abgelaufen'
+  reason: string | null
+  requested_by: string
+  requested_at: string
+  expires_at: string
+  decided_by: string | null
+  decided_at: string | null
+  decision_note: string | null
+  used_at: string | null
+  summary: {
+    label: string
+    title: string
+    recipient: string | null
+    recipient_email: string | null
+    gross_cents: number
+    number: string | null
+    lines: string[]
+    warnings: string[]
+  }
+  /** False when the paper changed after the decision — the yes no longer holds. */
+  content_unchanged?: boolean
+}
+
 export interface ApiToken {
   id: number
   name: string

@@ -105,14 +105,19 @@ openleads docs list --overdue --json             # JSON erzwingen
 
 ### Nicht umkehrbare Aktionen
 
-Rechnung ausstellen, Stornorechnung, Vertrag festschreiben, E-Mail versenden,
-Sicherung einspielen, Token widerrufen — all das verlangt ausdrücklich `--yes`.
-Ohne die Bestätigung passiert nichts und der Exit-Code ist 2.
+Rechnung festschreiben, Vertrag festschreiben, E-Mail versenden, Sicherung
+einspielen, Token widerrufen — all das verlangt ausdrücklich `--yes`. Ohne die
+Bestätigung passiert nichts und der Exit-Code ist 2.
 
 ```bash
-openleads docs finalize 42          # verweigert, Code 2
-openleads docs finalize 42 --yes    # stellt aus, vergibt die Nummer
+openleads docs finalize 42                      # verweigert, Code 2
+openleads docs finalize 42 --approval 7 --yes   # schreibt fest, vergibt die Nummer
 ```
+
+`--yes` schützt vor dem Vertipper, nicht vor dem Urteil. Festschreiben und
+Versenden verlangen zusätzlich `--approval`: die Freigabe eines angemeldeten
+Menschen für genau dieses Dokument — siehe
+[Freigaben](#freigaben-was-ein-agent-nicht-allein-darf).
 
 ---
 
@@ -143,11 +148,12 @@ openleads docs create --kind rechnung --customer 3 \
   --item "Website-Relaunch:1:2500,00" \
   --item "Pflege:12:49,00:Monat"
 openleads docs validate 7          # EN 16931 / ZUGFeRD
-openleads docs finalize 7 --yes
+openleads approvals request 7 --action document.finalize --reason "Auftrag fertig"
+openleads docs finalize 7 --approval 3 --yes    # nach der Freigabe eines Menschen
 openleads docs pdf 7 -o ./rechnungen/
 openleads docs pay 7 --amount 2975,00 --on 2026-08-01 --method ueberweisung
-openleads docs send 7 --yes
-openleads docs storno 7 --yes
+openleads docs send 7 --approval 4 --yes
+openleads docs storno 7 --yes      # nur der Entwurf; wirksam erst festgeschrieben
 ```
 
 Beträge nimmt die CLI in beiden Schreibweisen: `2500,00` und `2500.00` sind
@@ -159,7 +165,7 @@ dasselbe, `1.190` sind eintausendeinhundertneunzig Euro.
 openleads customers list --q "Muster"
 openleads customers overview 3
 openleads contracts expiring --days 60
-openleads contracts finalize 12 --yes
+openleads contracts finalize 12 --approval 5 --yes
 openleads expenses list --from 2026-01-01 --to 2026-03-31
 openleads expenses create --gross 23,80 --vendor Hetzner --category hosting
 openleads subs list --active
@@ -182,6 +188,18 @@ openleads export invoices | wc -l    # ohne -o auf stdout
 openleads backup -o ./sicherungen/            # Dateiname kommt vom Server
 openleads restore sicherung.db --yes          # überschreibt ALLES
 ```
+
+### Freigaben
+
+```bash
+openleads approvals list --status offen
+openleads approvals request 7 --action document.finalize --reason "Auftrag fertig"
+openleads approvals show 3
+openleads approvals withdraw 3
+```
+
+Erteilt wird eine Freigabe nur in der Oberfläche, von einem angemeldeten
+Menschen — mit einem Token geht das absichtlich nicht.
 
 ### Tokens
 
@@ -235,9 +253,9 @@ kann.**
 
 | Tier | Werkzeuge |
 |------|-----------|
-| lesen | `list_leads`, `get_lead`, `pipeline_overview`, `morning_digest`, `list_invoices`, `get_invoice`, `list_customers`, `customer_overview`, `list_contracts`, `list_expenses`, `list_subscriptions`, `list_recurring`, `list_catalog`, `euer_report`, `export_csv`, `create_backup`, `research_company`, `list_lead_facts`, `review_facts` |
-| umkehrbar schreiben | `create_lead`, `update_lead`, `add_lead_note`, `analyze_lead`, `draft_outreach`, `create_customer`, `create_invoice_draft`, `create_expense`, `run_due_recurring`, `research_lead`, `record_fact`, `resolve_fact` |
-| **nicht umkehrbar** (aus) | `finalize_invoice`, `send_invoice`, `create_storno`, `finalize_contract`, `send_contract`, `ask_copilot` |
+| lesen | `list_leads`, `get_lead`, `pipeline_overview`, `morning_digest`, `list_invoices`, `get_invoice`, `validate_invoice`, `list_customers`, `customer_overview`, `list_contracts`, `list_expenses`, `list_subscriptions`, `list_recurring`, `list_catalog`, `euer_report`, `export_csv`, `create_backup`, `research_company`, `list_lead_facts`, `review_facts`, `list_approvals` |
+| umkehrbar schreiben | `create_lead`, `update_lead`, `add_lead_note`, `analyze_lead`, `draft_outreach`, `create_customer`, `create_invoice_draft`, `update_invoice_draft`, `delete_invoice_draft`, `convert_quote_to_invoice`, `create_storno_draft`, `create_expense`, `run_due_recurring`, `research_lead`, `record_fact`, `resolve_fact`, `request_approval`, `withdraw_approval` |
+| **nicht umkehrbar** (aus, und zusätzlich freigabepflichtig) | `finalize_invoice`, `send_invoice`, `finalize_contract`, `send_contract`, `ask_copilot` |
 
 Das dritte Tier ist nicht registriert, solange du es nicht freischaltest — ein
 Agent kann es also nicht einmal versehentlich aufrufen:
@@ -249,12 +267,54 @@ openleads mcp --max-rows 25                 # Listen kürzen (Standard 50)
 ```
 
 `ask_copilot` steckt im dritten Tier, weil der eingebaute Copilot seinerseits
-schreibende Werkzeuge hat — inklusive Ausstellen und Festschreiben.
+schreibende Werkzeuge hat.
 
-Zwei Absicherungen greifen unabhängig voneinander: das Tier bestimmt, welche
+Drei Absicherungen greifen unabhängig voneinander: das Tier bestimmt, welche
 Werkzeuge der Host überhaupt sieht; die Reichweite des Tokens bestimmt, was der
-Server durchlässt. Ein Nur-Lese-Token mit `--allow-irreversible` bleibt
-harmlos — jeder Schreibversuch endet in einem 403.
+Server durchlässt; und **Festschreiben und Versenden brauchen darüber hinaus die
+Freigabe eines Menschen** (siehe unten). Ein Nur-Lese-Token mit
+`--allow-irreversible` bleibt harmlos — jeder Schreibversuch endet in einem 403.
+
+### Freigaben: was ein Agent nicht allein darf
+
+Rechnungen **entwerfen** darf ein Agent frei: anlegen, Positionen korrigieren,
+ein angenommenes Angebot umwandeln, einen Entwurf wieder wegwerfen. Nichts davon
+vergibt eine Nummer, nichts verlässt das Haus.
+
+**Festschreiben** (die lückenlose Nummer ist verbraucht, der Inhalt eingefroren —
+§14 UStG / GoBD) und **Versenden** (die Mail ist beim Kunden) sind eine andere
+Sache. Beides verlangt eine Freigabe, die ein angemeldeter Mensch in OpenLeads
+erteilt:
+
+```bash
+# 1. Der Agent (oder du) bereitet den Entwurf vor und bittet um die Freigabe
+openleads approvals request 42 --action document.finalize --reason "Auftrag abgeschlossen"
+
+# 2. Ein Mensch entscheidet in der Oberfläche unter „Freigaben" — dort stehen
+#    Empfänger, alle Positionen, die Summe und was genau passieren wird.
+openleads approvals list --status offen        # nachsehen, ob schon entschieden
+
+# 3. Erst jetzt lässt sich die Aktion ausführen, mit der Freigabe-ID:
+openleads docs finalize 42 --approval 7 --yes
+```
+
+Vier Eigenschaften machen daraus eine Entscheidung statt einer Formalie:
+
+- **An den Inhalt gebunden.** Die Freigabe trägt einen Fingerabdruck des
+  Dokuments. Ändert sich danach eine Position, verfällt sie — sonst wäre das Ja
+  für eine andere Rechnung gegeben worden als die, die jemand gelesen hat.
+- **Einmalig.** Nach der Verwendung ist sie verbraucht, keine Dauervollmacht.
+- **Befristet.** Standard 24 Stunden (`CRM_APPROVAL_TTL_MINUTES`).
+- **Nur von Menschen.** Entschieden wird ausschließlich in einer angemeldeten
+  Sitzung. Mit einem API-Token — also aus CLI, MCP-Server oder Cron — kann man
+  eine Freigabe **beantragen und verfolgen, nie erteilen**. Sonst würde ein Agent
+  seine eigenen Anträge abnicken.
+
+Deshalb verlangen `docs finalize`, `docs send`, `contracts finalize` und
+`contracts send` in der CLI ein `--approval`: die CLI spricht mit einem Token und
+ist damit ein Automat, auch wenn ein Mensch sie tippt. Wer ohne Umweg
+festschreiben will, klickt es in der Oberfläche — dort *ist* der Klick die
+ausdrückliche Freigabe.
 
 ### Beträge und Daten
 
@@ -327,13 +387,20 @@ das in ihren Logs.
 Manche Agenten-Plattformen und Automationen werden nicht mit einem persönlichen
 API-Token eingerichtet, sondern mit **einem gemeinsamen Maschinen-Geheimnis**,
 das der Betreiber per Umgebungsvariable setzt. Für sie gibt es eine stabile
-Fläche mit einer klaren Trennlinie: **gelesen werden darf das ganze Zahlenwerk**
-— Verträge, Ausgaben, Serienrechnungen, Abonnements, Leistungskatalog —,
-**geschrieben nur Pipeline und Stammkunden**. Rechnungen ausstellen, Verträge
-festschreiben oder unterzeichnen, einen Serienlauf auslösen, stornieren,
-Einstellungen ändern: all das bleibt hinter einem menschlichen Login. Ein Agent
-kann damit über die Bücher berichten, ohne jemandem eine Rechnung zu schicken.
-Wer die volle API will, nimmt weiterhin die CLI/MCP-Tokens oben.
+Fläche mit einer klaren Trennlinie — nicht „Vertrieb ja, Rechnungen nein",
+sondern **umkehrbar ja, unumkehrbar nur mit Freigabe**:
+
+- **Gelesen** wird das ganze Zahlenwerk: Verträge, Ausgaben, Serienrechnungen,
+  Abonnements, Leistungskatalog, Zahlungen, EÜR.
+- **Geschrieben** werden Pipeline, Stammkunden und **Rechnungs-/Angebots-
+  entwürfe**: anlegen, ändern, umwandeln, Storno vorbereiten, wegwerfen. Alles
+  ohne Nummer, alles mit einem Klick rückgängig zu machen.
+- **Festschreiben und Versenden** brauchen eine Freigabe, die ein angemeldeter
+  Mensch erteilt hat (siehe [Freigaben](#freigaben-was-ein-agent-nicht-allein-darf)).
+  Der Maschinen-Token kann sie beantragen und verfolgen, nie erteilen.
+- **Menschlich bleibt** alles Übrige: Zahlungen buchen, Verträge schreiben oder
+  unterzeichnen, Ausgestelltes löschen, Einstellungen ändern, Binärdateien
+  (unterschriebene PDFs, Belegscans) holen.
 
 ### Lesen und schreiben
 
@@ -363,12 +430,44 @@ vorangestellt); dieselbe URL zweimal anzuhängen ändert nichts und antwortet mi
 `existed: true`. Jedes Anhängen steht im Lead-Verlauf, und mit dem Lead
 verschwinden auch seine Links.
 
-### Nur lesen
+### Rechnungen: entwerfen darf die Maschine, ausstellen nicht
 
 | Methode | Pfad | Zweck |
 |---------|------|-------|
 | GET | `/api/machine/documents?kind=&customer_id=` | Angebote und Rechnungen |
 | GET | `/api/machine/documents/:id` | Ein Dokument mit Positionen |
+| GET | `/api/machine/documents/:id/validate` | EN-16931-Prüfung (Factur-X/XRechnung) vor der Freigabe-Anfrage |
+| POST | `/api/machine/documents` | **Entwurf** anlegen (`kind`, optional `customer_id`/`lead_id`, `items`) |
+| PATCH | `/api/machine/documents/:id` | Entwurf ändern; Festgeschriebenes → 409, `bezahlt`/`storniert` → 403 |
+| DELETE | `/api/machine/documents/:id` | Entwurf wegwerfen; Ausgestelltes → 409 |
+| POST | `/api/machine/documents/:id/convert` | Angenommenes Angebot → Rechnungs**entwurf** |
+| POST | `/api/machine/documents/:id/storno` | Stornorechnung als **Entwurf** vorbereiten — die Bücher ändern sich erst beim Festschreiben |
+| POST | `/api/machine/recurring/run-due` | Fällige Serien laufen lassen — erzeugt nur Entwürfe |
+| POST | `/api/machine/documents/:id/finalize` | Festschreiben — **verlangt `approval_id`** |
+| POST | `/api/machine/documents/:id/send` | Mail mit PDF an den Kunden — **verlangt `approval_id`** |
+
+### Freigaben
+
+| Methode | Pfad | Zweck |
+|---------|------|-------|
+| POST | `/api/machine/approvals` | Freigabe beantragen: `{ action, entity_id, reason }` |
+| GET | `/api/machine/approvals?status=&action=&entity_id=` | Eigene Anträge und ihr Stand |
+| GET | `/api/machine/approvals/:id` | Ein Antrag mit der Zusammenfassung, die der Mensch sieht |
+| POST | `/api/machine/approvals/:id/withdraw` | Eigenen offenen Antrag zurückziehen |
+
+`action` ist hier `document.finalize` oder `document.send` — nur wofür diese
+Fläche danach auch einen Weg hat. Entschieden wird **nicht hier**: eine
+Genehmigungsroute gibt es auf `/api/machine/*` bewusst nicht. Der Antrag landet
+in der Oberfläche unter „Freigaben", ein Mensch sieht Empfänger, Positionen,
+Summe und die Folgen und entscheidet. Die Genehmigung gilt genau einmal, nur für
+diesen Inhalt (jede Änderung danach macht sie ungültig) und läuft nach
+`CRM_APPROVAL_TTL_MINUTES` (Standard 24 h) ab. Fehlt sie, antwortet die Route mit
+403 und erklärt den Weg — statt still nichts zu tun.
+
+### Nur lesen
+
+| Methode | Pfad | Zweck |
+|---------|------|-------|
 | GET | `/api/machine/documents/:id/payments` | Gebuchte Zahlungen zu einer Rechnung — Buchen bleibt menschlich |
 | GET | `/api/machine/contracts?customer_id=&status=` | Verträge; `status` ist `entwurf`, `versendet`, `aktiv`, `beendet` oder `abgelehnt` |
 | GET | `/api/machine/contracts/:id` | Ein Vertrag mit `totals` |

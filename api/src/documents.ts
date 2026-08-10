@@ -1,4 +1,13 @@
-import { db, DOC_KINDS, type DocumentRow, type DocumentItemRow, type SettingsRow } from './db'
+import {
+  db,
+  DOC_KINDS,
+  DOC_STATUSES,
+  type DocumentRow,
+  type DocumentItemRow,
+  type SettingsRow,
+  type LeadRow,
+} from './db'
+import { getCustomer } from './customers'
 
 export interface DocItemInput {
   description?: string | null
@@ -188,6 +197,184 @@ export function replaceItems(documentId: number, items: DocItemInput[]): void {
       )
     })
   })
+}
+
+// --- draft authoring (shared by the human API, the machine API and the copilot)
+//
+// Writing a draft is the reversible half of invoicing: no number is consumed,
+// nothing has left the building, and a human can edit or delete it with one
+// click. All three callers therefore run the exact same code — an agent's draft
+// is built by the same rules as one typed in the browser, and the rules that
+// keep an issued document frozen apply identically wherever the call came from.
+
+/** Create a draft (never numbered). Throws on an unknown kind or customer. */
+export function createDraftDocument(b: Record<string, unknown>): FullDocument {
+  const kind = String(b.kind ?? '')
+  if (!DOC_KINDS.includes(kind as never)) throw new Error('invalid kind')
+  const s = getSettings()
+
+  // Prefill precedence: explicit body field > linked customer > linked lead.
+  // Unknown customer_id is an error, not a silent unlink.
+  const customerId = b.customer_id != null ? Number(b.customer_id) : null
+  const customer = customerId != null ? getCustomer(customerId) : null
+  if (customerId != null && !customer) throw new Error('Kunde nicht gefunden.')
+  let prefillName: string | null = (b.client_name as string) ?? customer?.name ?? null
+  let prefillAddress: string | null = (b.client_address as string) ?? customer?.address ?? null
+  let prefillZip: string | null = (b.client_zip as string) ?? customer?.zip ?? null
+  let prefillCity: string | null = (b.client_city as string) ?? customer?.city ?? null
+  let prefillEmail: string | null = (b.client_email as string) ?? customer?.email ?? null
+  const prefillVat: string | null = (b.client_vat_id as string) ?? customer?.vat_id ?? null
+  const clientType = (b.client_type as string) ?? customer?.client_type ?? 'geschaeft'
+  const leadId = b.lead_id != null ? Number(b.lead_id) : customer?.lead_id ?? null
+  if (leadId) {
+    const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(leadId) as unknown as
+      | LeadRow
+      | undefined
+    if (lead) {
+      prefillName = prefillName ?? lead.company
+      prefillCity = prefillCity ?? lead.city
+      prefillEmail = prefillEmail ?? lead.email
+    }
+  }
+
+  const info = db
+    .prepare(
+      `INSERT INTO documents
+        (kind, lead_id, customer_id, client_name, client_address, client_zip, client_city,
+         client_email, client_vat_id, client_type, title, intro, notes, small_business, vat_rate)
+       VALUES
+        (@kind, @lead_id, @customer_id, @client_name, @client_address, @client_zip, @client_city,
+         @client_email, @client_vat_id, @client_type, @title, @intro, @notes, @small_business, @vat_rate)`,
+    )
+    .run({
+      kind,
+      lead_id: leadId,
+      customer_id: customer?.id ?? null,
+      client_name: prefillName,
+      client_address: prefillAddress,
+      client_zip: prefillZip,
+      client_city: prefillCity,
+      client_email: prefillEmail,
+      client_vat_id: prefillVat,
+      client_type: clientType === 'privat' ? 'privat' : 'geschaeft',
+      title: (b.title as string) ?? (kind === 'rechnung' ? 'Rechnung' : 'Angebot'),
+      intro: (b.intro as string) ?? null,
+      notes: (b.notes as string) ?? null,
+      small_business: s.small_business,
+      vat_rate: s.vat_rate,
+    })
+  const id = Number(info.lastInsertRowid)
+  if (Array.isArray(b.items)) replaceItems(id, b.items as DocItemInput[])
+  return getDocument(id)!
+}
+
+/**
+ * Apply an edit. Returns null when the document doesn't exist; throws when the
+ * body would touch frozen content of an issued document, names an unknown
+ * status, or links a customer that isn't there.
+ */
+export function patchDocument(id: number, b: Record<string, unknown>): FullDocument | null {
+  const doc = db.prepare('SELECT id, kind, number, status FROM documents WHERE id = ?').get(id) as unknown as
+    | Pick<DocumentRow, 'id' | 'kind' | 'number' | 'status'>
+    | undefined
+  if (!doc) return null
+
+  // Issued (numbered) documents are immutable — reject content edits instead of
+  // silently ignoring them, so callers learn the rule.
+  assertDocumentPatchable(!!doc.number, b)
+
+  if (typeof b.status === 'string' && b.status !== doc.status) {
+    const allowed = DOC_STATUSES[doc.kind as keyof typeof DOC_STATUSES] ?? []
+    if (!allowed.includes(b.status)) throw new Error('invalid status')
+  }
+
+  // Link-only: customer_id may change; client_* snapshots are never auto-copied.
+  if ('customer_id' in b && b.customer_id != null) {
+    if (!getCustomer(Number(b.customer_id))) throw new Error('Kunde nicht gefunden.')
+  }
+
+  const sets: string[] = []
+  const params: Record<string, string | number | null> = { id }
+  for (const key of [...DOC_EDITABLE, 'status']) {
+    if (!(key in b)) continue
+    const v = b[key]
+    // node:sqlite binds only string|number|null — coerce booleans, skip non-scalar
+    // (object/array) values rather than letting .run() throw a raw 500.
+    let bound: string | number | null
+    if (v === undefined || v === null) bound = null
+    else if (typeof v === 'boolean') bound = v ? 1 : 0
+    else if (key === 'customer_id' || key === 'lead_id') {
+      bound = v === '' || v === null ? null : Number(v)
+    } else if (typeof v === 'string' || typeof v === 'number') bound = v
+    else continue
+    sets.push(`${key} = @${key}`)
+    params[key] = bound
+  }
+  if (sets.length) {
+    sets.push("updated_at = datetime('now')")
+    db.prepare(`UPDATE documents SET ${sets.join(', ')} WHERE id = @id`).run(params)
+  }
+  if (Array.isArray(b.items)) replaceItems(id, b.items as DocItemInput[])
+  return getDocument(id)
+}
+
+/**
+ * Delete a draft. Returns 'not-found', 'finalised' (numbered documents must not
+ * vanish — the audit trail and the gapless sequence depend on them), or 'ok'.
+ */
+export function deleteDraftDocument(id: number): 'ok' | 'not-found' | 'finalised' {
+  const doc = db.prepare('SELECT id, number FROM documents WHERE id = ?').get(id) as unknown as
+    | Pick<DocumentRow, 'id' | 'number'>
+    | undefined
+  if (!doc) return 'not-found'
+  if (doc.number) return 'finalised'
+  db.prepare('DELETE FROM documents WHERE id = ?').run(id)
+  return 'ok'
+}
+
+/**
+ * Copy an Angebot into a fresh draft Rechnung (client block + items). Returns
+ * null when the source is missing; throws when it isn't an Angebot.
+ */
+export function invoiceFromQuote(id: number): FullDocument | null {
+  const src = getDocument(id)
+  if (!src) return null
+  if (src.kind !== 'angebot') throw new Error('nur Angebote konvertierbar')
+  const info = db
+    .prepare(
+      `INSERT INTO documents
+        (kind, lead_id, customer_id, client_name, client_address, client_zip, client_city,
+         client_email, client_vat_id, client_type, title, intro, notes, small_business, vat_rate)
+       VALUES
+        ('rechnung', @lead_id, @customer_id, @client_name, @client_address, @client_zip, @client_city,
+         @client_email, @client_vat_id, @client_type, 'Rechnung', @intro, @notes, @small_business, @vat_rate)`,
+    )
+    .run({
+      lead_id: src.lead_id,
+      customer_id: src.customer_id ?? null,
+      client_name: src.client_name,
+      client_address: src.client_address,
+      client_zip: src.client_zip,
+      client_city: src.client_city,
+      client_email: src.client_email,
+      client_vat_id: src.client_vat_id ?? null,
+      client_type: src.client_type,
+      intro: src.intro,
+      notes: src.notes,
+      small_business: src.small_business,
+      vat_rate: src.vat_rate,
+    })
+  const newId = Number(info.lastInsertRowid)
+  replaceItems(
+    newId,
+    src.items.map((it) => ({
+      description: it.description,
+      quantity: it.quantity,
+      unit: it.unit,
+      unit_price_cents: it.unit_price_cents,
+    })),
+  )
+  return getDocument(newId)
 }
 
 /**

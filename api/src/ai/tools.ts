@@ -1,8 +1,26 @@
-import { db, STAGES, PRIORITIES, EXPENSE_CATEGORIES, CONTRACT_TYPES, type LeadRow } from '../db'
-import { getDocument, getSettings, replaceItems, type DocItemInput } from '../documents'
+import {
+  db,
+  STAGES,
+  PRIORITIES,
+  EXPENSE_CATEGORIES,
+  CONTRACT_TYPES,
+  APPROVAL_ACTIONS,
+  APPROVAL_STATUSES,
+  type LeadRow,
+  type ApprovalStatus,
+} from '../db'
+import {
+  getDocument,
+  getSettings,
+  replaceItems,
+  patchDocument,
+  deleteDraftDocument,
+  type DocItemInput,
+} from '../documents'
+import { requestApproval, listApprovals, isApprovalAction } from '../approvals'
 import { createExpense, listExpenses, expenseSummary } from '../expenses'
 import { listCatalog, createCatalogItem } from '../catalog'
-import { listContracts, createContract, finalizeContract, contractFromDocument } from '../contracts'
+import { listContracts, createContract, contractFromDocument } from '../contracts'
 import { listCustomers, getCustomer, createCustomer } from '../customers'
 import { listRecurring, createRecurring, recurringFromContract } from '../recurring'
 import { insertLead } from '../leads'
@@ -481,6 +499,61 @@ export const TOOLS: AgentTool[] = [
   ),
 
   def(
+    'update_document',
+    'Ändere einen ENTWURF (Angebot/Rechnung): Empfänger, Titel, Texte, Fälligkeit — und mit `items` ' +
+      'die Positionen, die dabei komplett ersetzt werden. Festgeschriebene Dokumente sind ' +
+      'unveränderlich (GoBD); dort schlägt der Aufruf fehl. Korrigiere lieber hier, bevor du eine ' +
+      'Freigabe zum Festschreiben beantragst.',
+    obj({
+      id: { type: 'number' },
+      client_name: { type: 'string' },
+      client_email: { type: 'string' },
+      title: { type: 'string' },
+      intro: { type: 'string' },
+      notes: { type: 'string' },
+      due_date: { type: 'string', description: 'YYYY-MM-DD' },
+      customer_id: { type: 'number', description: 'Verknüpfung zum Kundenstamm' },
+      items: {
+        type: 'array',
+        description: 'ERSETZT alle Positionen — immer die vollständige Liste schicken',
+        items: obj({
+          description: { type: 'string' },
+          quantity: { type: 'number' },
+          unit: { type: 'string' },
+          unit_price_cents: { type: 'number' },
+        }, ['description', 'unit_price_cents']),
+      },
+    }, ['id']),
+    (a, ctx) => {
+      const { id, ...patch } = a
+      try {
+        const document = patchDocument(Number(id), patch)
+        if (!document) return { error: `Dokument ${id} nicht gefunden` }
+        audit({ actor: ctx.actor, action: 'ai.update_document', entity: 'document', entityId: Number(id), detail: { fields: Object.keys(patch) }, ip: ctx.ip })
+        return { ok: true, document }
+      } catch (e) {
+        return { error: (e as Error).message }
+      }
+    },
+  ),
+
+  def(
+    'delete_document_draft',
+    'Wirf einen ENTWURF weg (z. B. ein Angebot, das doppelt angelegt wurde). Festgeschriebene ' +
+      'Dokumente bleiben — sie tragen eine Nummer und gehören zur lückenlosen Reihe.',
+    obj({ id: { type: 'number' } }, ['id']),
+    (a, ctx) => {
+      const id = Number(a.id)
+      const result = deleteDraftDocument(id)
+      if (result === 'not-found') return { error: `Dokument ${id} nicht gefunden` }
+      if (result === 'finalised')
+        return { error: 'Festgeschriebene Dokumente können nicht gelöscht werden. Statt dessen: Storno.' }
+      audit({ actor: ctx.actor, action: 'ai.delete_document', entity: 'document', entityId: id, detail: { draft: true }, ip: ctx.ip })
+      return { ok: true, deleted: id }
+    },
+  ),
+
+  def(
     'list_expenses',
     'Liste Ausgaben (Belege), optional gefiltert nach Belegdatum (from/to, YYYY-MM-DD) oder Kategorie. Liefert auch eine Summe (Brutto/Netto/Vorsteuer).',
     obj({
@@ -595,8 +668,9 @@ export const TOOLS: AgentTool[] = [
     'create_contract',
     'Erstelle einen Vertrags-ENTWURF (Dienst-/Werk-/Wartungsvertrag, Auftragsbestätigung, ' +
       'Rahmenvertrag, AVV). `value_cents` ist der Netto-Auftragswert. Optional einem Lead zuordnen ' +
-      '(Kunde wird dann übernommen). Beim Festschreiben (`finalize_contract`) bekommt der Vertrag ' +
-      'eine Nummer und die AGB aus den Einstellungen werden eingefroren. Nicht finalisiert.',
+      '(Kunde wird dann übernommen). Das Festschreiben (Nummer + eingefrorene AGB) beantragst du ' +
+      'anschließend mit `request_approval`; ein Mensch entscheidet. Dieser Aufruf legt nur den ' +
+      'Entwurf an.',
     obj({
       type: { type: 'string', enum: CONTRACT_TYPES.map((t) => t.id), description: 'Vertragsart' },
       title: { type: 'string' },
@@ -634,16 +708,89 @@ export const TOOLS: AgentTool[] = [
     },
   ),
 
+  // --- Freigaben (the one-way doors are not yours to open) ---
+  //
+  // Festschreiben und Versenden lassen sich nicht rückgängig machen: die Nummer
+  // ist verbraucht, der Inhalt eingefroren (GoBD), die Mail beim Kunden. Der
+  // Copilot kann so etwas nur BEANTRAGEN — entscheiden muss ein Mensch in der
+  // Oberfläche unter „Freigaben". Es gibt hier bewusst kein Werkzeug zum
+  // Genehmigen: sonst würde der Assistent seine eigenen Anträge abnicken.
   def(
-    'finalize_contract',
-    'Schreibe einen Vertrags-Entwurf fest: vergibt eine fortlaufende Vertragsnummer und friert die ' +
-      'aktuellen AGB in den Vertrag ein. Danach ist der Inhalt unveränderlich. Bestätige vorher im Klartext.',
-    obj({ id: { type: 'number' } }, ['id']),
+    'request_approval',
+    'Beantrage die Freigabe für eine nicht umkehrbare Aktion — Festschreiben oder Versenden eines ' +
+      'Angebots, einer Rechnung oder eines Vertrags. Der Antrag landet in der Freigabe-Liste; ein ' +
+      'Mensch sieht dort Empfänger, Positionen und Summe und entscheidet. Du kannst nicht selbst ' +
+      'genehmigen. Erkläre im Chat, was du beantragt hast und warum. `reason` in einem Satz.',
+    obj(
+      {
+        action: {
+          type: 'string',
+          enum: [...APPROVAL_ACTIONS],
+          description:
+            'document.finalize = Angebot/Rechnung festschreiben, document.send = per Mail an den ' +
+            'Kunden, contract.finalize = Vertrag festschreiben, contract.send = Vertrag versenden',
+        },
+        entity_id: { type: 'number', description: 'ID des Dokuments bzw. Vertrags' },
+        reason: { type: 'string', description: 'Warum das jetzt passieren soll' },
+      },
+      ['action', 'entity_id'],
+    ),
     (a, ctx) => {
-      const contract = finalizeContract(Number(a.id))
-      if (!contract) return { error: 'Vertrag nicht gefunden' }
-      audit({ actor: ctx.actor, action: 'ai.finalize_contract', entity: 'contract', entityId: contract.id, detail: { number: contract.number }, ip: ctx.ip })
-      return { ok: true, contract }
+      if (!isApprovalAction(a.action)) return { error: `Unbekannte Aktion: ${String(a.action)}` }
+      try {
+        const { approval, existed } = requestApproval({
+          action: a.action,
+          entity_id: Number(a.entity_id),
+          requested_by: ctx.actor,
+          reason: typeof a.reason === 'string' ? a.reason : null,
+        })
+        if (!existed) {
+          audit({ actor: ctx.actor, action: 'ai.request_approval', entity: 'approval', entityId: approval.id, detail: { action: approval.action, entity_id: approval.entity_id }, ip: ctx.ip })
+        }
+        return {
+          ok: true,
+          existed,
+          approval_id: approval.id,
+          status: approval.status,
+          zusammenfassung: approval.summary,
+          hinweis: 'Wartet auf eine menschliche Entscheidung unter „Freigaben". Nichts ist bisher passiert.',
+        }
+      } catch (e) {
+        return { error: (e as Error).message }
+      }
+    },
+  ),
+
+  def(
+    'list_approvals',
+    'Zeige Freigabe-Anträge und ihren Stand (offen, genehmigt, abgelehnt, verbraucht, abgelaufen). ' +
+      'Damit siehst du, ob ein Mensch über deinen Antrag schon entschieden hat.',
+    obj({
+      status: { type: 'string', enum: [...APPROVAL_STATUSES], description: 'Filter, Standard alle' },
+      entity_id: { type: 'number', description: 'nur Anträge zu diesem Dokument/Vertrag' },
+      limit: { type: 'number', description: 'max. Treffer, Standard 20' },
+    }),
+    (a) => {
+      const approvals = listApprovals({
+        status: (a.status as ApprovalStatus) ?? undefined,
+        entity_id: a.entity_id != null ? Number(a.entity_id) : undefined,
+        limit: Math.min(Number(a.limit ?? 20) || 20, 50),
+      })
+      return {
+        count: approvals.length,
+        approvals: approvals.map((ap) => ({
+          id: ap.id,
+          action: ap.action,
+          status: ap.status,
+          entity: ap.entity,
+          entity_id: ap.entity_id,
+          titel: ap.summary.title,
+          decided_by: ap.decided_by,
+          decision_note: ap.decision_note,
+          expires_at: ap.expires_at,
+          inhalt_unveraendert: ap.content_unchanged,
+        })),
+      }
     },
   ),
 

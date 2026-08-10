@@ -33,6 +33,23 @@ UI and API both enforce this. If you need a correction, use **Stornorechnung** (
 
 ---
 
+## Freigaben — no machine issues a number by itself
+
+Agents (the copilot, the MCP server, suite automations over `/api/machine/*`) may draft invoices freely: a draft carries no number and can be deleted. **Festschreiben and Versenden cannot be done by a machine at all** — they require a Freigabe granted by a logged-in human:
+
+| Property | Why it is there |
+|----------|-----------------|
+| Bound to a content fingerprint | The yes applies to the paper that was actually read; edit a position afterwards and the Freigabe lapses |
+| Single-use | A grant is permission for one act, not a standing authority over that document |
+| Time-boxed | Default 24 h (`CRM_APPROVAL_TTL_MINUTES`) — yesterday's yes is not today's yes |
+| Decided in a session only | An API token can request and watch, never grant, so no agent approves its own request |
+
+Both halves land in the audit trail: `approval.request` (who asked, for what, why), `approval.grant` / `approval.reject` (which human decided, with the fingerprint), and the resulting `document.finalize` / `invoice.send` row carries the `approval_id` that authorised it. §14 UStG numbering and Art. 5(2) DSGVO accountability therefore both point at a person, not at "the automation".
+
+A person clicking **Festschreiben** in the UI needs no Freigabe — that click is the explicit human decision the mechanism exists to obtain.
+
+---
+
 ## DSGVO toolkit
 
 Under **Einstellungen** (admin):
