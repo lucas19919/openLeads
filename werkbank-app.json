@@ -1,0 +1,33 @@
+{
+  "id": "kunden",
+  "name": "Isar Kunden Manager",
+  "description": "Leads, Kunden, Angebote und Rechnungen, Verträge und Ausgaben.",
+  "version": "0.3.0",
+  "icon": "kunden",
+  "run": {
+    "dir": "api",
+    "command": ["node", "--import", "tsx", "src/index.ts"],
+    "health": "/api/health",
+    "env": {
+      "NODE_ENV": "production",
+      "HOST": "127.0.0.1",
+      "PORT": "{port}",
+      "DB_PATH": "{data}/leads.db",
+      "WEB_DIST": "{app}/web/dist",
+      "WEB_ORIGIN": "{origin}",
+      "TRUST_PROXY": "1",
+      "SETTINGS_KEY": "{key:settings}",
+      "AUTH_MODE": "proxy",
+      "PROXY_AUTH_SHARED_SECRET": "{secret}",
+      "PROXY_AUTH_ADMIN_GROUP": "werkbank-admin",
+      "PROXY_AUTH_DEFAULT_ROLE": "member",
+      "PROXY_AUTH_LOGOUT_URL": "{origin}/"
+    }
+  },
+  "identity": {
+    "user": "X-Forwarded-User",
+    "email": "X-Forwarded-Email",
+    "groups": "X-Forwarded-Groups",
+    "secret": "X-Proxy-Auth-Secret"
+  }
+}

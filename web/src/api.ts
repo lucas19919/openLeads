@@ -49,7 +49,10 @@ class ApiError extends Error {
 }
 
 async function req<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(`/api${path}`, {
+  // Relative on purpose: the app may live under a path (werkbank shows it at
+  // /apps/kunden/), and there is no client router, so the document URL is
+  // always the app's root.
+  const res = await fetch(`api${path}`, {
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     ...options,
@@ -108,7 +111,7 @@ export const api = {
     const fd = new FormData()
     fd.append('file', file)
     // No Content-Type header — the browser sets the multipart boundary.
-    const res = await fetch('/api/leads/import', {
+    const res = await fetch('api/leads/import', {
       method: 'POST',
       credentials: 'include',
       body: fd,
@@ -173,12 +176,12 @@ export const api = {
     req<{ contract: Contract }>(`/documents/${id}/to-contract`, { method: 'POST' }),
   deleteDocument: (id: number) =>
     req<{ ok: true }>(`/documents/${id}`, { method: 'DELETE' }),
-  pdfUrl: (id: number) => `/api/documents/${id}/pdf`,
-  signedDocumentUrl: (id: number) => `/api/documents/${id}/signed-document`,
+  pdfUrl: (id: number) => `api/documents/${id}/pdf`,
+  signedDocumentUrl: (id: number) => `api/documents/${id}/signed-document`,
   uploadSignedDocument: async (id: number, file: File) => {
     const fd = new FormData()
     fd.append('file', file)
-    const res = await fetch(`/api/documents/${id}/signed-document`, { method: 'POST', credentials: 'include', body: fd })
+    const res = await fetch(`api/documents/${id}/signed-document`, { method: 'POST', credentials: 'include', body: fd })
     if (!res.ok) {
       let msg = res.statusText
       try {
@@ -253,7 +256,7 @@ export const api = {
     const fd = new FormData()
     fd.append('file', file)
     // No Content-Type header — the browser sets the multipart boundary.
-    const res = await fetch(`/api/expenses/${id}/receipt`, {
+    const res = await fetch(`api/expenses/${id}/receipt`, {
       method: 'POST',
       credentials: 'include',
       body: fd,
@@ -272,7 +275,7 @@ export const api = {
   },
   deleteReceipt: (id: number) =>
     req<{ expense: Expense }>(`/expenses/${id}/receipt`, { method: 'DELETE' }),
-  receiptUrl: (id: number) => `/api/expenses/${id}/receipt`,
+  receiptUrl: (id: number) => `api/expenses/${id}/receipt`,
 
   // --- Abonnements (recurring outgoing subscriptions) ---
   listSubscriptions: (activeOnly = false) =>
@@ -289,13 +292,13 @@ export const api = {
     const qs = new URLSearchParams()
     if (from) qs.set('from', from)
     if (to) qs.set('to', to)
-    return `/api/export/expenses.csv${qs.toString() ? `?${qs}` : ''}`
+    return `api/export/expenses.csv${qs.toString() ? `?${qs}` : ''}`
   },
   exportExpensesDatevUrl: (from?: string, to?: string) => {
     const qs = new URLSearchParams()
     if (from) qs.set('from', from)
     if (to) qs.set('to', to)
-    return `/api/export/expenses-datev.csv${qs.toString() ? `?${qs}` : ''}`
+    return `api/export/expenses-datev.csv${qs.toString() ? `?${qs}` : ''}`
   },
 
   // --- Kunden (customer registry) ---
@@ -377,12 +380,12 @@ export const api = {
   sendContract: (id: number) =>
     req<{ ok: true; messageId: string; to: string }>(`/contracts/${id}/send`, { method: 'POST' }),
   deleteContract: (id: number) => req<{ ok: true }>(`/contracts/${id}`, { method: 'DELETE' }),
-  contractPdfUrl: (id: number) => `/api/contracts/${id}/pdf`,
-  signedContractUrl: (id: number) => `/api/contracts/${id}/signed-document`,
+  contractPdfUrl: (id: number) => `api/contracts/${id}/pdf`,
+  signedContractUrl: (id: number) => `api/contracts/${id}/signed-document`,
   uploadSignedContract: async (id: number, file: File) => {
     const fd = new FormData()
     fd.append('file', file)
-    const res = await fetch(`/api/contracts/${id}/signed-document`, { method: 'POST', credentials: 'include', body: fd })
+    const res = await fetch(`api/contracts/${id}/signed-document`, { method: 'POST', credentials: 'include', body: fd })
     if (!res.ok) {
       let msg = res.statusText
       try {
@@ -432,27 +435,27 @@ export const api = {
     const qs = new URLSearchParams()
     if (params.stage) qs.set('stage', params.stage)
     if (params.q) qs.set('q', params.q)
-    return `/api/export/leads.csv${qs.toString() ? `?${qs}` : ''}`
+    return `api/export/leads.csv${qs.toString() ? `?${qs}` : ''}`
   },
   exportInvoicesUrl: (from?: string, to?: string) => {
     const qs = new URLSearchParams()
     if (from) qs.set('from', from)
     if (to) qs.set('to', to)
-    return `/api/export/invoices.csv${qs.toString() ? `?${qs}` : ''}`
+    return `api/export/invoices.csv${qs.toString() ? `?${qs}` : ''}`
   },
   exportDatevUrl: (from?: string, to?: string) => {
     const qs = new URLSearchParams()
     if (from) qs.set('from', from)
     if (to) qs.set('to', to)
-    return `/api/export/datev.csv${qs.toString() ? `?${qs}` : ''}`
+    return `api/export/datev.csv${qs.toString() ? `?${qs}` : ''}`
   },
 
   // --- admin ---
-  backupUrl: () => '/api/admin/backup',
+  backupUrl: () => 'api/admin/backup',
   restoreBackup: async (file: File) => {
     const fd = new FormData()
     fd.append('file', file)
-    const res = await fetch('/api/admin/restore', { method: 'POST', credentials: 'include', body: fd })
+    const res = await fetch('api/admin/restore', { method: 'POST', credentials: 'include', body: fd })
     if (!res.ok) {
       let msg = res.statusText
       try {
@@ -509,7 +512,7 @@ export const api = {
     }),
 
   // --- DSGVO ---
-  dsgvoExportUrl: (leadId: number) => `/api/dsgvo/lead/${leadId}/export`,
+  dsgvoExportUrl: (leadId: number) => `api/dsgvo/lead/${leadId}/export`,
   dsgvoErase: (leadId: number, reason?: string) =>
     req<{ ok: true; erased: number; retained_documents: number }>(
       `/dsgvo/lead/${leadId}/erase`,
