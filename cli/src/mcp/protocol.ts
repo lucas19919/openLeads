@@ -20,6 +20,8 @@ export interface ToolDefinition {
   description: string
   /** JSON Schema for the arguments object. */
   inputSchema: Record<string, unknown>
+  /** MCP tool hints: whether the tool only reads, and whether it cannot be undone. */
+  annotations?: { readOnlyHint: boolean; destructiveHint: boolean }
   handler: (args: Record<string, unknown>) => Promise<unknown>
 }
 
@@ -125,6 +127,7 @@ export function serve(info: ServerInfo, tools: ToolDefinition[]): Promise<void> 
               name: t.name,
               description: t.description,
               inputSchema: t.inputSchema,
+              ...(t.annotations ? { annotations: t.annotations } : {}),
             })),
           })
           return

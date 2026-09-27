@@ -971,6 +971,17 @@ export function buildTools(client: Client, options: ToolOptions): ToolDefinition
     ),
   ]
 
-  if (options.readOnly) return read
-  return options.allowIrreversible ? [...read, ...safeWrites, ...irreversible] : [...read, ...safeWrites]
+  // The tiers, told to the host as MCP hints, so a host that gates by them
+  // (werkbank: lesen, schreiben, or only with a Freigabe) gets them right.
+  // Two "reads" leave a file on this machine; they are not read-only.
+  const writesFiles = new Set(['export_csv', 'create_backup'])
+  const hint = (tools: ToolDefinition[], readOnly: boolean, destructive: boolean) =>
+    tools.map((t) => ({
+      ...t,
+      annotations: { readOnlyHint: readOnly && !writesFiles.has(t.name), destructiveHint: destructive },
+    }))
+  const reads = hint(read, true, false)
+  if (options.readOnly) return reads.filter((t) => t.annotations.readOnlyHint)
+  const writes = hint(safeWrites, false, false)
+  return options.allowIrreversible ? [...reads, ...writes, ...hint(irreversible, false, true)] : [...reads, ...writes]
 }

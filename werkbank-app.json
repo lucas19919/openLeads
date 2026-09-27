@@ -4,9 +4,22 @@
   "description": "Leads, Kunden, Angebote und Rechnungen, Verträge und Ausgaben.",
   "version": "0.3.0",
   "icon": "kunden",
+  "settings": [
+    {
+      "key": "token",
+      "label": "API-Token für werkbank",
+      "type": "secret",
+      "help": "Damit werkbank die Werkzeuge des Kunden Managers nutzen kann: im Kunden Manager unter Einstellungen → API-Tokens anlegen und hier eintragen."
+    }
+  ],
   "run": {
     "dir": "api",
-    "command": ["node", "--import", "tsx", "src/index.ts"],
+    "command": [
+      "node",
+      "--import",
+      "tsx",
+      "src/index.ts"
+    ],
     "health": "/api/health",
     "env": {
       "NODE_ENV": "production",
@@ -23,6 +36,22 @@
       "PROXY_AUTH_DEFAULT_ROLE": "member",
       "PROXY_AUTH_LOGOUT_URL": "{origin}/"
     }
+  },
+  "mcp": {
+    "dir": "cli",
+    "command": [
+      "node",
+      "--import",
+      "tsx",
+      "src/main.ts",
+      "mcp",
+      "--allow-irreversible"
+    ],
+    "env": {
+      "OPENLEADS_URL": "http://127.0.0.1:{port}",
+      "OPENLEADS_TOKEN": "{setting:token}"
+    },
+    "check": "pipeline_overview"
   },
   "identity": {
     "user": "X-Forwarded-User",
