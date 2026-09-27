@@ -51,7 +51,7 @@ const REQUIRED_TABLES = ['users', 'leads', 'documents', 'document_items', 'setti
       ),
     )
     const missing = REQUIRED_TABLES.filter((t) => !tables.has(t))
-    if (missing.length) throw new Error(`missing OpenLeads tables (${missing.join(', ')})`)
+    if (missing.length) throw new Error(`missing Kunden Manager tables (${missing.join(', ')})`)
   } catch (e) {
     console.error(`Invalid backup file: ${(e as Error).message}`)
     process.exit(1)

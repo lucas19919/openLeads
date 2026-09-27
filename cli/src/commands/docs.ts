@@ -195,7 +195,7 @@ export const docs: Group = {
       options: { approval: { type: 'string' } },
       help:
         'Die CLI spricht mit einem API-Token, also als Automat. Festschreiben verlangt darum eine\n' +
-        'Freigabe, die ein angemeldeter Mensch in OpenLeads erteilt hat:\n' +
+        'Freigabe, die ein angemeldeter Mensch im Kunden Manager erteilt hat:\n' +
         '  openleads approvals request <id> --action document.finalize --reason "..."\n' +
         '  (ein Mensch entscheidet in der Oberfläche unter „Freigaben")\n' +
         '  openleads docs finalize <id> --approval <freigabe-id> --yes',

@@ -29,13 +29,13 @@ after(() => {
 })
 
 test('companyFromDomain derives a readable name from a host/URL', () => {
-  assert.equal(companyFromDomain('https://www.print-factory24.de/'), 'Print Factory 24')
-  assert.equal(companyFromDomain('thomaskraus-metallbau.de'), 'Thomaskraus Metallbau')
+  assert.equal(companyFromDomain('https://www.druckhaus-nord24.example/'), 'Druckhaus Nord 24')
+  assert.equal(companyFromDomain('hansmeier-metallbau.example'), 'Hansmeier Metallbau')
   assert.equal(companyFromDomain(''), null)
 })
 
 test('create_lead inserts a lead and derives the company from the domain', async () => {
-  const res = (await runTool('create_lead', { website: 'https://restaurierung.christina-haubs.de/' }, ctx)) as {
+  const res = (await runTool('create_lead', { website: 'https://restaurierung.werkstatt-muster.example/' }, ctx)) as {
     ok: boolean
     lead: { id: number; company: string; website: string; stage: string; source: string }
   }
@@ -61,7 +61,7 @@ test('create_lead places the lead straight into the requested pipeline stage', a
 })
 
 test('create_document links a lead and fills client_name from the lead company', async () => {
-  const lead = (await runTool('create_lead', { website: 'https://metzgerei-rosenheim.de', company: 'Metzgerei Rosenheim' }, ctx)) as {
+  const lead = (await runTool('create_lead', { website: 'https://metzgerei-rosenheim.example', company: 'Metzgerei Rosenheim' }, ctx)) as {
     lead: { id: number }
   }
   // No client_name passed — it must fall back to the lead's company, and the
@@ -85,13 +85,13 @@ test('create_document rejects a lead_id that does not exist', async () => {
 test('create_lead respects explicit fields and dedupes by domain', async () => {
   const a = (await runTool(
     'create_lead',
-    { website: 'http://print-factory24.de', company: 'Print Factory 24', trade: 'Druck', city: 'Köln' },
+    { website: 'http://druckhaus-nord24.example', company: 'Druckhaus Nord 24', trade: 'Druck', city: 'Köln' },
     ctx,
   )) as { ok: boolean; lead: { id: number; trade: string; city: string } }
   assert.equal(a.lead.trade, 'Druck')
   assert.equal(a.lead.city, 'Köln')
 
-  const dupe = (await runTool('create_lead', { website: 'https://www.print-factory24.de/impressum' }, ctx)) as {
+  const dupe = (await runTool('create_lead', { website: 'https://www.druckhaus-nord24.example/impressum' }, ctx)) as {
     ok: boolean
     deduped: boolean
     lead: { id: number }

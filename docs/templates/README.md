@@ -44,7 +44,7 @@ npm run import -- ../docs/templates/leads-import.xlsx
 
 ## Document / contract “templates”
 
-OpenLeads does not ship separate Word templates for invoices and contracts — those are generated as PDFs from your **Firma** profile, **Leistungskatalog**, and (for contracts) the AGB text under Einstellungen.
+The Kunden Manager does not ship separate Word templates for invoices and contracts — those are generated as PDFs from your **Firma** profile, **Leistungskatalog**, and (for contracts) the AGB text under Einstellungen.
 
 What *is* pre-seeded on a fresh database:
 

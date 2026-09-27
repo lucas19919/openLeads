@@ -1,6 +1,6 @@
 # AI copilot
 
-The Chat module is not a sidekick with a private brain — it drives OpenLeads through the **same tools** the UI uses, with the same audit trail.
+The Chat module is not a sidekick with a private brain — it drives the Kunden Manager through the **same tools** the UI uses, with the same audit trail.
 
 ---
 
@@ -75,4 +75,4 @@ The German Impressum does the heavy lifting here: §5 DDG obliges every business
 
 - API keys saved in the UI are encrypted at rest with `SETTINGS_KEY` (AES-256-GCM). The key never lives in the database.
 - Rate limits apply to login and AI routes.
-- Don’t point a public OpenLeads instance at a shared cloud model with live customer PII unless that fits your own processing agreement — local Ollama is the intended default for a reason.
+- Don’t point a public Kunden Manager instance at a shared cloud model with live customer PII unless that fits your own processing agreement — local Ollama is the intended default for a reason.

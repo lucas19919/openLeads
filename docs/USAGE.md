@@ -1,6 +1,6 @@
 # Usage
 
-Day-to-day patterns once OpenLeads is running. For module screenshots see [MODULES.md](MODULES.md).
+Day-to-day patterns once the Kunden Manager is running. For module screenshots see [MODULES.md](MODULES.md).
 
 ---
 

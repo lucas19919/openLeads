@@ -1,8 +1,8 @@
 # CLI & MCP
 
-`openleads` ist die Kommandozeile zu deiner OpenLeads-Instanz — und, mit einem
+`openleads` ist die Kommandozeile zu deinem Isar Kunden Manager — und, mit einem
 Unterbefehl, ein **MCP-Server**, den du in einen Agenten-Host einhängen kannst.
-Damit wird OpenLeads Teil bestehender Automationen statt eine Insel: „jeden
+Damit wird der Kunden Manager Teil bestehender Automationen statt eine Insel: „jeden
 Morgen um 9 die Pipeline durchgehen, überfällige Rechnungen melden, Sicherung in
 die Cloud legen" ist ein Skript oder ein Agenten-Auftrag, kein Klickweg.
 
@@ -243,7 +243,7 @@ Ohne globale Installation:
 ```
 
 Neben deinem bestehenden Mail-/Cloud-MCP eingetragen, sieht der Agent beide
-Werkzeugsätze und kann sie verbinden: OpenLeads liefert die Zahlen und die
+Werkzeugsätze und kann sie verbinden: der Kunden Manager liefert die Zahlen und die
 Sicherungsdatei, das andere System verschickt und legt ab.
 
 ### Was der Agent darf
@@ -283,7 +283,7 @@ vergibt eine Nummer, nichts verlässt das Haus.
 
 **Festschreiben** (die lückenlose Nummer ist verbraucht, der Inhalt eingefroren —
 §14 UStG / GoBD) und **Versenden** (die Mail ist beim Kunden) sind eine andere
-Sache. Beides verlangt eine Freigabe, die ein angemeldeter Mensch in OpenLeads
+Sache. Beides verlangt eine Freigabe, die ein angemeldeter Mensch im Kunden Manager
 erteilt:
 
 ```bash
@@ -350,8 +350,8 @@ openleads backup -o "$ziel/"
 Als Agenten-Auftrag mit beiden MCP-Servern im selben Host — statt fester
 Reihenfolge beschreibst du das Ziel:
 
-> Ruf jeden Werktag um 9 Uhr `morning_digest` und `pipeline_overview` von
-> OpenLeads ab, hol überfällige Rechnungen mit `list_invoices(only_overdue)` und
+> Ruf jeden Werktag um 9 Uhr `morning_digest` und `pipeline_overview` vom
+> Kunden Manager ab, hol überfällige Rechnungen mit `list_invoices(only_overdue)` und
 > in 60 Tagen auslaufende Verträge mit `list_contracts(expiring_within_days: 60)`.
 > Fasse das in einer Mail an mich zusammen. Leg außerdem mit `create_backup` eine
 > Sicherung an und lade sie in die Cloud.

@@ -86,7 +86,7 @@ export interface Digest {
 }
 
 const DIGEST_SYSTEM = `
-Du bist Vertriebs-Coach für OpenLeads. Du bekommst Kennzahlen des Tages und
+Du bist Vertriebs-Coach für den Isar Kunden Manager. Du bekommst Kennzahlen des Tages und
 erstellst ein kurzes Tages-Briefing. Antworte AUSSCHLIESSLICH mit JSON:
 { "headline": string, "priorities": [ { "title": string, "why": string, "action": string } ] }
 Maximal 5 Prioritäten, die wichtigste zuerst. Konkret, auf Deutsch, ableitbar

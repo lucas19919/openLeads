@@ -1,6 +1,6 @@
 # Setup
 
-Get a local OpenLeads instance running on your machine.
+Get a local Kunden Manager running on your machine.
 
 ---
 
@@ -94,18 +94,18 @@ Without AI, the rest of the suite still works — only Chat stays quiet.
 `AUTH_MODE` chooses how users sign in:
 
 - **`password`** (default) — the built-in login form with local accounts you seed and manage in-app. This is the standalone setup above; nothing to configure.
-- **`proxy`** — delegate authentication to an **authenticating reverse proxy** in front of OpenLeads. This is how you put the app behind single sign-on (SSO/MFA) without OpenLeads implementing OAuth itself. Works with any forward-auth proxy — Authelia, Authentik, oauth2-proxy, Pomerium, Cloudflare Access, and the like.
+- **`proxy`** — delegate authentication to an **authenticating reverse proxy** in front of the Kunden Manager. This is how you put the app behind single sign-on (SSO/MFA) without the Kunden Manager implementing OAuth itself. Works with any forward-auth proxy — Authelia, Authentik, oauth2-proxy, Pomerium, Cloudflare Access, and the like.
 
 ### How proxy mode works
 
-The proxy authenticates the user and forwards their identity as request headers. On each request OpenLeads:
+The proxy authenticates the user and forwards their identity as request headers. On each request the Kunden Manager:
 
 1. verifies a shared secret header (so only the proxy can assert an identity),
 2. reads the username (and optional groups) from configurable headers,
 3. provisions the user on first sight (no signup, no password), and
 4. grants the **admin** role to members of `PROXY_AUTH_ADMIN_GROUP` — or to everyone, if you leave it empty (single-operator install).
 
-There is no OpenLeads cookie or session in this mode: the proxy owns the session and the identity is re-read every request, so group/role changes take effect immediately.
+There is no Kunden Manager cookie or session in this mode: the proxy owns the session and the identity is re-read every request, so group/role changes take effect immediately.
 
 ### Minimal configuration
 
@@ -123,7 +123,7 @@ Header names differ per proxy — e.g. Authentik's forward-auth outpost emits `X
 
 ### Security — do not skip
 
-Trusting identity headers is safe **only if OpenLeads cannot be reached except through the proxy** — anything able to talk to the app directly could otherwise forge the headers. Two must-dos:
+Trusting identity headers is safe **only if the Kunden Manager cannot be reached except through the proxy** — anything able to talk to the app directly could otherwise forge the headers. Two must-dos:
 
 - Set **`PROXY_AUTH_SHARED_SECRET`** and configure the proxy to send it in `PROXY_AUTH_SECRET_HEADER`. Requests without the matching secret are rejected; without it, a warning is logged at boot.
 - Bind the app to the proxy only — publish the container port on `127.0.0.1` or keep it on an internal network, never directly on the public internet.
@@ -163,7 +163,7 @@ Full comments live in `api/.env.example`.
 
 ## Production
 
-Don’t improvise a custom stack on day one. OpenLeads ships one Docker image and a compose file:
+Don’t improvise a custom stack on day one. The Kunden Manager ships one Docker image and a compose file:
 
 → **[../deploy/DEPLOY.md](../deploy/DEPLOY.md)**
 

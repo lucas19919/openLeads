@@ -653,12 +653,12 @@ test('links: attach → list → re-attach is idempotent → remove', async () =
   const add = await app.request(`/api/machine/leads/${id}/links`, {
     method: 'POST',
     headers: JSON_AUTH,
-    body: JSON.stringify({ url: 'preview.isarwebsites.de/p/abc', label: 'Vorschau', kind: 'preview' }),
+    body: JSON.stringify({ url: 'preview.example.de/p/abc', label: 'Vorschau', kind: 'preview' }),
   })
   assert.equal(add.status, 201)
   const { link } = (await add.json()) as { link: { id: number; url: string; kind: string } }
   // A bare host gains https:// so the stored value is always a real href.
-  assert.equal(link.url, 'https://preview.isarwebsites.de/p/abc')
+  assert.equal(link.url, 'https://preview.example.de/p/abc')
   assert.equal(link.kind, 'preview')
 
   // The attach shows up in the lead's own timeline, like a stage change does.
@@ -667,7 +667,7 @@ test('links: attach → list → re-attach is idempotent → remove', async () =
   const again = await app.request(`/api/machine/leads/${id}/links`, {
     method: 'POST',
     headers: JSON_AUTH,
-    body: JSON.stringify({ url: 'https://preview.isarwebsites.de/p/abc' }),
+    body: JSON.stringify({ url: 'https://preview.example.de/p/abc' }),
   })
   assert.equal(again.status, 200)
   const dup = (await again.json()) as { existed: boolean; link: { id: number } }

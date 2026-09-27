@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Provision the server and (re)start OpenLeads. Run by the deploy workflow over
+# Provision the server and (re)start the Isar Kunden Manager. Run by the deploy workflow over
 # SSH, with these env vars set by the workflow:
 #   IMAGE              e.g. ghcr.io/OWNER/openleads
 #   GHCR_USER          the GitHub actor (for `docker login`)
@@ -31,4 +31,4 @@ docker compose up -d api
 docker logout ghcr.io >/dev/null 2>&1 || true
 docker image prune -f >/dev/null 2>&1 || true
 
-echo "==> OpenLeads api is up on 127.0.0.1:8787"
+echo "==> Kunden Manager api is up on 127.0.0.1:8787"

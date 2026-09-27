@@ -87,7 +87,7 @@ function pad(value: string, width: number): string {
 }
 
 function topHelp(): void {
-  print('openleads — Kommandozeile und MCP-Server für OpenLeads\n')
+  print('openleads — Kommandozeile und MCP-Server für den Isar Kunden Manager\n')
   print('Aufruf:')
   print('  openleads <befehl> [optionen]')
   print('  openleads <gruppe> <befehl> [optionen]\n')

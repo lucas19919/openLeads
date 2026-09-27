@@ -36,7 +36,7 @@ import type {
 // accepted quote, preparing a Storno, throwing a draft away — is safe: no number
 // is spent, nothing has left the building. Festschreiben and Versenden are not,
 // and they are not simply "irreversible tier" either: even with that tier on,
-// they need an `approval_id` — a Freigabe a human granted in OpenLeads for
+// they need an `approval_id` — a Freigabe a human granted in the Kunden Manager for
 // exactly that document in exactly that state (`request_approval` →
 // `list_approvals` → finalise). The tier switch decides whether the agent may
 // *spend* a human's yes; it never substitutes for one.
@@ -405,7 +405,7 @@ export function buildTools(client: Client, options: ToolOptions): ToolDefinition
       'create_backup',
       'Vollständige Datenbank-Momentaufnahme in eine lokale Datei schreiben und den Pfad ' +
         'zurückgeben — zum Ablegen oder Hochladen durch ein anderes Werkzeug. Erfordert ein ' +
-        'Admin-Konto. Liest nur; überschreibt nichts im OpenLeads-Bestand.',
+        'Admin-Konto. Liest nur; überschreibt nichts im Bestand des Kunden Managers.',
       obj({ path: S.string('Zielpfad der .db-Datei') }, ['path']),
       async (a) => {
         const file = await client.getFile('/admin/backup')
@@ -729,7 +729,7 @@ export function buildTools(client: Client, options: ToolOptions): ToolDefinition
       'request_approval',
       'Eine menschliche Freigabe für eine NICHT UMKEHRBARE Aktion beantragen: Festschreiben oder ' +
         'Versenden eines Angebots, einer Rechnung oder eines Vertrags. Der Antrag erscheint in ' +
-        'OpenLeads unter „Freigaben" mit Empfänger, Positionen und Summe; ein Mensch entscheidet ' +
+        'im Kunden Manager unter „Freigaben" mit Empfänger, Positionen und Summe; ein Mensch entscheidet ' +
         'dort. Der Antrag allein bewirkt nichts. Nach der Genehmigung gibst du die `approval_id` ' +
         'bei `finalize_invoice` bzw. `send_invoice` mit. Die Freigabe gilt genau einmal, nur für ' +
         'diesen Inhalt (jede spätere Änderung macht sie ungültig) und läuft ab.',

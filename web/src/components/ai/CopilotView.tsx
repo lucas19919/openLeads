@@ -161,7 +161,7 @@ export function CopilotView() {
           {turns.length === 0 && (
             <div className="copilot-empty">
               <p className="muted">
-                Frag die KI nach Leads, Pipeline und Rechnungen — sie bedient OpenLeads für dich.
+                Frag die KI nach Leads, Pipeline und Rechnungen — sie bedient den Kunden Manager für dich.
               </p>
             </div>
           )}

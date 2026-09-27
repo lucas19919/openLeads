@@ -1,7 +1,8 @@
 /* ============================================================================
-   OpenLeads — "Kanzlei" redesign.
-   Warm paper palette, left sidebar, Spectral serif for headings/figures,
-   Public Sans for UI. All values come from tokens.css — no raw hex here.
+   Isar Kunden Manager — styles.
+   Isar's look: near-black or paper, one blue, Space Grotesk for headings and
+   figures, Inter for the interface. All values come from tokens.css — no raw
+   colours here.
    ========================================================================== */
 
 * { box-sizing: border-box; }
@@ -28,12 +29,12 @@ button {
 }
 button:hover { background: var(--hover-fill); border-color: var(--line-input-hover); }
 button.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
+  background: var(--accent-fill);
+  border-color: var(--accent-fill);
+  color: var(--on-accent);
   font-weight: 600;
 }
-button.primary:hover { background: var(--accent-dark); border-color: var(--accent-dark); }
+button.primary:hover { background: var(--accent-fill-hover); border-color: var(--accent-fill-hover); }
 button.ghost { border-color: transparent; background: transparent; color: var(--nav-ink); }
 button.ghost:hover { background: var(--column); color: var(--ink); }
 button:disabled { opacity: 0.55; cursor: default; }
@@ -91,13 +92,22 @@ input[type='checkbox'] { width: auto; accent-color: var(--accent); }
   gap: 22px;
 }
 .brand {
-  font: 600 23px var(--font-display);
-  letter-spacing: -0.015em;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font: 600 18px var(--font-display);
+  letter-spacing: -0.01em;
   color: var(--ink);
   padding: 2px 8px;
+  margin: 0;
   white-space: nowrap;
 }
-.brand i { font-style: italic; color: var(--accent); }
+.brand-mark {
+  flex: none;
+  height: 22px;
+  aspect-ratio: var(--isar-mark-ratio);
+  background: var(--isar-mark) center / contain no-repeat;
+}
 
 .nav { display: flex; flex-direction: column; gap: 2px; }
 .nav-item {
@@ -115,8 +125,8 @@ input[type='checkbox'] { width: auto; accent-color: var(--accent); }
   cursor: pointer;
 }
 .nav-item:hover { background: var(--column); color: var(--ink); }
-.nav-item.active { background: var(--accent); color: #fff; font-weight: 600; }
-.nav-item.active:hover { background: var(--accent); color: #fff; }
+.nav-item.active { background: var(--accent-fill); color: var(--on-accent); font-weight: 600; }
+.nav-item.active:hover { background: var(--accent-fill); color: var(--on-accent); }
 .nav-item .dot {
   width: 5px; height: 5px; border-radius: 50%;
   background: currentColor; opacity: 0.4; flex: none;
@@ -132,10 +142,11 @@ input[type='checkbox'] { width: auto; accent-color: var(--accent); }
   padding-top: 14px;
   border-top: 1px solid var(--line-row);
 }
+.side-actions { display: flex; flex-wrap: wrap; gap: 4px; }
 .side-user { display: flex; align-items: center; gap: 11px; padding: 0 6px; }
 .side-user .avatar {
   width: 34px; height: 34px; border-radius: 50%;
-  background: var(--accent); color: #fff;
+  background: var(--accent-fill); color: var(--on-accent);
   display: flex; align-items: center; justify-content: center;
   font-weight: 600; font-size: 13px; flex: none;
   text-transform: uppercase;
@@ -196,7 +207,7 @@ input[type='checkbox'] { width: auto; accent-color: var(--accent); }
     background: var(--surface-chrome);
     border-top: 1px solid var(--line);
     border-radius: var(--radius-card) var(--radius-card) 0 0;
-    box-shadow: 0 -16px 50px -16px rgba(30, 25, 15, 0.35);
+    box-shadow: var(--shadow-sheet);
     padding: 8px 12px;
     padding-bottom: max(12px, env(safe-area-inset-bottom));
     animation: sheet-in 0.2s cubic-bezier(0.2, 0.7, 0.3, 1);
@@ -218,7 +229,7 @@ input[type='checkbox'] { width: auto; accent-color: var(--accent); }
   }
   .sheet-item .dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; opacity: 0.4; flex: none; }
   .sheet-item .tab-icon { flex: none; opacity: 0.75; }
-  .sheet-item.active { background: var(--accent); color: #fff; font-weight: 600; }
+  .sheet-item.active { background: var(--accent-fill); color: var(--on-accent); font-weight: 600; }
   .sheet-item.active .dot { opacity: 1; }
   .sheet-foot {
     display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
@@ -555,7 +566,7 @@ table.leads td.row-actions { white-space: nowrap; }
   border: none; background: transparent; color: inherit; cursor: pointer;
   font-size: 10px; line-height: 1; padding: 2px; border-radius: 50%; opacity: 0.7;
 }
-.tag-x:hover { opacity: 1; background: rgba(0, 0, 0, 0.08); }
+.tag-x:hover { opacity: 1; background: var(--hover-fill); }
 .tag-input {
   flex: 1; min-width: 120px; border: none; outline: none; background: transparent;
   font: inherit; padding: 2px 0; color: var(--ink);
@@ -918,10 +929,10 @@ table.leads td.num, table.leads th.num { text-align: right; font-variant-numeric
   padding: 16px; overflow: hidden;
 }
 .chat-new {
-  width: 100%; background: var(--accent); border-color: var(--accent); color: #fff;
+  width: 100%; background: var(--accent-fill); border-color: var(--accent-fill); color: var(--on-accent);
   font-weight: 600; border-radius: var(--radius-input); padding: 11px;
 }
-.chat-new:hover { background: var(--accent-dark); border-color: var(--accent-dark); }
+.chat-new:hover { background: var(--accent-fill-hover); border-color: var(--accent-fill-hover); }
 .chat-new:disabled { opacity: 0.5; cursor: default; }
 .chat-thread-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; margin: 0 -4px; padding: 0 4px; }
 .chat-thread-empty { font-size: 13px; padding: 8px 4px; }
@@ -991,7 +1002,7 @@ table.leads td.num, table.leads th.num { text-align: right; font-variant-numeric
 .md code { background: var(--accent-soft); padding: 1px 5px; border-radius: 5px; font-size: 12.5px; }
 .md strong { font-weight: 700; }
 .md em { font-style: italic; }
-.bubble-user { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 5px; }
+.bubble-user { align-self: flex-end; background: var(--accent-fill); color: var(--on-accent); border-bottom-right-radius: 5px; }
 .bubble-assistant { align-self: flex-start; background: var(--surface-card); border: 1px solid var(--line-card); border-bottom-left-radius: 5px; }
 .bubble-error { align-self: flex-start; background: var(--danger-soft); border: 1px solid var(--danger-soft-border); color: var(--danger); }
 .thinking { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); }
@@ -1027,10 +1038,10 @@ table.leads td.num, table.leads th.num { text-align: right; font-variant-numeric
 .copilot-input { display: flex; gap: 10px; padding: 12px 0 20px; }
 .copilot-input input { flex: 1; height: 46px; border-radius: 12px; padding: 0 15px; }
 .copilot-input button {
-  background: var(--accent); border-color: var(--accent); color: #fff;
+  background: var(--accent-fill); border-color: var(--accent-fill); color: var(--on-accent);
   font-weight: 600; height: 46px; padding: 0 20px;
 }
-.copilot-input button:hover { background: var(--accent-dark); }
+.copilot-input button:hover { background: var(--accent-fill-hover); }
 .copilot-input button:disabled { opacity: 0.5; cursor: default; }
 
 /* --- Lead detail: KI + DSGVO ---------------------------------------------- */
@@ -1114,7 +1125,7 @@ table.leads td.num, table.leads th.num { text-align: right; font-variant-numeric
   font-size: 13px;
   line-height: 1.5;
 }
-.settings-keywarn code { background: rgba(0, 0, 0, 0.06); padding: 1px 5px; border-radius: 4px; }
+.settings-keywarn code { background: var(--column); padding: 1px 5px; border-radius: 4px; }
 .settings-keywarn pre {
   margin: 8px 0 0;
   padding: 8px 10px;

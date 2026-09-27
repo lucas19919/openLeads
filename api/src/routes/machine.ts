@@ -523,7 +523,7 @@ export function registerMachineRoutes(app: Hono<{ Variables: Vars }>): void {
           approval,
           existed,
           hinweis:
-            'Wartet auf die Entscheidung eines Menschen in OpenLeads unter „Freigaben". ' +
+            'Wartet auf die Entscheidung eines Menschen im Kunden Manager unter „Freigaben". ' +
             'Nach der Genehmigung die approval_id beim Festschreiben/Versenden mitgeben.',
         },
         existed ? 200 : 201,

@@ -76,7 +76,7 @@ export const approvals: Group = {
         const open = rows.filter((a) => a.status === 'offen').length
         if (open) {
           print()
-          print(`${open} offen — entschieden wird in OpenLeads unter „Freigaben" (nur angemeldet).`)
+          print(`${open} offen — entschieden wird im Kunden Manager unter „Freigaben" (nur angemeldet).`)
         }
       },
     },

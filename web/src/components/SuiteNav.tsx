@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { api } from '../api'
 import type { AiStatus, User } from '../types'
 import { AiBadge } from './ai/CopilotView'
+import Brand from './Brand'
+import { THEME_LABEL, useTheme } from '../theme'
 
 export type Module =
   | 'dashboard'
@@ -154,6 +156,13 @@ export function SuiteNav({
     setSheetOpen(false)
   }
 
+  const [theme, nextTheme] = useTheme()
+  const themeButton = (
+    <button className="ghost" onClick={nextTheme} title="Hell, dunkel oder wie das System">
+      {THEME_LABEL[theme]}
+    </button>
+  )
+
   const userBlock = (
     <div className="side-user">
       <span className="avatar">{user.username.slice(0, 2)}</span>
@@ -168,9 +177,7 @@ export function SuiteNav({
     <>
       {/* Desktop / tablet: the full sidebar. Hidden on phones. */}
       <aside className="side">
-        <div className="brand">
-          Open<i>Leads</i>
-        </div>
+        <Brand />
         <nav className="nav">
           {onSearch && (
             <button className="nav-item nav-search" onClick={onSearch}>
@@ -193,9 +200,12 @@ export function SuiteNav({
         <div className="side-foot">
           <AiBadge status={aiStatus} />
           {userBlock}
-          <button className="ghost" onClick={onLogout}>
-            Abmelden
-          </button>
+          <div className="side-actions">
+            <button className="ghost" onClick={onLogout}>
+              Abmelden
+            </button>
+            {themeButton}
+          </div>
         </div>
       </aside>
 
@@ -227,9 +237,7 @@ export function SuiteNav({
           <div className="overlay sheet-scrim" onClick={() => setSheetOpen(false)} />
           <div className="sheet" role="dialog" aria-label="Weitere Bereiche">
             <div className="sheet-head">
-              <div className="brand">
-                Open<i>Leads</i>
-              </div>
+              <Brand />
               <button className="ghost" onClick={() => setSheetOpen(false)}>
                 Schließen
               </button>
@@ -262,6 +270,7 @@ export function SuiteNav({
               {userBlock}
               <AiBadge status={aiStatus} />
               <div className="spacer" />
+              {themeButton}
               <button className="ghost" onClick={onLogout}>
                 Abmelden
               </button>

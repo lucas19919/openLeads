@@ -1,6 +1,6 @@
 # @openleads/cli
 
-Kommandozeile und MCP-Server für [OpenLeads](../README.md).
+Kommandozeile und MCP-Server für den [Isar Kunden Manager](../README.md).
 
 ```bash
 npm install && npm link

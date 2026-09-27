@@ -1,4 +1,4 @@
-# Plan: OpenLeads agent / machine surface
+# Plan: Kunden Manager agent / machine surface
 
 **Status 2026-08-10:** Shipped on `main`, and widened — twice.
 
@@ -8,7 +8,6 @@
 | CSRF exempt machine + bearer | `csrfExempt` in middleware | Shipped |
 | CLI + full stdio MCP | `cli/`, `docs/CLI.md` | Shipped |
 | Revocable personal API tokens | Settings + `routes/tokens.ts` | Shipped |
-| Isar thin MCP client | `isar-apps/mcp` `crm_*` | Shipped on Isar side |
 | **lead_links** (preview URLs on a lead) | `api/src/leadLinks.ts`, drawer, machine + human routes | Shipped 2026-08-10 |
 | **Append-only lead notes** | `POST /api/machine/leads/:id/note` | Shipped 2026-08-10 |
 | **Read-only finance depth** | contracts, expenses, subscriptions, catalog, payments, EÜR | Shipped 2026-08-10 |
@@ -60,4 +59,3 @@ its own request.
   surface itself still has no way to *write* a contract, so it cannot request
   those either.
 
-**Isar consumer plan:** `../isar-apps/docs/archive/OPENLEADS-MCP-PLAN.md`

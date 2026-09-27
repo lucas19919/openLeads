@@ -23,7 +23,7 @@ export function snapshot(): Buffer {
 
 export function snapshotFilename(): string {
   const ts = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19)
-  return `openleads-backup-${ts}.db`
+  return `kunden-manager-backup-${ts}.db`
 }
 
 /** Write a snapshot to disk (used by the cron-friendly backup script). */
@@ -85,7 +85,7 @@ export function restoreFromBuffer(buf: Buffer): RestoreResult {
         .filter((n) => SAFE_NAME.test(n))
       const missing = REQUIRED_TABLES.filter((t) => !backupTables.includes(t))
       if (missing.length) {
-        throw new Error(`Keine gültige OpenLeads-Sicherung — Tabellen fehlen (${missing.join(', ')}).`)
+        throw new Error(`Keine gültige Sicherung des Kunden Managers — Tabellen fehlen (${missing.join(', ')}).`)
       }
     } catch (e) {
       throw new Error(

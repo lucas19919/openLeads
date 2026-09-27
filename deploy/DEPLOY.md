@@ -1,7 +1,7 @@
-# Deploying OpenLeads
+# Deploying the Isar Kunden Manager
 ### Docker Compose + nginx on a small VPS
 
-OpenLeads ships as **one Docker image**: built web app + API that serves it.
+The Kunden Manager ships as **one Docker image**: built web app + API that serves it.
 The usual production shape is Compose behind host nginx (TLS). The SQLite DB
 lives in a named volume so it survives image rebuilds.
 
@@ -109,7 +109,7 @@ starter Leistungskatalog (website packages, hosting/Pflege, SEO) prefilled
   `pre-restore-<ts>.db` in the volume before the swap, so this is reversible:
   ```bash
   docker compose stop api
-  docker compose run --rm -v "$PWD/openleads-backup-XXXX.db":/in/backup.db \
+  docker compose run --rm -v "$PWD/kunden-manager-backup-XXXX.db":/in/backup.db \
     api npm run restore -- /in/backup.db
   docker compose up -d api
   ```

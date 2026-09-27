@@ -5,7 +5,7 @@
 // against pointing the fetch at our own network.
 
 const USER_AGENT =
-  'OpenLeads/1.0 (+https://openleads.local; Lead-Recherche im Auftrag des Betreibers)'
+  'IsarKundenManager/1.0 (Lead-Recherche im Auftrag des Betreibers)'
 const FETCH_TIMEOUT_MS = 8000
 const MAX_HTML_BYTES = 750_000
 
@@ -18,7 +18,7 @@ export interface WebsiteFacts {
   phone: string | null
 }
 
-/** Pretty company name from a hostname: print-factory24.de -> "Print Factory 24". */
+/** Pretty company name from a hostname: druckhaus-nord24.example -> "Druckhaus Nord 24". */
 export function companyFromDomain(input: string | null | undefined): string | null {
   if (!input) return null
   let host = String(input).trim().toLowerCase()

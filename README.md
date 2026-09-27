@@ -1,8 +1,10 @@
 <p align="center">
-  <img src="docs/images/logobar.png" alt="OpenLeads" width="100%" />
+  <img src="docs/images/logobar.png" alt="Isar Kunden Manager" width="100%" />
 </p>
 
-# OpenLeads
+# Isar Kunden Manager
+
+*Formerly OpenLeads.*
 ### Self-hosted sales and billing for web agencies — from lead to German e-invoice.
 
 ---
@@ -22,7 +24,7 @@
 
 ## Overview
 
-OpenLeads is a small, self-hosted suite for people who sell **websites**, **Hosting & Pflege**, and **local online marketing** to small businesses. It covers the path from “this shop still has a 2016 WordPress site” to a proper **ZUGFeRD / Factur-X** invoice — and the AI can actually *drive* the product, not just sit in a chat box on the side.
+The Isar Kunden Manager is a small, self-hosted suite for people who sell **websites**, **Hosting & Pflege**, and **local online marketing** to small businesses. It covers the path from “this shop still has a 2016 WordPress site” to a proper **ZUGFeRD / Factur-X** invoice — and the AI can actually *drive* the product, not just sit in a chat box on the side.
 
 It runs on open models you host yourself (local [Ollama](https://ollama.com) by default). Customer data does not need to leave your machine.
 
@@ -90,7 +92,7 @@ Open **http://localhost:5173** and sign in. A fresh database already has a start
 
 `node:sqlite` prints an `ExperimentalWarning` on boot — expected, ignore it.
 
-If you use Claude Code, ask it to *“set up OpenLeads”* (skill `setup-openleads`) — same steps, driven for you.
+If you use Claude Code, ask it to *“set up the Kunden Manager”* (skill `setup-openleads`) — same steps, driven for you.
 
 ### Configuration
 
@@ -131,7 +133,7 @@ There is no session secret: sessions live in the database, so logout and passwor
 ## Automation — CLI and MCP
 
 Everything the UI does is also a command, and the same binary doubles as an
-**MCP server** so an agent host can drive OpenLeads alongside your other tools.
+**MCP server** so an agent host can drive the Kunden Manager alongside your other tools.
 
 ```bash
 cd cli && npm install && npm link
@@ -168,4 +170,4 @@ A finalised Rechnung embeds EN 16931 Cross Industry Invoice XML (`factur-x.xml`)
 
 ## Disclaimer
 
-OpenLeads is provided as-is. It is **not** tax or legal advice — check invoice output and your bookkeeping obligations with your Steuerberater.
+The Kunden Manager is provided as-is. It is **not** tax or legal advice — check invoice output and your bookkeeping obligations with your Steuerberater.

@@ -31,7 +31,7 @@ function decisionsAllowed(c: AppContext): boolean {
 
 const TOKEN_REFUSAL =
   'Freigaben können nur von einem angemeldeten Menschen entschieden werden — nicht mit einem ' +
-  'API-Token. Bitte in OpenLeads einloggen und die Anfrage unter „Freigaben" entscheiden.'
+  'API-Token. Bitte im Kunden Manager anmelden und die Anfrage unter „Freigaben" entscheiden.'
 
 export function registerApprovalRoutes(app: Hono<{ Variables: Vars }>): void {
   // The queue. Default view is what needs a person right now.

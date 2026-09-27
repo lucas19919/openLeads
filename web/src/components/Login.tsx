@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { api, ApiError } from '../api'
 import type { User } from '../types'
+import Brand from './Brand'
 
 export function Login({ onSuccess }: { onSuccess: (u: User) => void }) {
   const [username, setUsername] = useState('')
@@ -28,9 +29,7 @@ export function Login({ onSuccess }: { onSuccess: (u: User) => void }) {
   return (
     <div className="login-wrap">
       <form className="login-card" onSubmit={submit}>
-        <h1 className="brand">
-          Open<i>Leads</i>
-        </h1>
+        <Brand heading />
         <div className="sub">Leads, Rechnungen & Verträge — selbst gehostet</div>
         <div className="field">
           <label>Benutzer</label>

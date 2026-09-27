@@ -130,7 +130,7 @@ export function registerDsgvoRoutes(app: App, auth: MiddlewareHandler): void {
   app.get('/api/dsgvo/processing', (c) => {
     const leadCount = (db.prepare('SELECT COUNT(*) AS n FROM leads').get() as { n: number }).n
     return c.json({
-      controller: 'Betreiber dieser OpenLeads-Instanz (selbst-gehostet)',
+      controller: 'Betreiber dieser Instanz des Isar Kunden Managers (selbst gehostet)',
       activities: [
         {
           name: 'Lead-Generierung & Vertrieb (B2B)',

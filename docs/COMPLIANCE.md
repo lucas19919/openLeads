@@ -1,6 +1,6 @@
 # Compliance notes
 
-OpenLeads is built for operators in the DACH market who care about invoices and data protection. This is **not** legal advice — treat it as a map of what the software does, then confirm with your Steuerberater / Datenschutz.
+The Kunden Manager is built for operators in the DACH market who care about invoices and data protection. This is **not** legal advice — treat it as a map of what the software does, then confirm with your Steuerberater / Datenschutz.
 
 ---
 
@@ -96,4 +96,4 @@ For production hardening (TLS, proxy trust, backups), see [../deploy/DEPLOY.md](
 
 ## Disclaimer again
 
-OpenLeads is MIT-licensed software, provided as-is. Correct tax treatment, archiving periods, and privacy notices are your responsibility. When in doubt, ask a human who is qualified to answer.
+The Kunden Manager is MIT-licensed software, provided as-is. Correct tax treatment, archiving periods, and privacy notices are your responsibility. When in doubt, ask a human who is qualified to answer.

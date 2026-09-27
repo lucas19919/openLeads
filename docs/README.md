@@ -1,6 +1,6 @@
-# OpenLeads documentation
+# Isar Kunden Manager documentation
 
-Guides for running and using OpenLeads. The product UI is German (DACH market); these docs are written in English so contributors and operators share one reference. Screenshots show the real app.
+Guides for running and using the Kunden Manager. The product UI is German (DACH market); these docs are written in English so contributors and operators share one reference. Screenshots show the real app.
 
 ---
 

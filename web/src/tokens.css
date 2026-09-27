@@ -1,63 +1,21 @@
 /* ============================================================================
-   OpenLeads design tokens — "Kanzlei" redesign.
-   Single source of truth for color, type, spacing, radius and shadow.
-   Every rule in styles.css references these; no raw hex outside this file.
+   Isar Kunden Manager — design tokens.
+   Isar's design ("Weiß. Schwarz. Ein Blau."): near-black and paper, one
+   water blue, Space Grotesk for display, Inter for everything else. Dark is the default; light follows the
+   system unless someone picks a theme (theme.ts, public/theme-boot.js).
+   Single source of truth: every rule in styles.css names a token, and this is
+   the only file with colour literals.
    ========================================================================== */
 
+/* ---- brand constants: the same in both themes ---- */
 :root {
-  /* ---- color: warm neutral base ---- */
-  --canvas: #efebe3;         /* body background behind the app */
-  --surface-app: #f6f3ed;    /* main content background */
-  --surface-chrome: #fbf9f4; /* sidebar, top bar, table headers */
-  --surface-card: #ffffff;   /* cards, panels, tables, inputs */
-  --ink: #211e1a;            /* primary text, headings */
-  --ink-2: #3a362e;          /* body text in tables/cells */
-  --muted: #918978;          /* secondary text, labels */
-  --muted-2: #a49c8c;        /* faint captions, sub-values */
-  --nav-ink: #6b655a;        /* resting nav/segmented/ghost text */
-  --column: #f1ece2;         /* kanban column bg, hover fills, neutral chips */
-  --hover-fill: #f4efe6;     /* secondary-button hover bg */
-
-  /* ---- color: lines ---- */
-  --line: #e7e1d6;           /* structural dividers (sidebar/top/drawer) */
-  --line-card: #eae4d8;      /* card & panel borders */
-  --line-row: #efe9de;       /* table row dividers */
-  --line-input: #e0d9cc;     /* input & secondary-button borders */
-  --line-input-hover: #d3cabb;
-
-  /* ---- color: accent (OpenLeads teal) ---- */
-  --accent: #1f7a8c;             /* active nav, primary buttons, bars, links */
-  --accent-dark: #155e6c;        /* primary hover, link hover, accent text */
-  --accent-soft: #e6f1f3;        /* tag bg, soft-accent chips, active thread */
-  --accent-soft-hover: #dbedf0;
-  --accent-soft-border: #cfe6ea; /* borders on soft-accent elements */
-  --accent-soft-border-2: #bcdfe6;
-  --accent-bar-soft: #a3ccd3;    /* muted teal for secondary bars */
-
-  /* ---- color: status ---- */
-  --ok: #2e8b57;             /* paid/active text; KI-online badge */
-  --ok-soft: #e2f3ea;        /* paid/active pill bg */
-  --ki-badge-bg: #eef8f1;    /* KI "lokal" badge bg */
-  --ki-badge-border: #cbe6d5;
-  --danger: #c0392b;         /* overdue, "nein", hoch, errors */
-  --danger-ink: #a6432f;     /* negative result figure */
-  --danger-soft: #fbe3e0;    /* danger pill bg, hot score chip */
-  --danger-soft-border: #efc9c3;
-  --warn-ink: #b06a12;       /* warm score / mittel badge text, "offen" */
-  --warn-soft: #fdf0e0;      /* warm score chip bg, "offen" pill bg */
-  --warn-soft-border: #f0d9b5;
-  --warn-mid: #d98324;       /* priority "mittel" card left-border */
-  --neutral-ink: #8a8377;    /* neutral chip/badge text */
-  --neutral-soft: #eee9df;   /* neutral chip/badge bg */
-
-  /* priority left-border colors on lead cards */
-  --prio-hoch: #c0392b;
-  --prio-mittel: #d98324;
-  --prio-niedrig: #b3a998;
+  --isar-water: #0064e0;       /* the brand blue */
+  --isar-water-deep: #0046a3;  /* its pressed/hover step */
+  --isar-water-glow: #4da3ff;  /* the step that stays readable on ink */
 
   /* ---- typography ---- */
-  --font-ui: 'Public Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-display: 'Spectral', Georgia, serif;
+  --font-ui: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Space Grotesk', 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
 
   /* ---- spacing ---- */
   --side-w: 246px;           /* sidebar width */
@@ -71,30 +29,165 @@
   --card-pad: 18px 19px 17px;
   --panel-pad: 20px 22px;
 
-  /* ---- radius ---- */
-  --radius-card: 15px;       /* cards, panels */
+  /* ---- radius: Isar's one soft ladder (6 / 10 / 14) plus the capsule ---- */
+  --radius-card: 14px;       /* cards, panels */
   --radius-table: 14px;      /* tables, kanban columns */
-  --radius-lead: 11px;       /* lead cards */
-  --radius-btn: 9px;         /* buttons */
+  --radius-lead: 10px;       /* lead cards */
+  --radius-btn: 10px;        /* buttons */
   --radius-input: 10px;      /* inputs, search, segmented control */
   --radius-seg-thumb: 8px;
-  --radius-pill: 20px;       /* pills, badges, tags, toggles */
+  --radius-pill: 999px;      /* pills, badges, tags, toggles */
 
-  /* ---- code block (SETTINGS_KEY warning) ---- */
-  --code-bg: #2f2b24;
-  --code-ink: #f1ece2;
+  /* The company mark, one drawing per theme (a logo is artwork, not a colour). */
+  --isar-mark-ratio: 320 / 195;
+}
 
-  /* ---- shadow ---- */
-  --shadow-card: 0 1px 2px rgba(30, 25, 15, 0.05);
-  --shadow-thumb: 0 1px 2px rgba(30, 25, 15, 0.08);
-  --shadow-drawer: -16px 0 50px -16px rgba(30, 25, 15, 0.35);
-  --scrim: rgba(33, 30, 26, 0.32);
+/* ---- dark (default) ---- */
+:root {
+  color-scheme: dark;
 
-  /* ---- legacy aliases ----
-     Older rules and inline styles in components reference these names.
-     They resolve into the palette above so everything stays consistent. */
+  /* surfaces */
+  --canvas: #0a0c10;         /* body background behind the app */
+  --surface-app: #0b0d12;    /* main content background */
+  --surface-chrome: #101318; /* sidebar, top bar, table headers */
+  --surface-card: #14171d;   /* cards, panels, tables, inputs */
+
+  /* ink: one white at a ladder of opacities */
+  --ink: #ffffff;                       /* primary text, headings */
+  --ink-2: rgba(255, 255, 255, 0.82);   /* body text in tables/cells */
+  --muted: rgba(255, 255, 255, 0.62);   /* secondary text, labels */
+  --muted-2: rgba(255, 255, 255, 0.50); /* faint captions, sub-values */
+  --nav-ink: rgba(255, 255, 255, 0.66); /* resting nav/segmented/ghost text */
+  --column: rgba(255, 255, 255, 0.04);  /* kanban column bg, neutral chips */
+  --hover-fill: rgba(255, 255, 255, 0.07);
+
+  /* lines */
+  --line: rgba(255, 255, 255, 0.09);
+  --line-card: rgba(255, 255, 255, 0.09);
+  --line-row: rgba(255, 255, 255, 0.06);
+  --line-input: rgba(255, 255, 255, 0.16);
+  --line-input-hover: rgba(255, 255, 255, 0.26);
+
+  /* accent: one blue. --accent is the readable step for text, links, bars and
+     focus; --accent-fill is the solid blue under white text. */
+  --accent: var(--isar-water-glow);
+  --accent-dark: #8cc4ff;                        /* stronger accent text */
+  --accent-soft: rgba(77, 163, 255, 0.12);
+  --accent-soft-hover: rgba(77, 163, 255, 0.18);
+  --accent-soft-border: rgba(77, 163, 255, 0.28);
+  --accent-soft-border-2: rgba(77, 163, 255, 0.38);
+  --accent-bar-soft: rgba(77, 163, 255, 0.45);
+  --accent-fill: var(--isar-water);
+  --accent-fill-hover: #1a74e6;
+  --on-accent: #ffffff;
+
+  /* status: Isar's three, validated as a set */
+  --ok: #4fb07d;
+  --ok-soft: rgba(79, 176, 125, 0.12);
+  --ki-badge-bg: rgba(79, 176, 125, 0.10);
+  --ki-badge-border: rgba(79, 176, 125, 0.32);
+  --danger: #e2564a;
+  --danger-ink: #f07a6f;
+  --danger-soft: rgba(226, 86, 74, 0.12);
+  --danger-soft-border: rgba(226, 86, 74, 0.32);
+  --warn-ink: #e8b53a;
+  --warn-soft: rgba(232, 181, 58, 0.12);
+  --warn-soft-border: rgba(232, 181, 58, 0.32);
+  --warn-mid: #e8b53a;
+  --neutral-ink: rgba(255, 255, 255, 0.62);
+  --neutral-soft: rgba(255, 255, 255, 0.07);
+
+  /* priority left-border colors on lead cards */
+  --prio-hoch: #e2564a;
+  --prio-mittel: #e8b53a;
+  --prio-niedrig: rgba(255, 255, 255, 0.28);
+
+  /* code block (SETTINGS_KEY warning) */
+  --code-bg: #05070a;
+  --code-ink: rgba(255, 255, 255, 0.88);
+
+  /* shadow */
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-thumb: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-drawer: -16px 0 50px -16px rgba(0, 0, 0, 0.7);
+  --shadow-sheet: 0 -16px 50px -16px rgba(0, 0, 0, 0.7);
+  --scrim: rgba(0, 0, 0, 0.55);
+
+  --isar-mark: url('/isar-mark-on-dark.png');
+}
+
+/* ---- light: marketing paper, not a mirrored dark theme ---- */
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --canvas: #e9edf2;
+  --surface-app: #eef1f5;
+  --surface-chrome: #f7f8fa;
+  --surface-card: #ffffff;
+
+  --ink: #0e141c;
+  --ink-2: rgba(14, 20, 30, 0.80);
+  --muted: rgba(20, 28, 40, 0.68);
+  --muted-2: rgba(20, 28, 40, 0.62);
+  --nav-ink: rgba(20, 28, 40, 0.72);
+  --column: rgba(20, 40, 70, 0.05);
+  --hover-fill: rgba(20, 40, 70, 0.07);
+
+  --line: rgba(20, 36, 56, 0.12);
+  --line-card: rgba(20, 36, 56, 0.12);
+  --line-row: rgba(20, 36, 56, 0.08);
+  --line-input: rgba(20, 36, 56, 0.22);
+  --line-input-hover: rgba(20, 36, 56, 0.34);
+
+  --accent: var(--isar-water);
+  --accent-dark: var(--isar-water-deep);
+  --accent-soft: rgba(0, 100, 224, 0.07);
+  --accent-soft-hover: rgba(0, 100, 224, 0.11);
+  --accent-soft-border: rgba(0, 100, 224, 0.20);
+  --accent-soft-border-2: rgba(0, 100, 224, 0.30);
+  --accent-bar-soft: rgba(0, 100, 224, 0.35);
+  --accent-fill: var(--isar-water);
+  --accent-fill-hover: var(--isar-water-deep);
+  --on-accent: #ffffff;
+
+  --ok: #1f7346;
+  --ok-soft: rgba(31, 115, 70, 0.08);
+  --ki-badge-bg: rgba(31, 115, 70, 0.06);
+  --ki-badge-border: rgba(31, 115, 70, 0.22);
+  --danger: #c4261a;
+  --danger-ink: #a31f15;
+  --danger-soft: rgba(196, 38, 26, 0.08);
+  --danger-soft-border: rgba(196, 38, 26, 0.22);
+  --warn-ink: #95600f;
+  --warn-soft: rgba(184, 121, 26, 0.10);
+  --warn-soft-border: rgba(184, 121, 26, 0.24);
+  --warn-mid: #b8791a;
+  --neutral-ink: rgba(20, 28, 40, 0.68);
+  --neutral-soft: rgba(20, 40, 70, 0.07);
+
+  --prio-hoch: #c4261a;
+  --prio-mittel: #b8791a;
+  --prio-niedrig: rgba(20, 36, 56, 0.28);
+
+  --code-bg: #0e141c;
+  --code-ink: #f5f6f8;
+
+  --shadow-card: 0 1px 2px rgba(20, 30, 45, 0.06);
+  --shadow-thumb: 0 1px 2px rgba(20, 30, 45, 0.10);
+  --shadow-drawer: -16px 0 50px -16px rgba(20, 30, 45, 0.25);
+  --shadow-sheet: 0 -16px 50px -16px rgba(20, 30, 45, 0.25);
+  --scrim: rgba(10, 12, 16, 0.40);
+
+  --isar-mark: url('/isar-mark-on-light.png');
+}
+
+/* ---- legacy aliases ----
+   Older rules and inline styles in components reference these names.
+   They resolve into the palette above so everything stays consistent. */
+:root {
   --bg: var(--surface-app);
   --surface: var(--surface-card);
+  --surface-2: var(--column);
   --border: var(--line-card);
   --text: var(--ink);
   --warn: var(--warn-ink);

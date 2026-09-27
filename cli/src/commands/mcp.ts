@@ -11,7 +11,7 @@ import { buildTools } from '../mcp/tools.js'
 // there is one auth story and one audit trail no matter who is driving.
 
 const INSTRUCTIONS = [
-  'OpenLeads ist eine selbstgehostete Vertriebs- und Rechnungsverwaltung für Webagenturen',
+  'Der Isar Kunden Manager ist eine selbstgehostete Vertriebs- und Rechnungsverwaltung für Webagenturen',
   '(Leads, Kunden, Angebote/Rechnungen, Verträge, Ausgaben).',
   '',
   'Für einen Tagesüberblick zuerst `morning_digest` oder `pipeline_overview` aufrufen.',
